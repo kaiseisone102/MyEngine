@@ -1,0 +1,274 @@
+# MyEngine/CMakeLists.txt
+
+cmake_minimum_required(VERSION 3.20)
+
+if(NOT CMAKE_TOOLCHAIN_FILE)
+    if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+        set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE PATH "vcpkg toolchain" FORCE)
+    elseif(EXISTS "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake")
+        set(CMAKE_TOOLCHAIN_FILE "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE PATH "vcpkg toolchain" FORCE)
+    else()
+        message(FATAL_ERROR
+            "CMAKE_TOOLCHAIN_FILE が未設定です。vcpkg を使うには次のいずれかが必要です:\n"
+            "  • cmake --preset windows-vcpkg\n"
+            "  • cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake\n"
+            "  • 環境変数 VCPKG_ROOT を vcpkg のクローン先に設定してから再実行\n")
+    endif()
+endif()
+
+project(MyEngine LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(SDL3 REQUIRED)
+find_package(Vulkan REQUIRED)
+find_package(glm REQUIRED)
+find_package(flecs REQUIRED)
+find_package(tinyobjloader CONFIG REQUIRED)
+find_package(Stb REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
+find_package(poly2tri CONFIG REQUIRED)
+find_path(MINIAUDIO_INCLUDE_DIR NAMES miniaudio.h REQUIRED)
+
+set(SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(SHADER_INT_DIR "${CMAKE_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY "${SHADER_INT_DIR}")
+
+if(NOT DEFINED VCPKG_TARGET_TRIPLET)
+    set(VCPKG_TARGET_TRIPLET "x64-windows")
+endif()
+find_program(GLSLANG_VALIDATOR NAMES glslangValidator glslangValidator.exe
+    HINTS
+        "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/glslang"
+        "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/bin"
+    REQUIRED
+    DOC "SPIR-V compiler from glslang[tools] (vcpkg)"
+)
+
+add_custom_command(
+    OUTPUT
+        "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_frag.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/shadow_vert.spv"
+        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_frag.spv"
+        "${SHADER_INT_DIR}/hud_vert.spv"
+        "${SHADER_INT_DIR}/hud_frag.spv"
+        "${SHADER_INT_DIR}/particle_vert.spv"
+        "${SHADER_INT_DIR}/particle_frag.spv"
+        "${SHADER_INT_DIR}/water_vert.spv"
+        "${SHADER_INT_DIR}/water_frag.spv"
+        "${SHADER_INT_DIR}/water_reflect_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/shadow.vert"            -o "${SHADER_INT_DIR}/shadow_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/shadow_skinned.vert"    -o "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/debug_line.vert"        -o "${SHADER_INT_DIR}/debug_line_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/debug_line.frag"        -o "${SHADER_INT_DIR}/debug_line_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/hud.vert"               -o "${SHADER_INT_DIR}/hud_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/hud.frag"               -o "${SHADER_INT_DIR}/hud_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/particle.vert"          -o "${SHADER_INT_DIR}/particle_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/particle.frag"          -o "${SHADER_INT_DIR}/particle_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water.vert"             -o "${SHADER_INT_DIR}/water_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"  
+    DEPENDS
+        "${SHADER_SRC_DIR}/triangle.vert"
+        "${SHADER_SRC_DIR}/triangle.frag"
+        "${SHADER_SRC_DIR}/triangle_skinned.vert"
+        "${SHADER_SRC_DIR}/triangle_skinned.frag"
+        "${SHADER_SRC_DIR}/shadow.vert"
+        "${SHADER_SRC_DIR}/shadow_skinned.vert"
+        "${SHADER_SRC_DIR}/debug_line.vert"
+        "${SHADER_SRC_DIR}/debug_line.frag"
+        "${SHADER_SRC_DIR}/hud.vert"
+        "${SHADER_SRC_DIR}/hud.frag"
+        "${SHADER_SRC_DIR}/particle.vert"
+        "${SHADER_SRC_DIR}/particle.frag"
+        "${SHADER_SRC_DIR}/water.vert"
+        "${SHADER_SRC_DIR}/water.frag"
+        "${SHADER_SRC_DIR}/water_reflect.frag"
+    COMMENT "Compiling GLSL shaders to SPIR-V"
+    VERBATIM
+)
+
+add_custom_target(compile_shaders
+    DEPENDS
+        "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_frag.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/shadow_vert.spv"
+        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_frag.spv"
+        "${SHADER_INT_DIR}/hud_vert.spv"
+        "${SHADER_INT_DIR}/hud_frag.spv"
+        "${SHADER_INT_DIR}/particle_vert.spv"
+        "${SHADER_INT_DIR}/particle_frag.spv"
+        "${SHADER_INT_DIR}/water_vert.spv"
+        "${SHADER_INT_DIR}/water_frag.spv"
+        "${SHADER_INT_DIR}/water_reflect_frag.spv"
+)
+
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+
+    src/app/engine_app.cpp
+
+    src/core/attack_registry.cpp
+    src/core/chest_preset.cpp
+    src/core/enemy_hitbox_util.cpp
+    src/core/equipment_util.cpp
+    src/core/event_bus.cpp
+    src/core/grave_fx.cpp
+    src/core/grip.cpp
+    src/core/input_binding.cpp
+    src/core/potion.cpp
+    src/core/settings_io.cpp
+    
+    src/loop/choice_overlay_layer.cpp
+    src/loop/default_layer_factory.cpp
+    src/loop/game_loop_orchestrator.cpp
+    src/loop/game_over_layer.cpp
+    src/loop/gameplay_layer.cpp
+    src/loop/graphics_settings_layer.cpp
+    src/loop/key_config_layer.cpp
+    src/loop/layer_stack.cpp
+    src/loop/menu_layer_base.cpp
+    src/loop/mode_select_layer.cpp
+    src/loop/settings_layer.cpp
+    src/loop/title_layer.cpp
+  
+    src/material/material.cpp
+
+    src/renderer/animation.cpp
+    src/renderer/animator.cpp
+    src/renderer/asset_registry.cpp
+    src/renderer/debug_line_pass.cpp
+    src/renderer/frame_sync.cpp
+    src/renderer/frame_uniforms.cpp
+    src/renderer/hud_pass.cpp
+    src/renderer/hud_pipeline.cpp
+    src/renderer/imgui_layer.cpp
+    src/renderer/particle_pass.cpp
+    src/renderer/vulkan_context.cpp
+    src/renderer/resource_factory.cpp
+    src/renderer/vulkan_renderer.cpp
+    src/renderer/scene_renderer.cpp
+    src/renderer/swapchain.cpp
+    src/renderer/texture.cpp
+    src/renderer/main_pass.cpp
+    src/renderer/material.cpp
+    src/renderer/mesh.cpp
+    src/renderer/model.cpp
+    src/renderer/model_loader.cpp
+    src/renderer/model_scale_registry.cpp
+    src/renderer/pass_chain.cpp
+    src/renderer/reflection_pass.cpp
+    src/renderer/reflection_target.cpp
+    src/renderer/render_target.cpp
+    src/renderer/terrain_mesh.cpp
+    src/renderer/shader_util.cpp
+    src/renderer/shadow_pass.cpp
+    src/renderer/skeleton.cpp
+    src/renderer/skin_buffer_pool.cpp
+    src/renderer/water_mesh.cpp
+    src/renderer/water_pass.cpp
+    src/renderer/water_pipeline.cpp
+
+    src/scene/scene_data.cpp
+
+    src/systems/anim_state_system.cpp
+    src/systems/audio_event_system.cpp
+    src/systems/camera_system.cpp
+    src/systems/chest_system.cpp
+    src/systems/combat_system.cpp
+    src/systems/enemy_system.cpp
+    src/systems/gate_system.cpp
+    src/systems/hud_system.cpp
+    src/systems/input_system.cpp
+    src/systems/item_physics_system.cpp
+    src/systems/item_pickup_system.cpp
+    src/systems/keyboard_mouse_device.cpp
+    src/systems/movement_system.cpp
+    src/systems/moving_platform_system.cpp
+    src/systems/particle_system.cpp
+    src/systems/physics_system.cpp
+    src/systems/render_debug_system.cpp
+    src/systems/simulation_system.cpp
+    src/systems/skeletal_anim_system.cpp
+    src/systems/spin_animation_system.cpp
+    src/systems/sound_manager.cpp
+    src/systems/spawn_system.cpp
+    src/systems/spirit_system.cpp
+    src/systems/demonVillageBgmGenerator.cpp
+    
+    src/world/scene_builder_from_world.cpp
+    src/world/stage_registry.cpp
+    src/world/world_builder.cpp
+    src/world/world_terrain.cpp
+)
+add_dependencies(${PROJECT_NAME} compile_shaders)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_frag.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
+        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/shadow_vert.spv"
+        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_vert.spv"
+        "${SHADER_INT_DIR}/debug_line_frag.spv"
+        "${SHADER_INT_DIR}/hud_vert.spv"
+        "${SHADER_INT_DIR}/hud_frag.spv"
+        "${SHADER_INT_DIR}/particle_vert.spv"
+        "${SHADER_INT_DIR}/particle_frag.spv"
+        "${SHADER_INT_DIR}/water_vert.spv"
+        "${SHADER_INT_DIR}/water_frag.spv"
+        "${SHADER_INT_DIR}/water_reflect_frag.spv"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/"
+    COMMAND ${CMAKE_COMMAND} -E rm -f "$<TARGET_FILE_DIR:${PROJECT_NAME}>/vulkan-1.dll"
+    COMMENT "Copy SPIR-V shaders; remove duplicate Vulkan loader next to exe"
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    SDL3::SDL3
+    Vulkan::Vulkan
+    glm::glm
+    flecs::flecs
+    tinyobjloader::tinyobjloader
+    imgui::imgui
+    assimp::assimp
+    poly2tri::poly2tri
+)
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+    include/MyEngine
+)
+target_include_directories(${PROJECT_NAME} PRIVATE ${Stb_INCLUDE_DIR})
+target_include_directories(${PROJECT_NAME} PRIVATE ${MINIAUDIO_INCLUDE_DIR})
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+endif()
+
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /EHsc)
+endif()
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
+    COMMENT "Copy assets to output directory"
+)

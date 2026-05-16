@@ -1,0 +1,7 @@
+# MyEngine/.clang-format
+---
+BasedOnStyle: Google
+IndentWidth: 4
+PointerAlignment: Left
+ReferenceAlignment: Left
+ColumnLimit: 100

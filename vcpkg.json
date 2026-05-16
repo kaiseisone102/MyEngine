@@ -1,0 +1,33 @@
+{
+    "name": "my-engine",
+    "version-string": "0.1.0",
+    "dependencies": [
+        {
+            "name": "sdl3",
+            "features": [
+                "vulkan"
+            ]
+        },
+        "vulkan-headers",
+        "vulkan-loader",
+        "glm",
+        "flecs",
+        {
+            "name": "glslang",
+            "features": [
+                "tools"
+            ]
+        },
+        "tinyobjloader",
+        "stb",
+        {
+            "name": "imgui",
+            "features": [
+                "vulkan-binding",
+                "sdl3-binding"
+            ]
+        },
+        "miniaudio",
+        "assimp"
+    ]
+}

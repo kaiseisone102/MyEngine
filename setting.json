@@ -1,0 +1,10 @@
+{
+    "clangd.path": "C:/Program Files/LLVM/bin/clangd.exe",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/build-ninja"
+    ],
+    "cmake.useCMakePresets": "always",
+    "cmake.configurePreset": "windows-vcpkg-ninja",
+    "cmake.buildPreset": "ninja-debug",
+    "C_Cpp.intelliSenseEngine": "disabled"
+}
