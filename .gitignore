@@ -1,0 +1,25 @@
+﻿# Build directories
+build/
+build-ninja/
+out/
+cmake-build-*/
+
+# vcpkg artifacts
+vcpkg_installed/
+
+# Visual Studio / IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# CMake
+CMakeUserPresets.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor backups
+*~
+*.swp
