@@ -1,23 +1,23 @@
 // \MyEngine\src\renderer\vulkan_context.cpp
-
 // =============================================================================
 // vulkan_context.cpp
 // =============================================================================
 // 実装内容:
 //   Instance / Debug / Surface / PhysicalDevice / Device を作成・破棄する。
-//   旧 VulkanTriangleRenderer の次の関数を移植した:
-//     - createInstance / (debug setup)
-//     - createSurface
-//     - pickPhysicalDevice
-//     - createDevice
-//     - findDepthFormat
 //
 // バリデーションレイヤー:
 //   #ifndef NDEBUG のときだけ VK_LAYER_KHRONOS_validation を有効化する。
 //   SDK が入っていない環境でもクラッシュせず続行できるよう、enumerate で存在確認。
+//
+// デバイス機能 (features):
+//   - samplerAnisotropy : テクスチャの異方性フィルタ
+//   - fillModeNonSolid  : ワイヤーフレーム描画 (デバッグ用)
+//   - wideLines         : 線幅指定 (デバッグライン描画用)
 // =============================================================================
-
 #include "renderer/vulkan_context.h"
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 #include <SDL3/SDL_vulkan.h>
 
@@ -110,12 +110,34 @@ void VulkanContext::init(SDL_Window* window) {
     setupDebugMessenger();
     createSurface();
     pickPhysicalDevice();
-    createDevice();
+        createDevice();
+
+    // -------------------------------------------------------------------------
+    // VMA (Vulkan Memory Allocator) initialization.
+    // BUFFER_DEVICE_ADDRESS flag enables BDA buffers throughout the engine.
+    // -------------------------------------------------------------------------
+    {
+        VmaAllocatorCreateInfo allocInfo{};
+        allocInfo.physicalDevice = physical_;
+        allocInfo.device = device_;
+        allocInfo.instance = instance_;
+        allocInfo.vulkanApiVersion = VK_API_VERSION_1_4;
+        allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+        if (vmaCreateAllocator(&allocInfo, &allocator_) != VK_SUCCESS) {
+            throw std::runtime_error("VulkanContext: vmaCreateAllocator failed");
+        }
+        std::cout << "[MyEngine] VMA allocator created (BDA enabled, API 1.4).\n";
+    }
 }
 
 void VulkanContext::shutdown() {
     // 破棄順序: Device → Surface → DebugMessenger → Instance
     if (device_ != VK_NULL_HANDLE) {
+    if (allocator_ != VK_NULL_HANDLE) {
+        vmaDestroyAllocator(allocator_);
+        allocator_ = VK_NULL_HANDLE;
+    }
+    
         vkDestroyDevice(device_, nullptr);
         device_ = VK_NULL_HANDLE;
     }
@@ -128,6 +150,10 @@ void VulkanContext::shutdown() {
         vkDestroyInstance(instance_, nullptr);
         instance_ = VK_NULL_HANDLE;
     }
+    physical_ = VK_NULL_HANDLE;
+    graphicsQueue_ = VK_NULL_HANDLE;
+    presentQueue_ = VK_NULL_HANDLE;
+    window_ = nullptr;
 }
 
 // =============================================================================
@@ -140,16 +166,16 @@ void VulkanContext::createInstance() {
     appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
     appInfo.pEngineName = "MyEngine";
     appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_2;
+    appInfo.apiVersion = VK_API_VERSION_1_4;
 
     // SDL3 が要求する拡張を取得
     uint32_t sdlExtCount = 0;
     char const* const* sdlExts = SDL_Vulkan_GetInstanceExtensions(&sdlExtCount);
-    if (!sdlExts)
+    if (!sdlExts) {
         throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions: ") +
                                  SDL_GetError());
+    }
     std::vector<const char*> exts(sdlExts, sdlExts + sdlExtCount);
-
     auto addUnique = [&exts](const char* name) {
         for (const char* e : exts) {
             if (std::strcmp(e, name) == 0) return;
@@ -195,8 +221,9 @@ void VulkanContext::createInstance() {
         ci.ppEnabledLayerNames = &kValidationLayer;
     }
 #endif
-    if (vkCreateInstance(&ci, nullptr, &instance_) != VK_SUCCESS)
+    if (vkCreateInstance(&ci, nullptr, &instance_) != VK_SUCCESS) {
         throw std::runtime_error("vkCreateInstance failed");
+    }
 }
 
 // =============================================================================
@@ -236,8 +263,9 @@ void VulkanContext::destroyDebugMessenger() {
 // =============================================================================
 
 void VulkanContext::createSurface() {
-    if (!SDL_Vulkan_CreateSurface(window_, instance_, nullptr, &surface_))
+    if (!SDL_Vulkan_CreateSurface(window_, instance_, nullptr, &surface_)) {
         throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface: ") + SDL_GetError());
+    }
 }
 
 // =============================================================================
@@ -280,16 +308,25 @@ void VulkanContext::pickPhysicalDevice() {
         SwapchainSupport swap = querySwapchainSupport(d, surface_);
         if (swap.formats.empty() || swap.presentModes.empty()) continue;
 
-        // present 可能なキューファミリーを探す
+        // present 可能なキューファミリーを探す (graphics と同じなら優先)
         uint32_t qCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(d, &qCount, nullptr);
         uint32_t presentFam = VK_QUEUE_FAMILY_IGNORED;
-        for (uint32_t i = 0; i < qCount; ++i) {
+        // まず graphics と同じファミリーが present できるか確認
+        {
             VkBool32 ok = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface_, &ok);
-            if (ok) {
-                presentFam = i;
-                break;
+            vkGetPhysicalDeviceSurfaceSupportKHR(d, *gFam, surface_, &ok);
+            if (ok) presentFam = *gFam;
+        }
+        // 駄目なら任意の present 可能ファミリーを探す
+        if (presentFam == VK_QUEUE_FAMILY_IGNORED) {
+            for (uint32_t i = 0; i < qCount; ++i) {
+                VkBool32 ok = VK_FALSE;
+                vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface_, &ok);
+                if (ok) {
+                    presentFam = i;
+                    break;
+                }
             }
         }
         if (presentFam == VK_QUEUE_FAMILY_IGNORED) continue;
@@ -338,24 +375,45 @@ void VulkanContext::createDevice() {
         queueCis.push_back(qci);
     }
 
+    // 必要なデバイス機能を有効化
     VkPhysicalDeviceFeatures features{};
+    features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
+    features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
+    features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
+    // Vulkan 1.2+ features (enable BDA = Buffer Device Address).
+    // BDA lets shaders dereference GPU memory pointers directly,
+    // avoiding descriptor sets for buffers. Required for modern bindless setup.
+    VkPhysicalDeviceVulkan12Features vk12Features{};
+    vk12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk12Features.bufferDeviceAddress = VK_TRUE;
+    vk12Features.descriptorIndexing = VK_TRUE;  // bindless texture array support
+    vk12Features.runtimeDescriptorArray = VK_TRUE;
+    vk12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    vk12Features.descriptorBindingPartiallyBound = VK_TRUE;
+    vk12Features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+    vk12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    vk12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+
+
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    ci.pNext = &vk12Features;
     ci.queueCreateInfoCount = static_cast<uint32_t>(queueCis.size());
     ci.pQueueCreateInfos = queueCis.data();
     ci.pEnabledFeatures = &features;
     ci.enabledExtensionCount = 1;
     ci.ppEnabledExtensionNames = deviceExts;
+
 #ifndef NDEBUG
     // 古い Vulkan 実装用に device にもレイヤーを明示（新仕様では不要だが互換のため）
     const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
-    if (debugMessenger_ != VK_NULL_HANDLE) {
-        ci.enabledLayerCount = 1;
-        ci.ppEnabledLayerNames = &kValidationLayer;
-    }
+    // Device layers are deprecated since Vulkan 1.0 (only instance layers are used).
+// Keeping enabledLayerCount = 0 to avoid validation warnings.
+// (Instance layers already enabled in vkCreateInstance.)
 #endif
-    if (vkCreateDevice(physical_, &ci, nullptr, &device_) != VK_SUCCESS)
-        throw std::runtime_error("vkCreateDevice failed");
 
+    if (vkCreateDevice(physical_, &ci, nullptr, &device_) != VK_SUCCESS) {
+        throw std::runtime_error("vkCreateDevice failed");
+    }
     vkGetDeviceQueue(device_, graphicsFamily_, 0, &graphicsQueue_);
     vkGetDeviceQueue(device_, presentFamily_, 0, &presentQueue_);
 }

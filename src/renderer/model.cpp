@@ -1,9 +1,4 @@
 // src/renderer/model.cpp
-// =============================================================================
-// 段階A: 型の定義のみ。destroy() と SubMesh::bind() を実装。
-// 実際のロード処理は段階B (model_loader.cpp) で実装する。
-// =============================================================================
-
 #include "renderer/model.h"
 
 #include "renderer/vulkan_context.h"
@@ -17,6 +12,16 @@ void SubMesh::bind(VkCommandBuffer cmd) const {
 void Model::destroy() {
     if (!ctx_) return;
     VkDevice device = ctx_->device();
+
+    for (Material& m : materials_) {
+        m.destroy();
+    }
+    materials_.clear();
+
+    for (Texture& t : textures_) {
+        t.destroy();
+    }
+    textures_.clear();
 
     for (SubMesh& sm : subMeshes_) {
         if (sm.indexBuffer != VK_NULL_HANDLE) {
@@ -38,5 +43,6 @@ void Model::destroy() {
         sm.indexCount = 0;
     }
     subMeshes_.clear();
+
     ctx_ = nullptr;
 }

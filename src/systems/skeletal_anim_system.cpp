@@ -41,18 +41,12 @@ float decideBlendDuration(AnimState from, AnimState to) {
 
 const char* resolveEnemyAnimAssetName(AnimState state) {
     switch (state) {
-        case AnimState::Idle:
-            return "enemy_idle";
-        case AnimState::Walk:
-            return "enemy_walk";
-        case AnimState::Slash:
-            return "enemy_attack";
-        case AnimState::HitReact:
-            return "enemy_hit";
-        case AnimState::Dead:
-            return "enemy_death";
-        default:
-            return nullptr;
+        case AnimState::Idle:    return "enemy_idle";
+        case AnimState::Walk:    return "enemy_walk";
+        case AnimState::Slash:   return "enemy_attack";
+        case AnimState::HitReact: return "enemy_hit";
+        case AnimState::Dead:    return "enemy_death";
+        default: return nullptr;
     }
 }
 
@@ -70,7 +64,7 @@ const AnimationClip* resolveClipForEntity(AssetRegistry& assets, AnimState state
     if (clip) return clip;
 
     if (state == AnimState::SmashDown) {
-        clip = assets.getAnimation("slash");
+        clip = assets.getAnimation("attack");
         if (clip) return clip;
     }
 

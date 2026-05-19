@@ -6,25 +6,19 @@ namespace {
 
 const char* gripTypeName(GripType t) {
     switch (t) {
-        case GripType::None:
-            return "None";
-        case GripType::Fire:
-            return "Fire";
-        case GripType::Light:
-            return "Light";
+        case GripType::None:  return "None";
+        case GripType::Fire:  return "Fire";
+        case GripType::Light: return "Light";
     }
     return "?";
 }
 
 ImVec4 gripUiColor(GripType t) {
     switch (t) {
-        case GripType::Fire:
-            return ImVec4{1.0f, 0.30f, 0.20f, 1.0f};
-        case GripType::Light:
-            return ImVec4{1.0f, 0.95f, 0.30f, 1.0f};
+        case GripType::Fire:  return ImVec4{1.0f, 0.30f, 0.20f, 1.0f};
+        case GripType::Light: return ImVec4{1.0f, 0.95f, 0.30f, 1.0f};
         case GripType::None:
-        default:
-            return ImVec4{0.6f, 0.6f, 0.6f, 1.0f};
+        default:              return ImVec4{0.6f, 0.6f, 0.6f, 1.0f};
     }
 }
 
@@ -91,8 +85,8 @@ void RenderDebugSystem::draw(const DebugOverlayData& d, Corner corner) const {
     // ─── HP ────────────────────────────────────────────────
     const bool invincBlink =
         (d.invincTimer > 0.f) && (static_cast<int>(d.invincTimer * 6.f) % 2 == 0);
-    const ImVec4 hpColor =
-        invincBlink ? ImVec4{1.f, 0.6f, 0.6f, 1.f} : ImVec4{1.f, 0.3f, 0.3f, 1.f};
+    const ImVec4 hpColor = invincBlink ? ImVec4{1.f, 0.6f, 0.6f, 1.f}
+                                        : ImVec4{1.f, 0.3f, 0.3f, 1.f};
     ImGui::TextColored(hpColor, "HP   : %d/%d segs, %d/%d hp", d.hpSegments, d.hpUnlocked,
                        d.hpCurrentHp, CHealth::kSegmentSize);
     if (d.invincTimer > 0.f) {
@@ -106,7 +100,7 @@ void RenderDebugSystem::draw(const DebugOverlayData& d, Corner corner) const {
     } else {
         ImVec4 col = {0.9f, 0.9f, 0.9f, 1.f};
         if (d.shieldType == ShieldType::Silver) col = {0.6f, 0.85f, 1.f, 1.f};
-        if (d.shieldType == ShieldType::Gold) col = {1.f, 0.82f, 0.1f, 1.f};
+        if (d.shieldType == ShieldType::Gold)   col = {1.f, 0.82f, 0.1f, 1.f};
 
         ImGui::TextColored(col, "Shield: %s %d/%d", CShield::typeName(d.shieldType),
                            d.shieldDurability, CShield::maxDurability(d.shieldType));
@@ -116,21 +110,19 @@ void RenderDebugSystem::draw(const DebugOverlayData& d, Corner corner) const {
     if (d.gripType == GripType::None || d.gripMaxDurability <= 0) {
         ImGui::TextColored({0.4f, 0.4f, 0.4f, 1.f}, "Grip  : None");
     } else {
-        ImGui::TextColored(gripUiColor(d.gripType), "Grip  : %s %d/%d", gripTypeName(d.gripType),
+        ImGui::TextColored(gripUiColor(d.gripType), "Grip  : %s %d/%d",
+                           gripTypeName(d.gripType),
                            d.gripDurability, d.gripMaxDurability);
     }
 
     // ─── 鍵カウント ──────────────────────────────────────────
     ImGui::Separator();
-    ImGui::TextColored({1.f, 0.82f, 0.1f, 1.f}, "Gold  : %d", d.goldKeys);
+    ImGui::TextColored({1.f, 0.82f, 0.1f, 1.f},  "Gold  : %d", d.goldKeys);
     ImGui::SameLine();
-    ImGui::TextColored({0.7f, 0.85f, 1.f, 1.f}, "  Silver: %d", d.silverKeys);
+    ImGui::TextColored({0.7f, 0.85f, 1.f, 1.f},  "  Silver: %d", d.silverKeys);
 
     // ─── お金 ──────────────────────────────────────────────
     ImGui::TextColored({1.f, 0.85f, 0.2f, 1.f}, "Money : %d", d.money);
-
-    // ─── Spirit (墓から飛び出すアイテム) ──────────────────
-    ImGui::TextColored({0.6f, 0.85f, 1.f, 1.f}, "Spirit: %d", d.spiritCount);
 
     // ─── Layer 情報 ──────────────────────────────────────────
     ImGui::Separator();

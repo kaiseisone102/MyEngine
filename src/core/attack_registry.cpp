@@ -43,10 +43,10 @@ struct DefsTable {
             AnimState::Slash,
             /* windupTime         */ 0.10f,
             /* activeTime         */ 0.15f,
-            /* recoveryTime       */ 0.35f,
-            /* startDir           */ horizDir(-75.f),  // 右 75°
+            /* recoveryTime       */ 0.25f,
+            /* startDir           */ horizDir(-75.f),   // 右 75°
             /* rotationAxis       */ glm::vec3{0.f, 1.f, 0.f},
-            /* sweepAngleDeg      */ +150.f,  // 右→左 (反時計回り = Y軸右ねじ正)
+            /* sweepAngleDeg      */ +150.f,            // 右→左 (反時計回り = Y軸右ねじ正)
             /* range              */ 2.4f,
             /* halfWidthDeg       */ 25.f,
             /* damage             */ 1,
@@ -61,12 +61,12 @@ struct DefsTable {
             AttackKind::Smash,
             "Smash",
             AnimState::Smash,
-            /* windupTime         */ 0.25f,
+            /* windupTime         */ 0.20f,
             /* activeTime         */ 0.12f,
-            /* recoveryTime       */ 0.35f,
-            /* startDir           */ vertDir(+105.f),  // 頭上より少し後ろ
+            /* recoveryTime       */ 0.30f,
+            /* startDir           */ vertDir(+105.f),   // 頭上より少し後ろ
             /* rotationAxis       */ glm::vec3{1.f, 0.f, 0.f},
-            /* sweepAngleDeg      */ +115.f,  // 振り下ろし方向
+            /* sweepAngleDeg      */ -105.f,            // 振り下ろし方向
             /* range              */ 2.6f,
             /* halfWidthDeg       */ 30.f,
             /* damage             */ 2,
@@ -84,13 +84,13 @@ struct DefsTable {
             AnimState::SmashDown,
             /* windupTime         */ 0.10f,
             /* activeTime         */ 0.15f,
-            /* recoveryTime       */ 0.30f,
-            /* startDir           */ horizDir(0.f),  // 前方
+            /* recoveryTime       */ 0.35f,
+            /* startDir           */ horizDir(0.f),     // 前方
             /* rotationAxis       */ glm::vec3{0.f, 1.f, 0.f},
-            /* sweepAngleDeg      */ +360.f,  // 全周
+            /* sweepAngleDeg      */ +360.f,            // 全周
             /* range              */ 3.0f,
             /* halfWidthDeg       */ 180.f,
-            /* damage             */ 2,
+            /* damage             */ 3,
             /* lockMovementGround */ true,
             /* canCancelOnLand    */ false,
         };
@@ -107,15 +107,12 @@ const DefsTable& defs() {
 const AttackDef& get(AttackKind kind) {
     const auto& t = defs();
     switch (kind) {
-        case AttackKind::Slash:
-            return t.slash;
-        case AttackKind::Smash:
-            return t.smash;
-        case AttackKind::SmashDown:
-            return t.smashDown;
+        case AttackKind::Slash:     return t.slash;
+        case AttackKind::Smash:     return t.smash;
+        case AttackKind::SmashDown: return t.smashDown;
     }
-    std::cerr << "[AttackRegistry] WARNING: AttackKind not found (idx=" << static_cast<int>(kind)
-              << "), falling back to Slash\n";
+    std::cerr << "[AttackRegistry] WARNING: AttackKind not found (idx="
+              << static_cast<int>(kind) << "), falling back to Slash\n";
     return t.slash;
 }
 

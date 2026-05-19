@@ -1,15 +1,30 @@
-// src/renderer/swapchain.cpp
-
+// \MyEngine\src\renderer\swapchain.cpp
+// =============================================================================
+// swapchain.cpp
+// =============================================================================
+// 実装内容:
+//   VkSwapchainKHR の生成・破棄、 カラー image view 一式、 深度バッファ。
+//
+// 方針:
+//   - Surface format : B8G8R8A8_SRGB を優先 (自動 gamma 補正で楽)
+//   - Present mode   : VSync 固定 (FIFO は仕様上必ずサポート、 tearing なし)
+//   - Min image count: caps.minImageCount + 1 (triple buffering 寄り)
+//
+// recreate():
+//   ウィンドウ最小化 (0x0) は SDL_WaitEvent でブロック (CPU を消費しない)。
+//   vkDeviceWaitIdle で描画中でないことを保証してから再生成。
+//   oldSwapchain を渡してドライバ内部リソースを再利用、 リサイズを滑らかに。
+// =============================================================================
 #include "renderer/swapchain.h"
+
+#include "renderer/resource_factory.h"
+#include "renderer/vulkan_context.h"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <stdexcept>
 #include <vector>
-
-#include "renderer/resource_factory.h"
-#include "renderer/vulkan_context.h"
 
 namespace {
 
@@ -37,28 +52,35 @@ SwapchainSupport querySwapchainSupport(VkPhysicalDevice device, VkSurfaceKHR sur
 }
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats) {
+    // B8G8R8A8_SRGB + SRGB_NONLINEAR が見つかればそれを使う。
+    // (swapchain image に書き込むと自動で sRGB → linear 補正されるので、
+    //  shader 側で gamma を気にしなくていい。)
     for (const auto& f : formats) {
         if (f.format == VK_FORMAT_B8G8R8A8_SRGB &&
-            f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             return f;
+        }
     }
     return formats[0];
 }
 
 VkPresentModeKHR choosePresentMode(const std::vector<VkPresentModeKHR>&) {
-    // VSync 固定（FIFO は仕様上サポート必須）
+    // VSync 固定 (FIFO は仕様上サポート必須、 tearing なし)
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
 }  // namespace
 
-void Swapchain::init(const VulkanContext* ctx, const ResourceFactory* resources, SDL_Window* window,
-                     VkFormat depthFormat) {
+// =============================================================================
+// init / shutdown
+// =============================================================================
+
+void Swapchain::init(const VulkanContext* ctx, const ResourceFactory* resources,
+                     SDL_Window* window, VkFormat depthFormat) {
     ctx_ = ctx;
     resources_ = resources;
     window_ = window;
     depthFormat_ = depthFormat;
-
     createSwapchain(VK_NULL_HANDLE);
     createImageViews();
     createDepthResources();
@@ -73,8 +95,13 @@ void Swapchain::shutdown() {
     window_ = nullptr;
 }
 
+// =============================================================================
+// recreate
+// =============================================================================
+
 void Swapchain::recreate() {
-    // ウィンドウが最小化されているとサイズ 0 になる。描画できないので待つ。
+    // ウィンドウが最小化されているとサイズ 0 になる。 描画できないので待つ。
+    // SDL_WaitEvent でブロックすれば CPU を消費しない。
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(window_, &w, &h);
     while (w == 0 || h == 0) {
@@ -86,9 +113,9 @@ void Swapchain::recreate() {
     vkDeviceWaitIdle(ctx_->device());
 
     // 古い swapchain は oldSwapchain として新 swapchain 作成時に渡す。
-    // こうするとドライバが内部リソースを再利用できて、リサイズが滑らか。
+    // ドライバが内部リソースを再利用できるためリサイズが滑らか。
     VkSwapchainKHR old = swapchain_;
-    swapchain_ = VK_NULL_HANDLE;  // handle を退避（createSwapchain が上書きする前に）
+    swapchain_ = VK_NULL_HANDLE;  // handle を退避 (createSwapchain が上書きする前に)
 
     // 旧 views と depth は新しい extent で作り直すので先に破棄
     for (auto v : views_) vkDestroyImageView(ctx_->device(), v, nullptr);
@@ -96,13 +123,16 @@ void Swapchain::recreate() {
     destroyDepthResources();
 
     createSwapchain(old);
-
-    // createSwapchain 内で old を参照し終わっているので、今安全に破棄できる
+    // createSwapchain 内で old を参照し終わっているので、 今安全に破棄できる
     if (old != VK_NULL_HANDLE) vkDestroySwapchainKHR(ctx_->device(), old, nullptr);
 
     createImageViews();
     createDepthResources();
 }
+
+// =============================================================================
+// createSwapchain (oldSwapchain 引数で再利用可能)
+// =============================================================================
 
 void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
     SwapchainSupport sup = querySwapchainSupport(ctx_->physicalDevice(), ctx_->surface());
@@ -120,8 +150,9 @@ void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
     }
 
     uint32_t imgCount = sup.capabilities.minImageCount + 1;
-    if (sup.capabilities.maxImageCount > 0 && imgCount > sup.capabilities.maxImageCount)
+    if (sup.capabilities.maxImageCount > 0 && imgCount > sup.capabilities.maxImageCount) {
         imgCount = sup.capabilities.maxImageCount;
+    }
 
     VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     ci.surface = ctx_->surface();
@@ -146,8 +177,9 @@ void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
         ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    if (vkCreateSwapchainKHR(ctx_->device(), &ci, nullptr, &swapchain_) != VK_SUCCESS)
+    if (vkCreateSwapchainKHR(ctx_->device(), &ci, nullptr, &swapchain_) != VK_SUCCESS) {
         throw std::runtime_error("Swapchain::createSwapchain: vkCreateSwapchainKHR failed");
+    }
 
     colorFormat_ = fmt.format;
     extent_ = extent;
@@ -157,6 +189,10 @@ void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
     vkGetSwapchainImagesKHR(ctx_->device(), swapchain_, &imgCount, images_.data());
 }
 
+// =============================================================================
+// createImageViews
+// =============================================================================
+
 void Swapchain::createImageViews() {
     views_.resize(images_.size());
     for (size_t i = 0; i < images_.size(); ++i) {
@@ -165,24 +201,41 @@ void Swapchain::createImageViews() {
         ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
         ci.format = colorFormat_;
         ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(ctx_->device(), &ci, nullptr, &views_[i]) != VK_SUCCESS)
+        if (vkCreateImageView(ctx_->device(), &ci, nullptr, &views_[i]) != VK_SUCCESS) {
             throw std::runtime_error("Swapchain::createImageViews: vkCreateImageView failed");
+        }
     }
 }
+
+// =============================================================================
+// createDepthResources
+// =============================================================================
 
 void Swapchain::createDepthResources() {
     resources_->createImage(extent_.width, extent_.height, depthFormat_, VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage_, depthImageMemory_);
 
+    // depth view: フォーマットに stencil 成分があれば STENCIL_BIT も追加 (安全側)
+    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    if (depthFormat_ == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+        depthFormat_ == VK_FORMAT_D24_UNORM_S8_UINT) {
+        aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
+
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = depthImage_;
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = depthFormat_;
-    ci.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &depthView_) != VK_SUCCESS)
+    ci.subresourceRange = {aspect, 0, 1, 0, 1};
+    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &depthView_) != VK_SUCCESS) {
         throw std::runtime_error("Swapchain::createDepthResources: vkCreateImageView failed");
+    }
 }
+
+// =============================================================================
+// destroy
+// =============================================================================
 
 void Swapchain::destroyImageViewsAndSwapchain() {
     for (auto v : views_) vkDestroyImageView(ctx_->device(), v, nullptr);

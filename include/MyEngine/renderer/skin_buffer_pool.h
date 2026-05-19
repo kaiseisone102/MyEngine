@@ -24,7 +24,7 @@
 //
 // パフォーマンス特性:
 //   - DescriptorSet は Pool 全体で 1 個 (frame 毎)
-//     -> 描画ループ内で descriptorSet 切替不要
+//     → 描画ループ内で descriptorSet 切替不要
 //   - エンティティ毎の切替は push_constant (skinOffset の更新) のみ
 //   - HOST_COHERENT なので flush 不要
 // =============================================================================

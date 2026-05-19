@@ -1,82 +1,156 @@
 // src/renderer/model_loader.cpp
+// =============================================================================
+// + Model::localAABB の計算
+//   全 submesh の全頂点 (pos) を走査して min/max を求める。
+//   スケルタル モデルは bind pose のローカル座標で計算 (= スケルトンが
+//   T-pose の状態の AABB)。
+// =============================================================================
 #include "renderer/model_loader.h"
-
-#include <assimp/postprocess.h>
-#include <assimp/scene.h>
 
 #include <assimp/DefaultLogger.hpp>
 #include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
+
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
+#include "renderer/asset_registry.h"
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
 
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
 namespace {
 
-// CPU 側の中間データ。GPU 転送前にここに集める。
 struct SubMeshCpuData {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     uint32_t materialIndex = 0;
+    std::vector<std::string> localBoneNames;
 };
 
-// aiVector3D → glm::vec3
 inline glm::vec3 toVec3(const aiVector3D& v) { return {v.x, v.y, v.z}; }
-
-// aiColor4D → glm::vec3 (RGB のみ)
 inline glm::vec3 toVec3(const aiColor4D& c) { return {c.r, c.g, c.b}; }
 
-// aiMesh から SubMeshCpuData を作る。
-// 頂点フォーマットは Vertex {pos, color, texCoord, normal} に合わせる。
+inline glm::quat toQuat(const aiQuaternion& q) {
+    return glm::quat(q.w, q.x, q.y, q.z);
+}
+
+void writeJointDataToVertices(const aiMesh* mesh, std::vector<Vertex>& vertices) {
+    std::vector<uint8_t> slotCount(vertices.size(), 0);
+
+    for (unsigned b = 0; b < mesh->mNumBones; ++b) {
+        const aiBone* bone = mesh->mBones[b];
+        for (unsigned w = 0; w < bone->mNumWeights; ++w) {
+            const aiVertexWeight& vw = bone->mWeights[w];
+            const unsigned vid = vw.mVertexId;
+            if (vid >= vertices.size()) continue;
+
+            uint8_t& slot = slotCount[vid];
+            if (slot >= 4) {
+                Vertex& v = vertices[vid];
+                int minIdx = 0;
+                float minW = v.jointWeights[0];
+                for (int i = 1; i < 4; ++i) {
+                    if (v.jointWeights[i] < minW) {
+                        minW = v.jointWeights[i];
+                        minIdx = i;
+                    }
+                }
+                if (vw.mWeight > minW) {
+                    v.jointIndices[minIdx] = static_cast<int>(b);
+                    v.jointWeights[minIdx] = vw.mWeight;
+                }
+                continue;
+            }
+            Vertex& v = vertices[vid];
+            v.jointIndices[slot] = static_cast<int>(b);
+            v.jointWeights[slot] = vw.mWeight;
+            slot++;
+        }
+    }
+
+    for (Vertex& v : vertices) {
+        const float sum =
+            v.jointWeights.x + v.jointWeights.y + v.jointWeights.z + v.jointWeights.w;
+        if (sum > 1e-6f) {
+            v.jointWeights /= sum;
+        }
+    }
+}
+
+void remapJointIndicesToGlobal(std::vector<Vertex>& vertices,
+                               const std::vector<std::string>& localBoneNames,
+                               const Skeleton& skeleton) {
+    if (localBoneNames.empty() || skeleton.empty()) return;
+
+    std::vector<int> localToGlobal(localBoneNames.size(), 0);
+    for (size_t i = 0; i < localBoneNames.size(); ++i) {
+        const int g = skeleton.findBoneByName(localBoneNames[i]);
+        if (g < 0) {
+            std::cerr << "[ModelLoader] WARNING: local bone '" << localBoneNames[i]
+                      << "' not found in skeleton, mapping to 0\n";
+            localToGlobal[i] = 0;
+        } else {
+            localToGlobal[i] = g;
+        }
+    }
+
+    for (Vertex& v : vertices) {
+        for (int k = 0; k < 4; ++k) {
+            const int local = v.jointIndices[k];
+            if (local < 0 || static_cast<size_t>(local) >= localToGlobal.size()) {
+                v.jointIndices[k] = 0;
+            } else {
+                v.jointIndices[k] = localToGlobal[local];
+            }
+        }
+    }
+}
+
 SubMeshCpuData buildSubMeshCpu(const aiMesh* mesh) {
     SubMeshCpuData out;
     out.materialIndex = mesh->mMaterialIndex;
+    out.localBoneNames.reserve(mesh->mNumBones);
+    for (unsigned b = 0; b < mesh->mNumBones; ++b) {
+        out.localBoneNames.emplace_back(mesh->mBones[b]->mName.C_Str());
+    }
 
     out.vertices.reserve(mesh->mNumVertices);
     for (unsigned i = 0; i < mesh->mNumVertices; ++i) {
         Vertex v{};
         v.pos = toVec3(mesh->mVertices[i]);
-
-        // 法線: aiProcess_GenSmoothNormals を入れているので必ずある想定だが、
-        // 念のため有無をチェックする。
         if (mesh->HasNormals()) {
             v.normal = toVec3(mesh->mNormals[i]);
         } else {
             v.normal = {0.f, 1.f, 0.f};
         }
-
-        // UV: 0番目のチャンネルだけ使う (大抵のモデルは 0 のみ)
         if (mesh->HasTextureCoords(0)) {
             v.texCoord = {mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y};
         } else {
             v.texCoord = {0.f, 0.f};
         }
-
-        // 頂点カラー: 0番目のセットだけ。なければ白。
-        // Mixamo モデルは普通カラー無しなので、ここはほぼ常に白。
         if (mesh->HasVertexColors(0)) {
             v.color = toVec3(mesh->mColors[0][i]);
         } else {
             v.color = {1.f, 1.f, 1.f};
         }
-
         out.vertices.push_back(v);
     }
 
-    // インデックス: aiProcess_Triangulate により全て三角形。
-    // 万一 4 頂点以上の面があったら警告して飛ばす (防衛的)。
+    if (mesh->mNumBones > 0) {
+        writeJointDataToVertices(mesh, out.vertices);
+    }
+
     out.indices.reserve(mesh->mNumFaces * 3);
     for (unsigned i = 0; i < mesh->mNumFaces; ++i) {
         const aiFace& face = mesh->mFaces[i];
         if (face.mNumIndices != 3) {
-            std::cerr << "[ModelLoader] non-triangle face encountered (numIndices="
-                      << face.mNumIndices << "), skipping\n";
+            std::cerr << "[ModelLoader] non-triangle face (numIndices=" << face.mNumIndices
+                      << "), skipping\n";
             continue;
         }
         out.indices.push_back(face.mIndices[0]);
@@ -86,125 +160,6 @@ SubMeshCpuData buildSubMeshCpu(const aiMesh* mesh) {
     return out;
 }
 
-// 段階C で実装する GPU 転送。今は前方宣言のみ。
-// CPU データを SubMesh にアップロードする。
-void uploadSubMeshToGpu(const VulkanContext* ctx, const ResourceFactory* resources,
-                        const SubMeshCpuData& cpu, SubMesh& gpu);
-
-}  // namespace
-
-// =============================================================================
-// probe() — Phase 1-B 診断
-// =============================================================================
-bool ModelLoader::probe(const std::string& path) {
-    {
-        std::ifstream f(path, std::ios::binary);
-        if (!f.is_open()) {
-            std::cerr << "[ModelLoader] FILE NOT OPENABLE: " << path << "\n";
-            return false;
-        }
-    }
-
-    Assimp::Importer importer;
-    const unsigned flags = aiProcess_Triangulate;
-    const aiScene* scene = importer.ReadFile(path, flags);
-    if (!scene || !scene->mRootNode) {
-        std::cerr << "[ModelLoader] failed to load: " << path << "\n";
-        std::cerr << "[ModelLoader] reason: '" << importer.GetErrorString() << "'\n";
-        return false;
-    }
-
-    unsigned totalVertices = 0;
-    unsigned totalFaces = 0;
-    unsigned bonesAcrossMeshes = 0;
-    for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
-        const aiMesh* mesh = scene->mMeshes[i];
-        totalVertices += mesh->mNumVertices;
-        totalFaces += mesh->mNumFaces;
-        bonesAcrossMeshes += mesh->mNumBones;
-    }
-
-    std::cout << "[ModelLoader] loaded: " << path << "\n";
-    if (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) {
-        std::cout << "  WARNING: scene is INCOMPLETE\n";
-    }
-    std::cout << "  meshes      : " << scene->mNumMeshes << "\n";
-    std::cout << "  materials   : " << scene->mNumMaterials << "\n";
-    std::cout << "  textures    : " << scene->mNumTextures << " (embedded)\n";
-    std::cout << "  vertices    : " << totalVertices << "\n";
-    std::cout << "  faces       : " << totalFaces << "\n";
-    std::cout << "  bones       : " << bonesAcrossMeshes << "\n";
-    std::cout << "  animations  : " << scene->mNumAnimations << "\n";
-    std::cout << "  has skin    : " << (bonesAcrossMeshes > 0 ? "yes" : "no") << "\n";
-    return true;
-}
-
-// =============================================================================
-// load() — 本番ロード
-// =============================================================================
-Model ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resources,
-                        const std::string& path) {
-    Model model;
-
-    if (!ctx || !resources) {
-        std::cerr << "[ModelLoader::load] null ctx or resources\n";
-        return model;
-    }
-
-    Assimp::Importer importer;
-    // load() で使うフラグ:
-    //   Triangulate           : 必須 (Vulkan は三角形以外受け付けない)
-    //   GenSmoothNormals      : 法線が無い場合の保険
-    //   FlipUVs               : Vulkan の UV 座標系 (上下反転)
-    //   JoinIdenticalVertices : 重複頂点を統合してインデックスを最適化
-    const unsigned flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs |
-                           aiProcess_JoinIdenticalVertices;
-
-    const aiScene* scene = importer.ReadFile(path, flags);
-    if (!scene || !scene->mRootNode) {
-        std::cerr << "[ModelLoader::load] failed: " << path << "\n";
-        std::cerr << "[ModelLoader::load] reason: '" << importer.GetErrorString() << "'\n";
-        return model;
-    }
-
-    if (scene->mNumMeshes == 0) {
-        std::cerr << "[ModelLoader::load] no meshes in: " << path << "\n";
-        return model;
-    }
-
-    // ─── 1) 全 aiMesh を SubMeshCpuData に変換 ────────────────────
-    // ノード階層は今回は無視して flat に処理する。
-    // (Mixamo はメッシュがほぼ全部ルート直下なので問題ない。
-    //  本格的なシーン階層は将来対応)
-    std::vector<SubMeshCpuData> cpuData;
-    cpuData.reserve(scene->mNumMeshes);
-    for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
-        cpuData.push_back(buildSubMeshCpu(scene->mMeshes[i]));
-    }
-
-    // ─── 2) GPU バッファに転送 ────────────────────────────────────
-    model.ctx_ = ctx;
-    model.subMeshes_.resize(cpuData.size());
-    for (size_t i = 0; i < cpuData.size(); ++i) {
-        SubMesh& gpu = model.subMeshes_[i];
-        gpu.materialIndex = cpuData[i].materialIndex;
-        gpu.indexCount = static_cast<uint32_t>(cpuData[i].indices.size());
-        uploadSubMeshToGpu(ctx, resources, cpuData[i], gpu);
-    }
-
-    std::cout << "[ModelLoader::load] " << path << ": " << model.subMeshes_.size()
-              << " submeshes uploaded\n";
-    return model;
-}
-
-// =============================================================================
-// 段階C: GPU 転送の実装
-// =============================================================================
-namespace {
-
-// staging バッファ経由で DEVICE_LOCAL バッファに転送するヘルパ。
-// Mesh::uploadBuffer と同じロジック。
-// (将来 ResourceFactory 側に共通化する余地あり)
 void uploadBuffer(const VulkanContext* ctx, const ResourceFactory* resources, const void* src,
                   VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& outBuffer,
                   VkDeviceMemory& outMemory) {
@@ -240,4 +195,266 @@ void uploadSubMeshToGpu(const VulkanContext* ctx, const ResourceFactory* resourc
                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, gpu.indexBuffer, gpu.indexBufferMemory);
 }
 
+void extractEmbeddedTextures(const VulkanContext* ctx, const ResourceFactory* resources,
+                             const aiScene* scene, std::vector<Texture>& outTextures) {
+    outTextures.resize(scene->mNumTextures);
+    for (unsigned i = 0; i < scene->mNumTextures; ++i) {
+        const aiTexture* aitex = scene->mTextures[i];
+        if (aitex->mHeight == 0) {
+            const auto* data = reinterpret_cast<const uint8_t*>(aitex->pcData);
+            const size_t size = aitex->mWidth;
+            outTextures[i].loadFromMemory(ctx, resources, data, size);
+        } else {
+            std::cerr << "[ModelLoader] uncompressed embedded texture not supported (idx=" << i
+                      << "), checkerboard fallback\n";
+            outTextures[i].loadFromMemory(ctx, resources, nullptr, 0);
+        }
+    }
+}
+
+int resolveBaseColorTextureIndex(const aiScene* scene, const aiMaterial* mat) {
+    aiString path;
+    aiReturn r = mat->GetTexture(aiTextureType_BASE_COLOR, 0, &path);
+    if (r != AI_SUCCESS) {
+        r = mat->GetTexture(aiTextureType_DIFFUSE, 0, &path);
+    }
+    if (r != AI_SUCCESS) return -1;
+    const std::string s = path.C_Str();
+    if (s.empty()) return -1;
+    if (s[0] == '*') {
+        try {
+            return std::stoi(s.substr(1));
+        } catch (...) {
+            return -1;
+        }
+    }
+    std::cerr << "[ModelLoader] external texture reference not supported: " << s << "\n";
+    return -1;
+}
+
+void extractAnimationsByName(const aiScene* scene, std::vector<AnimationClip>& outAnims) {
+    if (scene->mNumAnimations == 0) return;
+
+    outAnims.reserve(outAnims.size() + scene->mNumAnimations);
+    for (unsigned a = 0; a < scene->mNumAnimations; ++a) {
+        const aiAnimation* ai = scene->mAnimations[a];
+
+        AnimationClip clip;
+        clip.name = ai->mName.C_Str();
+        const float tps =
+            (ai->mTicksPerSecond > 1e-6) ? static_cast<float>(ai->mTicksPerSecond) : 25.f;
+        clip.ticksPerSecond = tps;
+        clip.duration = static_cast<float>(ai->mDuration) / tps;
+
+        clip.channels.reserve(ai->mNumChannels);
+        for (unsigned c = 0; c < ai->mNumChannels; ++c) {
+            const aiNodeAnim* nodeAnim = ai->mChannels[c];
+
+            AnimationChannel ch;
+            ch.boneName = nodeAnim->mNodeName.C_Str();
+
+            ch.positionKeys.reserve(nodeAnim->mNumPositionKeys);
+            for (unsigned k = 0; k < nodeAnim->mNumPositionKeys; ++k) {
+                const aiVectorKey& vk = nodeAnim->mPositionKeys[k];
+                PositionKey pk;
+                pk.time = static_cast<float>(vk.mTime) / tps;
+                pk.value = toVec3(vk.mValue);
+                ch.positionKeys.push_back(pk);
+            }
+
+            ch.rotationKeys.reserve(nodeAnim->mNumRotationKeys);
+            for (unsigned k = 0; k < nodeAnim->mNumRotationKeys; ++k) {
+                const aiQuatKey& qk = nodeAnim->mRotationKeys[k];
+                RotationKey rk;
+                rk.time = static_cast<float>(qk.mTime) / tps;
+                rk.value = toQuat(qk.mValue);
+                ch.rotationKeys.push_back(rk);
+            }
+
+            ch.scaleKeys.reserve(nodeAnim->mNumScalingKeys);
+            for (unsigned k = 0; k < nodeAnim->mNumScalingKeys; ++k) {
+                const aiVectorKey& vk = nodeAnim->mScalingKeys[k];
+                ScaleKey sk;
+                sk.time = static_cast<float>(vk.mTime) / tps;
+                sk.value = toVec3(vk.mValue);
+                ch.scaleKeys.push_back(sk);
+            }
+
+            clip.channels.push_back(std::move(ch));
+        }
+
+        outAnims.push_back(std::move(clip));
+    }
+}
+
+// ─── 全 submesh の頂点を走査して min/max を求める ─────────
+AABB computeLocalAABB(const std::vector<SubMeshCpuData>& cpuData) {
+    AABB out{};
+    const float inf = std::numeric_limits<float>::infinity();
+    glm::vec3 mn{ inf,  inf,  inf};
+    glm::vec3 mx{-inf, -inf, -inf};
+
+    bool any = false;
+    for (const auto& cpu : cpuData) {
+        for (const Vertex& v : cpu.vertices) {
+            mn = glm::min(mn, v.pos);
+            mx = glm::max(mx, v.pos);
+            any = true;
+        }
+    }
+
+    if (!any) {
+        return AABB::fromCenterHalf({0.f, 0.f, 0.f}, {0.5f, 0.5f, 0.5f});
+    }
+    return AABB::fromMinMax(mn, mx);
+}
+
 }  // namespace
+
+bool ModelLoader::probe(const std::string& path) {
+    {
+        std::ifstream f(path, std::ios::binary);
+        if (!f.is_open()) {
+            std::cerr << "[ModelLoader] FILE NOT OPENABLE: " << path << "\n";
+            return false;
+        }
+    }
+
+    Assimp::Importer importer;
+    const unsigned flags = aiProcess_Triangulate;
+    const aiScene* scene = importer.ReadFile(path, flags);
+    if (!scene || !scene->mRootNode) {
+        std::cerr << "[ModelLoader] failed to load: " << path << "\n";
+        std::cerr << "[ModelLoader] reason: '" << importer.GetErrorString() << "'\n";
+        return false;
+    }
+
+    unsigned totalVertices = 0;
+    unsigned totalFaces = 0;
+    unsigned bonesAcrossMeshes = 0;
+    for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
+        const aiMesh* mesh = scene->mMeshes[i];
+        totalVertices += mesh->mNumVertices;
+        totalFaces += mesh->mNumFaces;
+        bonesAcrossMeshes += mesh->mNumBones;
+    }
+
+    std::cout << "[ModelLoader] loaded: " << path << "\n";
+    std::cout << "  meshes      : " << scene->mNumMeshes << "\n";
+    std::cout << "  materials   : " << scene->mNumMaterials << "\n";
+    std::cout << "  textures    : " << scene->mNumTextures << " (embedded)\n";
+    std::cout << "  vertices    : " << totalVertices << "\n";
+    std::cout << "  faces       : " << totalFaces << "\n";
+    std::cout << "  bones       : " << bonesAcrossMeshes << "\n";
+    std::cout << "  animations  : " << scene->mNumAnimations << "\n";
+    return true;
+}
+
+bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resources,
+                       AssetRegistry& assets, const std::string& path,
+                       Model& outModel, std::vector<AnimationClip>& outAnimations) {
+    if (!ctx || !resources) {
+        std::cerr << "[ModelLoader::load] null ctx or resources\n";
+        return false;
+    }
+
+    Assimp::Importer importer;
+    const unsigned flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals |
+                           aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices |
+                           aiProcess_LimitBoneWeights;
+
+    const aiScene* scene = importer.ReadFile(path, flags);
+    if (!scene || !scene->mRootNode) {
+        std::cerr << "[ModelLoader::load] failed: " << path << "\n";
+        std::cerr << "[ModelLoader::load] reason: '" << importer.GetErrorString() << "'\n";
+        return false;
+    }
+    if (scene->mNumMeshes == 0) {
+        std::cerr << "[ModelLoader::load] no meshes in: " << path << "\n";
+        return false;
+    }
+
+    outModel.ctx_ = ctx;
+
+    if (scene->mNumTextures > 0) {
+        extractEmbeddedTextures(ctx, resources, scene, outModel.textures_);
+    }
+
+    const VkDescriptorPool pool = assets.materialPool();
+    const VkDescriptorSetLayout layout = assets.materialSetLayout();
+    const Texture& fallbackTex = assets.defaultTexture();
+
+    const unsigned matCount = (scene->mNumMaterials > 0) ? scene->mNumMaterials : 1;
+    outModel.materials_.resize(matCount);
+    for (unsigned i = 0; i < matCount; ++i) {
+        const Texture* useTex = &fallbackTex;
+        if (scene->mNumMaterials > 0 && i < scene->mNumMaterials) {
+            const aiMaterial* aimat = scene->mMaterials[i];
+            const int texIdx = resolveBaseColorTextureIndex(scene, aimat);
+            if (texIdx >= 0 && static_cast<size_t>(texIdx) < outModel.textures_.size()) {
+                useTex = &outModel.textures_[texIdx];
+            }
+        }
+        outModel.materials_[i].init(ctx, pool, layout, useTex);
+    }
+
+    outModel.skeleton_.build(scene);
+
+    std::vector<SubMeshCpuData> cpuData;
+    cpuData.reserve(scene->mNumMeshes);
+    for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
+        cpuData.push_back(buildSubMeshCpu(scene->mMeshes[i]));
+    }
+
+    if (!outModel.skeleton_.empty()) {
+        for (auto& cpu : cpuData) {
+            remapJointIndicesToGlobal(cpu.vertices, cpu.localBoneNames, outModel.skeleton_);
+        }
+    }
+
+    // ─── localAABB を計算して保存 ────
+    outModel.localAABB_ = computeLocalAABB(cpuData);
+
+    outModel.subMeshes_.resize(cpuData.size());
+    for (size_t i = 0; i < cpuData.size(); ++i) {
+        SubMesh& gpu = outModel.subMeshes_[i];
+        gpu.materialIndex =
+            (cpuData[i].materialIndex < matCount) ? cpuData[i].materialIndex : 0;
+        gpu.indexCount = static_cast<uint32_t>(cpuData[i].indices.size());
+        uploadSubMeshToGpu(ctx, resources, cpuData[i], gpu);
+    }
+
+    extractAnimationsByName(scene, outAnimations);
+
+    std::cout << "[ModelLoader::load] " << path << ": " << outModel.subMeshes_.size()
+              << " submeshes, " << outModel.materials_.size() << " materials, "
+              << outModel.textures_.size() << " textures, " << outModel.skeleton_.boneCount()
+              << " bones, " << outAnimations.size() << " animations\n";
+    std::cout << "  localAABB: min=(" << outModel.localAABB_.min.x << ", "
+              << outModel.localAABB_.min.y << ", " << outModel.localAABB_.min.z << ") max=("
+              << outModel.localAABB_.max.x << ", " << outModel.localAABB_.max.y << ", "
+              << outModel.localAABB_.max.z << ")\n";
+
+    return true;
+}
+
+bool ModelLoader::loadAnimationsOnly(const std::string& path,
+                                     std::vector<AnimationClip>& outAnimations) {
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(path, 0);
+    if (!scene) {
+        std::cerr << "[ModelLoader::loadAnimationsOnly] failed: " << path << "\n";
+        std::cerr << "[ModelLoader::loadAnimationsOnly] reason: '" << importer.GetErrorString()
+                  << "'\n";
+        return false;
+    }
+    if (scene->mNumAnimations == 0) {
+        std::cerr << "[ModelLoader::loadAnimationsOnly] no animations in " << path << "\n";
+        return false;
+    }
+
+    extractAnimationsByName(scene, outAnimations);
+    std::cout << "[ModelLoader::loadAnimationsOnly] " << path << ": " << scene->mNumAnimations
+              << " animations extracted\n";
+    return true;
+}

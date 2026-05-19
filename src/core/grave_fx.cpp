@@ -45,12 +45,12 @@ void applyBluefireflyPreset(CParticleEmitter& em) {
 
     // Box: 墓本体を覆って外側にも広がる
     em.shape = particle::EmitterShape::Box;
-    em.shapeParams = glm::vec3{0.4f, 0.4f, 0.4f};  // half extents
+    em.shapeParams = glm::vec3{1.2f, 1.0f, 1.2f};  // half extents
 
     em.emitDirectionLocal = glm::vec3{0.f, 1.f, 0.f};
     em.speedMin = 0.4f;
     em.speedMax = 0.8f;
-    em.velocityRandomCone = 0.6f;  // 広い散らばり
+    em.velocityRandomCone = 0.9f;  // 広い散らばり
 
     em.emitRate = 1.5f;
     em.lifetimeMin = 2.0f;
@@ -62,7 +62,7 @@ void applyBluefireflyPreset(CParticleEmitter& em) {
     em.sizeEndMax = 0.20f;
 
     em.colorStart = glm::vec4{0.4f, 0.8f, 1.0f, 0.8f};
-    em.colorEnd = glm::vec4{0.1f, 0.3f, 1.0f, 0.0f};
+    em.colorEnd   = glm::vec4{0.1f, 0.3f, 1.0f, 0.0f};
 
     em.gravity = glm::vec3{0.f, 0.5f, 0.f};  // 微かな上向き浮力
     em.drag = 0.5f;

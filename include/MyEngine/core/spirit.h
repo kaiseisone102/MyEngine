@@ -27,7 +27,7 @@ struct CFloatingSpirit {
     float elapsed = 0.f;
 
     static constexpr float kSoarStartTime = 8.0f;
-    static constexpr float kRiseSpeed = 0.25f;
-    static constexpr float kSoarSpeed = 20.0f;
-    static constexpr float kDestructY = 10.0f;
+    static constexpr float kRiseSpeed     = 0.5f;
+    static constexpr float kSoarSpeed     = 20.0f;
+    static constexpr float kDestructY     = 10.0f;
 };

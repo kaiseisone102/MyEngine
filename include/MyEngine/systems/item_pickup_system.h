@@ -1,23 +1,25 @@
-// C:\MyEngine\include\MyEngine\systems\item_pickup_system.h
-
 #pragma once
 // =============================================================================
-// item_pickup_system.h — アイテム拾得システム
-// =============================================================================
-// プレイヤーが一定範囲内に入ったアイテムを自動的に拾得する。
-// 現在は盾アイテム（ShieldItemTag を持つエンティティ）のみ対応。
-// 将来の拡張: 武器・回復アイテムなども同じ仕組みで扱える。
+// item_pickup_system.h — + SoundManager 注入 (pickup SE 用)
 // =============================================================================
 
 #include <flecs.h>
 
 #include <vector>
 
+class AssetRegistry;
+class SoundManager;
+
 class ItemPickupSystem {
    public:
-    // shieldItems / armorItems の中でプレイヤーの pickupRadius (m) 以内にあるものを拾得する。
-    //   盾アイテム  : プレイヤーの CShield を更新
-    //   アーマー    : プレイヤーの CHealth::addSegment() を呼ぶ（既に上限なら拾わない）
-    void update(std::vector<flecs::entity>& shieldItems, std::vector<flecs::entity>& armorItems,
-                flecs::entity player, float pickupRadius = 1.2f) const;
+    void update(std::vector<flecs::entity>& shieldItems,
+                std::vector<flecs::entity>& armorItems,
+                std::vector<flecs::entity>& gripItems,
+                std::vector<flecs::entity>& keyItems,
+                std::vector<flecs::entity>& moneyItems,
+                std::vector<flecs::entity>& potionItems,
+                std::vector<flecs::entity>& spiritItems,
+                flecs::entity player, AssetRegistry& assets,
+                SoundManager& sound,
+                float pickupMargin = 0.5f) const;
 };

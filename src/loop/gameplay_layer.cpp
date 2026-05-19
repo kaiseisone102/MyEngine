@@ -1,5 +1,5 @@
 // =============================================================================
-// gameplay_layer.cpp — + chest 対応
+// gameplay_layer.cpp  E+ chest 対忁E//
 // =============================================================================
 #define NOMINMAX
 #include "loop/gameplay_layer.h"
@@ -31,22 +31,18 @@
 #include "core/grip.h"
 #include "core/key.h"
 #include "core/money.h"
-#include "core/obstacle.h"
 #include "core/spawn_trigger.h"
-#include "core/spirit.h"
 #include "loop/layer_factory.h"
 #include "renderer/animation.h"
 #include "renderer/animator.h"
 #include "renderer/debug_line_renderer.h"
-#include "renderer/scene_renderer.h"
 #include "renderer/skin_buffer_pool.h"
 #include "renderer/vulkan_renderer.h"
-#include "scene/scene.h"
+#include "scene/scene_renderer.h"
 #include "systems/hud_system.h"
 #include "systems/physics_util.h"
 #include "systems/render_debug_system.h"
 #include "systems/spawn_system.h"
-#include "world/scene_builder_from_world.h"
 #include "world/stage_def.h"
 
 namespace {
@@ -111,10 +107,6 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
         d.money = s.worldState.data.player.get<CMoney>().amount;
     } else {
         d.money = 0;
-    }
-    if (s.worldState.data.player && s.worldState.data.player.is_alive() &&
-        s.worldState.data.player.has<CSpirit>()) {
-        d.spiritCount = s.worldState.data.player.get<CSpirit>().amount;
     }
 
     const KeyMapping& m = s.settings.keyMapping;
@@ -361,25 +353,6 @@ void drawAABBWithCenter(DebugLineRenderer& dl, const AABB& box, const glm::vec4&
     dl.addLine({c.x, c.y, c.z - armLen}, {c.x, c.y, c.z + armLen}, centerColor);
 }
 
-void drawObstacleAABBDebug(DebugLineRenderer& dl, flecs::entity entity) {
-    if (!entity.is_alive()) return;
-    if (!entity.has<CObstacle>() || !entity.has<CTransform>()) return;
-    const AABB worldBox = physics::obstacleWorldAABB(entity);
-    const glm::vec3 c = worldBox.center();
-    const glm::vec3 h = worldBox.half();
-
-    // オレンジ色: 障害物 AABB
-    const glm::vec4 edgeColor{1.0f, 0.55f, 0.05f, 1.0f};
-    const glm::vec4 centerColor{1.0f, 0.75f, 0.30f, 0.8f};
-
-    drawAABBEdges(dl, c, h, edgeColor);
-
-    const float armLen = std::min({h.x, h.y, h.z}) * 0.6f;
-    dl.addLine({c.x - armLen, c.y, c.z}, {c.x + armLen, c.y, c.z}, centerColor);
-    dl.addLine({c.x, c.y - armLen, c.z}, {c.x, c.y + armLen, c.z}, centerColor);
-    dl.addLine({c.x, c.y, c.z - armLen}, {c.x, c.y, c.z + armLen}, centerColor);
-}
-
 void drawEnemyAttackHitboxDebug(DebugLineRenderer& dl, const CTransform& et, const CEnemyAI& ai,
                                 bool isSkeleton) {
     const auto ph = enemy_hitbox::makeGroundPunch(et, ai, isSkeleton);
@@ -430,11 +403,12 @@ glm::vec3 tiltStartDir(const glm::vec3& startDir, const glm::vec3& rotationAxis,
 
 }  // namespace
 
-GameplayLayer::GameplayLayer(GameState& state, render::SceneRenderer& renderer,
+GameplayLayer::GameplayLayer(GameState& state, SceneRenderer& renderer, VulkanRenderer& vulkan,
                              ILayerFactory& factory, float gravity, float jumpSpeed,
                              StageId initialStage)
     : state_(state),
       renderer_(renderer),
+      vulkan_(vulkan),
       factory_(factory),
       gravity_(gravity),
       jumpSpeed_(jumpSpeed),
@@ -444,7 +418,7 @@ GameplayLayer::~GameplayLayer() = default;
 
 void GameplayLayer::onEnter() {
     const StageDef& def = stage_registry::get(currentStage_);
-    std::cout << "[GameplayLayer] enter → build stage: " << def.name << "\n";
+    std::cout << "[GameplayLayer] enter ↁEbuild stage: " << def.name << "\n";
     worldBuilder_.build(state_.worldState.data, currentStage_, /*keepPlayer=*/false);
     state_.worldState.systems.audioEventSystem.syncGroundState(state_.worldState.data.player);
     deathTimer_ = 0.f;
@@ -456,7 +430,7 @@ void GameplayLayer::onEnter() {
 }
 
 void GameplayLayer::onExit() {
-    std::cout << "[GameplayLayer] exit → world reset\n";
+    std::cout << "[GameplayLayer] exit ↁEworld reset\n";
     worldBuilder_.reset(state_.worldState.data, /*keepPlayer=*/false);
 }
 
@@ -559,8 +533,8 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
             continue;
         }
         if (std::holds_alternative<AttackRequested>(ev)) {
-            // 優先度: Chest > Gate > WarpPad > 通常攻撃
-            // Chest/Gate 鍵不足の場合は通常攻撃にフォールスルー
+            // 優先度: Chest > Gate > WarpPad > 通常攻撁E            // Chest/Gate
+            // 鍵不足の場合�E通常攻撁E��フォールスルー
             if (nearbyChest_ && nearbyChest_.is_alive()) {
                 const auto result =
                     ws.systems.chestSystem.tryOpenNearestChest(ws.data, ws.systems.sound);
@@ -568,7 +542,6 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
                     continue;
                 }
             }
-
             if (nearbyGate_ && nearbyGate_.is_alive()) {
                 const auto result =
                     ws.systems.gateSystem.tryOpenNearestGate(ws.data, ws.systems.sound);
@@ -728,24 +701,38 @@ void GameplayLayer::update(float dt, bool isTop, const ActionState& input) {
     updateNearbyChest();
 }
 
-void GameplayLayer::buildScene(scene::Scene& scene) {
-    world_scene::buildSceneFromWorld(scene, state_, skinFrameIndex_);
-    skinFrameIndex_ = (skinFrameIndex_ + 1) % FrameSync::MAX_FRAMES_IN_FLIGHT;
-
+void GameplayLayer::buildScene(SceneData& scene) {
     auto& wd = state_.worldState.data;
 
+    // ─── 1. Camera position 取得 ──────────────────
+    const glm::vec3 cameraPos = wd.player.is_alive() && wd.player.has<CTransform>()
+                                    ? wd.player.get<CTransform>().pos
+                                    : glm::vec3{0.f};
+
+    // ─── 2. SceneRenderer 経由で world → SceneData 構築 ──
+    renderer_.buildSceneData(wd, cameraPos, scene, state_.settings.drawDistance);
+
+    // ─── 3. CSkeletalAnim の skinMatrices を GPU buffer に転送 ──
+    // SkeletalAnimSystem が sa.skinMatrices を計算済みなので、 ここで SSBO に書き込む
+    const uint32_t skinFi = static_cast<uint32_t>(skinFrameIndex_);
+    wd.world.each([&](flecs::entity, const CSkeletalAnim& sa) {
+        if (!sa.skinSlot.valid()) return;
+        if (sa.skinMatrices.empty()) return;
+        wd.vulkan.skinBufferPool().update(skinFi, sa.skinSlot, sa.skinMatrices);
+    });
+
+    // ─── 4. パーティクル参照を VulkanRenderer に渡す (描画は drawFrame 内) ─
+    wd.vulkan.debugLines().clear();
     wd.vulkan.setCurrentParticles(&state_.worldState.systems.particleSystem.particles());
 
+    // ─── 5. デバッグヒットボックス (既存ロジック) ────
     if (state_.runtime.debug.showHitboxes) {
         drawAttackHitboxDebug();
-
         DebugLineRenderer& dl = wd.vulkan.debugLines();
-
         wd.world.each([&](flecs::entity e, const CTransform& et, const CEnemyAI& ai) {
             (void)e;
             drawEnemyHitboxDebug(dl, et, ai);
         });
-
         wd.world.each([&](flecs::entity e, const CTransform& et, const CEnemyAI& ai) {
             if (ai.isDying) return;
             const bool isSkeleton = e.has<SkeletonTag>();
@@ -753,27 +740,20 @@ void GameplayLayer::buildScene(scene::Scene& scene) {
             if (!isSkeleton && !isSoldier) return;
             drawEnemyAttackHitboxDebug(dl, et, ai, isSkeleton);
         });
-
         drawPlayerHurtboxDebug(dl, wd.player, debugElapsedTime_);
-
-        for (flecs::entity e : wd.obstacles) {
-            drawObstacleAABBDebug(dl, e);
-        }
     }
 
+    // ─── 6. HUD (既存ロジック) ──
     if (wd.player && wd.player.is_alive()) {
         const float gripMargin = 12.f;
         const float gripRadius = hud_system::gripGaugeRadius();
         const float gripCenterX = gripMargin + gripRadius;
         const float gripCenterY = 104.f;
-
         if (wd.player.has<CGrip>()) {
             const CGrip& grip = wd.player.get<CGrip>();
             hud_system::drawGripGauge(wd.vulkan.hud(), grip, gripCenterX, gripCenterY);
         }
-
         const float barOriginX = gripCenterX + gripRadius + 12.f;
-
         if (wd.player.has<CHealth>()) {
             const CHealth& hp = wd.player.get<CHealth>();
             hud_system::drawHealthBar(wd.vulkan.hud(), hp, barOriginX, 80.f);
@@ -783,6 +763,9 @@ void GameplayLayer::buildScene(scene::Scene& scene) {
             hud_system::drawShieldGauge(wd.vulkan.hud(), sh, barOriginX, 110.f);
         }
     }
+
+    // ─── 7. skinFrameIndex 進める ─────────────────
+    skinFrameIndex_ = (skinFrameIndex_ + 1) % FrameSync::MAX_FRAMES_IN_FLIGHT;
 }
 
 void GameplayLayer::drawAttackHitboxDebug() {

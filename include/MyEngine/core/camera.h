@@ -110,7 +110,7 @@ public:
             };
 
             // Phase 5-F: 足元基準
-            //   camPos  = playerPos (足元) + offset + tpsHeight (= 1.4 上方) -> Y=1.4 + offset.y
+            //   camPos  = playerPos (足元) + offset + tpsHeight (= 1.4 上方) → Y=1.4 + offset.y
             //   lookAt  = playerPos (足元) + tpsLookAtHeight (= 1.2 上方、 腰付近)
             const glm::vec3 camPos  = playerPos + offset + glm::vec3{0.f, tpsHeight, 0.f};
             const glm::vec3 lookAt  = playerPos + glm::vec3{0.f, tpsLookAtHeight, 0.f};

@@ -37,10 +37,10 @@ AnimState decideAttackState(const CAttack& atk) {
 
 // Fall 遷移ヒステリシス: 空中時間がこれ未満なら Fall に入らない (= 地上扱い継続)。
 // 斜面下りの微小な ground 離脱を吸収する。
-constexpr float kAirborneMinTime = 0.05f;
+constexpr float kAirborneMinTime = 0.12f;
 
 AnimState decideNormalState(const CPhysics& phys, const CVelocity& vel, const ActionState& input,
-                            float airTime, AnimState currentState) {
+                              float airTime, AnimState currentState) {
     if (!phys.onGround) {
         // 現在 Jump 中 (= 意図して飛んだ) なら、 airTime 関係なくいつも通り Fall 判定
         const bool alreadyAirborne =

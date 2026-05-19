@@ -20,7 +20,7 @@ void SkinBufferPool::init(VulkanContext* ctx, ResourceFactory* resources) {
     allocateAndWriteSets();
     initFreeList();
 
-    std::cout << "[SkinBufferPool] init: " << MAX_ENTITIES << " slots * "
+    std::cout << "[SkinBufferPool] init: " << MAX_ENTITIES << " slots × "
               << MAX_BONES_PER_ENTITY << " bones, total " << (bufferSize_ / 1024) << " KB / frame\n";
 }
 

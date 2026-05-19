@@ -27,6 +27,9 @@
 #include <SDL3/SDL.h>
 #include <vulkan/vulkan.h>
 
+// VMA (Vulkan Memory Allocator) forward declaration to avoid including vma in headers
+VK_DEFINE_HANDLE(VmaAllocator)
+
 #include <cstdint>
 
 class VulkanContext {
@@ -52,6 +55,7 @@ class VulkanContext {
     uint32_t presentFamily() const { return presentFamily_; }
 
     const VkPhysicalDeviceMemoryProperties& memoryProperties() const { return memoryProperties_; }
+    VmaAllocator allocator() const { return allocator_; }
 
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
@@ -71,6 +75,7 @@ class VulkanContext {
     uint32_t presentFamily_ = VK_QUEUE_FAMILY_IGNORED;
 
     VkPhysicalDeviceMemoryProperties memoryProperties_{};
+    VmaAllocator allocator_ = VK_NULL_HANDLE;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

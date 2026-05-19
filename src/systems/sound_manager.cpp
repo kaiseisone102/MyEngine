@@ -150,13 +150,13 @@ bool SoundManager::init(const std::string& assetsDir) {
     impl_->landPath = assetsDir + "land.wav";
 
     // ─── ターン2: SE パス ────
-    impl_->shieldPath = assetsDir + "se/shield/shield.wav";
-    impl_->gripPath = assetsDir + "se/grips/grip.wav";
-    impl_->keyPath = assetsDir + "se/keys/key.wav";
-    impl_->moneyCoinPath = assetsDir + "se/money/coin.wav";
-    impl_->moneyCoinBagPath = assetsDir + "se/money/coin_bag.wav";
-    impl_->moneyDiamondPath = assetsDir + "se/money/diamond.wav";
-    impl_->slashPath = assetsDir + "se/attack/slash.mp3";
+    impl_->shieldPath = assetsDir + "sound_effect/shield/shield.wav";
+    impl_->gripPath = assetsDir + "sound_effect/grips/grip.wav";
+    impl_->keyPath = assetsDir + "sound_effect/keys/key.wav";
+    impl_->moneyCoinPath = assetsDir + "sound_effect/money/coin.wav";
+    impl_->moneyCoinBagPath = assetsDir + "sound_effect/money/coin_bag.wav";
+    impl_->moneyDiamondPath = assetsDir + "sound_effect/money/diamond.wav";
+    impl_->slashPath = assetsDir + "sound_effect/attack/slash.mp3";
 
     // ─── ターン3: 仮代用 (= coin.wav) ────
     // 後で SE 揃ったらここを差し替えるだけ
@@ -165,7 +165,7 @@ bool SoundManager::init(const std::string& assetsDir) {
     impl_->spiritPath = impl_->moneyCoinPath;    // 仮
     impl_->gateOpenPath = impl_->moneyCoinPath;  // 仮
     // chest は本物
-    impl_->chestOpenPath = assetsDir + "se/chests/chest.wav";
+    impl_->chestOpenPath = assetsDir + "sound_effect/chests/chest.wav";
 
     // 存在チェック (なくても初期化は続行)
     for (const auto* p : {&impl_->shieldPath, &impl_->gripPath, &impl_->keyPath,

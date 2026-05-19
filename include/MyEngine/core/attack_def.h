@@ -38,13 +38,14 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include "core/anim_state.h"
 
 enum class AttackKind {
-    Slash,      // 横なぎ (LMB)
-    Smash,      // 振り下ろし (RMB、 地上)
-    SmashDown,  // 急降下叩きつけ (RMB、 空中)
+    Slash,        // 横なぎ (LMB)
+    Smash,        // 振り下ろし (RMB、 地上)
+    SmashDown,    // 急降下叩きつけ (RMB、 空中)
 };
 
 enum class AttackPhase {
@@ -65,14 +66,14 @@ struct AttackDef {
     float recoveryTime;
 
     // ─── スイープ軌跡 (回転表現) ─────────────────────────────
-    glm::vec3 startDir;      // 始点 (単位ベクトル、 ローカル空間)
-    glm::vec3 rotationAxis;  // 回転軸 (単位ベクトル、 右ねじ規則)
-    float sweepAngleDeg;     // 回転角度 (符号付き)
+    glm::vec3 startDir;        // 始点 (単位ベクトル、 ローカル空間)
+    glm::vec3 rotationAxis;    // 回転軸 (単位ベクトル、 右ねじ規則)
+    float     sweepAngleDeg;   // 回転角度 (符号付き)
 
     // ─── 判定パラメータ ──────────────────────────────────────
     float range;
     float halfWidthDeg;
-    int damage;
+    int   damage;
 
     // ─── 挙動 ────────────────────────────────────────────────
     bool lockMovementGround;
@@ -80,9 +81,9 @@ struct AttackDef {
 
     // ─── ヘルパー ────────────────────────────────────────────
     float totalDuration() const { return windupTime + activeTime + recoveryTime; }
-    float windupEnd() const { return windupTime; }
-    float activeStart() const { return windupTime; }
-    float activeEnd() const { return windupTime + activeTime; }
+    float windupEnd()    const { return windupTime; }
+    float activeStart()  const { return windupTime; }
+    float activeEnd()    const { return windupTime + activeTime; }
 
     // 時刻 t (0.0〜1.0) でのローカル空間方向ベクトル。
     // t=0 で startDir、 t=1 で startDir を rotationAxis 回りに sweepAngleDeg 回転した結果。

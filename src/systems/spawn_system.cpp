@@ -137,15 +137,15 @@ void SpawnSystem::update(std::vector<SpawnTrigger>& triggers, flecs::entity play
     const glm::vec3& pPos = player.get<CTransform>().pos;
 
     for (SpawnTrigger& trig : triggers) {
-        if (trig.fired) continue;
+        if (trig.triggered) continue;
 
         const glm::vec2 diff{pPos.x - trig.center.x, pPos.z - trig.center.z};
         if (glm::length(diff) > trig.radius) continue;
 
         for (const SpawnEntry& entry : trig.spawns) {
-            spawnEnemy(entry.type, entry.spawnPos, world, enemies, vulkan);
+            spawnEnemy(entry.type, entry.position, world, enemies, vulkan);
         }
 
-        trig.fired = true;
+        trig.triggered = true;
     }
 }

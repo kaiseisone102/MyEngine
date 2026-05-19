@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// components.h — + Pendulum + OrbitVertical
+// components.h — + CHealth に displayedTotalHp / damageDelayTimer / healFlashTimer
 // =============================================================================
 
 #define GLM_FORCE_RADIANS
@@ -86,10 +86,25 @@ struct CHealth {
     static constexpr int kMaxSegments = 3;
     static constexpr float kInvincTime = 1.5f;
 
+    // ─── ダメージ遅延表示 (赤バー) ─────────────────────────
+    // 0.5 秒待ってから秒速 kDamageDrainSpeed で減少。
+    static constexpr float kDamageDelay = 0.5f;
+    static constexpr float kDamageDrainSpeed = 6.f;  // HP/秒、 1 区画を 0.5 秒で減らす
+
+    // ─── potion 拾い時のフラッシュ ──────────────────────────
+    static constexpr float kHealFlashDuration = 2.0f;
+
     int segmentCount = 2;
     int currentHp = kSegmentSize;
     int unlockedSegments = 2;
     float invincTimer = 0.f;
+
+    // 表示用 HP (float、 滑らかに減る)。 -1 = 未初期化、 初回 tick で実 HP に合わせる。
+    float displayedTotalHp = -1.f;
+    // ダメージ受けた後、 赤バーが減り始めるまでの待機時間。
+    float damageDelayTimer = 0.f;
+    // potion 拾い時のフラッシュ残り時間 (秒)。
+    float healFlashTimer = 0.f;
 
     int totalHp() const { return (segmentCount - 1) * kSegmentSize + currentHp; }
     bool isDead() const { return segmentCount == 0; }
@@ -104,6 +119,8 @@ struct CHealth {
             currentHp = (segmentCount > 0) ? kSegmentSize : 0;
         }
         if (applyInvinc) invincTimer = kInvincTime;
+        // 赤バー待機タイマー始動 (displayedTotalHp が遅れて追従する)
+        damageDelayTimer = kDamageDelay;
         return isDead();
     }
 
@@ -115,7 +132,7 @@ struct CHealth {
     }
 
     // 現在区画の currentHp を +amount 回復。 kSegmentSize 上限。
-    // 既に満タン (currentHp >= kSegmentSize) なら false (= 拾わない判定に使う)。
+    // 既に満タン (currentHp >= kSegmentSize) なら false (= 回復なし)。
     // 区画をまたいだ回復は行わない (失った区画は復活しない)。
     bool healInCurrentSegment(int amount = 1) {
         if (currentHp >= kSegmentSize) return false;
@@ -129,12 +146,44 @@ struct CHealth {
             invincTimer -= dt;
             if (invincTimer < 0.f) invincTimer = 0.f;
         }
+        if (healFlashTimer > 0.f) {
+            healFlashTimer -= dt;
+            if (healFlashTimer < 0.f) healFlashTimer = 0.f;
+        }
+
+        // ─── 表示用 HP の追従 ────
+        const float realHp = static_cast<float>(totalHp());
+
+        // 初期化: -1 なら現在値に揃える
+        if (displayedTotalHp < 0.f) {
+            displayedTotalHp = realHp;
+        }
+
+        // 回復で実 HP が表示 HP を超えたら、 即座に追従 (赤バーを残さない)
+        if (realHp > displayedTotalHp) {
+            displayedTotalHp = realHp;
+            damageDelayTimer = 0.f;
+        }
+
+        // 表示 HP > 実 HP (= ダメージ受けて遅れて減る途中)
+        if (displayedTotalHp > realHp) {
+            if (damageDelayTimer > 0.f) {
+                damageDelayTimer -= dt;
+                if (damageDelayTimer < 0.f) damageDelayTimer = 0.f;
+            } else {
+                displayedTotalHp -= kDamageDrainSpeed * dt;
+                if (displayedTotalHp < realHp) displayedTotalHp = realHp;
+            }
+        }
     }
 
     void respawn() {
         segmentCount = unlockedSegments;
         currentHp = kSegmentSize;
         invincTimer = 0.f;
+        displayedTotalHp = static_cast<float>(totalHp());
+        damageDelayTimer = 0.f;
+        healFlashTimer = 0.f;
     }
 };
 

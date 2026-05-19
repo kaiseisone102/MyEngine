@@ -5,11 +5,11 @@
 #include <vector>
 
 /**
- * @brief 「魔界村」墓場ステージ風のループBGMを生成するクラス。
+ * @brief レトロゲーム (MOTHER 系) 風のノスタルジックなループ BGM を生成するクラス。
  *
- * 6/8拍子・BPM140・Aマイナーで構成された90秒のループ曲を、
- * 44.1kHz / 16bit / モノラルのPCMデータとして生成します。
- * ループ点でクリックノイズが出ないよう、末尾と先頭がシームレスに接続されます。
+ * 4/4拍子・BPM80・Aマイナーで構成された 90 秒のループ曲を、
+ * 44.1kHz / 16bit / モノラルの PCM データとして生成します。
+ * ループ点でクリックノイズが出ないよう、末尾と先頭はフェードでシームレスに接続。
  */
 class DemonVillageBgmGenerator {
    public:
@@ -22,17 +22,17 @@ class DemonVillageBgmGenerator {
    private:
     // --- 定数 ---
     static constexpr float PI = 3.14159265f;
-    static constexpr int SR = 44100;          // サンプルレート
-    static constexpr float BPM = 110.0f;      // テンポ
-    static constexpr int BEATS_PER_BAR = 6;   // 6/8拍子
-    static constexpr float DURATION = 90.0f;  // 曲全体の長さ（秒）
+    static constexpr int SR = 44100;         // サンプルレート
+    static constexpr float BPM = 80.0f;      // テンポ (MOTHER 風ゆったり)
+    static constexpr int BEATS_PER_BAR = 4;  // 4/4 拍子
+    static constexpr float DURATION = 90.0f; // 曲全体の長さ（秒）
 
     // --- 楽器音色ID ---
     enum Instrument {
         INST_BASS = 0,       // 重いベース（矩形波＋低域）
         INST_BRASS = 1,      // 金管風（鋸波＋わずかなデチューン）
         INST_LEAD = 2,       // メロディ用リード（鋸波＋三角波ミックス）
-        INST_PLUCK = 3,      // 短い伴奏音
+        INST_PLUCK = 3,      // 短い伴奏音 (アルペジオ用)
         INST_DRUM_KICK = 4,  // キック
         INST_DRUM_HAT = 5,   // ハイハット（ノイズ）
     };

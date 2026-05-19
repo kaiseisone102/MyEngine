@@ -1,28 +1,35 @@
-// include/MyEngine/renderer/pass_chain.h
 #pragma once
 // =============================================================================
-// pass_chain.h — レンダーパス群と ImGui のオーケストレーション
+// pass_chain.h — ReflectionPass 統合版 + reflectShadows 対応
 // =============================================================================
 
 #include <SDL3/SDL.h>
 #include <vulkan/vulkan.h>
 
-#include <functional>
 #include <string>
+#include <vector>
 
+#include "core/game_settings.h"
+#include "core/particle.h"
+#include "debug_line_pass.h"
 #include "frame_uniforms.h"
+#include "hud_pass.h"
 #include "imgui_layer.h"
 #include "main_pass.h"
+#include "particle_pass.h"
+#include "reflection_pass.h"
 #include "shadow_pass.h"
+#include "water_pass.h"
 
 class VulkanContext;
 class ResourceFactory;
 class Swapchain;
 class SceneData;
 class AssetRegistry;
-class Texture;
 class Mesh;
 class Model;
+class DebugLineRenderer;
+class HudDrawList;
 
 class PassChain {
    public:
@@ -32,8 +39,11 @@ class PassChain {
         ResourceFactory* resources = nullptr;
         Swapchain* swapchain = nullptr;
         FrameUniforms* frameUniforms = nullptr;
-        const Texture* defaultTexture = nullptr;
+        AssetRegistry* assets = nullptr;
+        VkDescriptorSetLayout skinSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
+        ReflectionQuality reflectionQuality = ReflectionQuality::Half;
+        bool reflectShadows = true;
     };
 
     struct RecordInfo {
@@ -43,6 +53,19 @@ class PassChain {
         const SceneData* scene = nullptr;
         const AssetRegistry* assets = nullptr;
         FrameUniforms* frameUniforms = nullptr;
+        VkDescriptorSet skinSet = VK_NULL_HANDLE;
+        const DebugLineRenderer* debugLines = nullptr;
+        const std::vector<particle::Particle>* particles = nullptr;
+        const HudDrawList* hud = nullptr;
+        float screenW = 0.f;
+        float screenH = 0.f;
+        float waterTime = 0.f;
+
+        // 通常 view + lighting (反射 VP の計算と shadowStrength の調整)
+        FrameUniforms::LightingUBO normalLighting{};
+
+        ReflectionQuality reflectQuality = ReflectionQuality::Half;
+        bool reflectShadows = true;
     };
 
     void init(const InitInfo& info);
@@ -53,10 +76,19 @@ class PassChain {
     void recordFrame(const RecordInfo& info);
     void onSwapchainResized();
 
+    void onReflectionQualityChanged(ReflectionQuality quality);
+
     void processEvent(const SDL_Event& e) { ImGuiLayer::processEvent(e); }
 
    private:
     ShadowPass shadowPass_;
     MainPass mainPass_;
+    DebugLinePass debugLinePass_;
+    ParticlePass particlePass_;
+    HudPass hudPass_;
+    WaterPass waterPass_;
+    ReflectionPass reflectionPass_;
     ImGuiLayer imgui_;
+
+    Swapchain* swapchain_ = nullptr;
 };

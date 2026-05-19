@@ -15,7 +15,7 @@
 namespace {
 
 constexpr float kRunMultiplier = 1.7f;
-constexpr float kHorizontalCollisionMinYOverlap = 0.08f;
+constexpr float kHorizontalCollisionMinYOverlap = 0.05f;
 constexpr float kMinWalkableY = 0.7071f;
 
 struct CylAABBHorizHit {
@@ -27,26 +27,17 @@ struct CylAABBHorizHit {
 CylAABBHorizHit pushOutFromInside(const Cylinder& cyl, const AABB& box) {
     const float cx = cyl.baseCenter.x;
     const float cz = cyl.baseCenter.z;
-    const float dLeft = cx - box.min.x;
+    const float dLeft  = cx - box.min.x;
     const float dRight = box.max.x - cx;
     const float dFront = cz - box.min.z;
-    const float dBack = box.max.z - cz;
+    const float dBack  = box.max.z - cz;
 
     float minDist = dLeft;
     glm::vec2 dir{-1.f, 0.f};
 
-    if (dRight < minDist) {
-        minDist = dRight;
-        dir = {1.f, 0.f};
-    }
-    if (dFront < minDist) {
-        minDist = dFront;
-        dir = {0.f, -1.f};
-    }
-    if (dBack < minDist) {
-        minDist = dBack;
-        dir = {0.f, 1.f};
-    }
+    if (dRight < minDist) { minDist = dRight; dir = {1.f, 0.f}; }
+    if (dFront < minDist) { minDist = dFront; dir = {0.f, -1.f}; }
+    if (dBack  < minDist) { minDist = dBack;  dir = {0.f, 1.f}; }
 
     CylAABBHorizHit hit;
     hit.overlap = true;
@@ -95,8 +86,8 @@ void resolveOneHorizontal(flecs::entity entity, const AABB& platBox) {
 }  // namespace
 
 void MovementSystem::updateTpsPlayerMove(flecs::entity player, const Camera& camera,
-                                         const ActionState& input, const WorldTerrain* terrain,
-                                         float dt) const {
+                                         const ActionState& input,
+                                         const WorldTerrain* terrain, float dt) const {
     if (camera.mode != CameraMode::TPS) return;
 
     auto& pt = player.ensure<CTransform>();
@@ -110,7 +101,7 @@ void MovementSystem::updateTpsPlayerMove(flecs::entity player, const Camera& cam
 
     glm::vec3 move{0.f};
     move += camera.getTpsForward() * input.moveZ;
-    move += camera.getTpsRight() * input.moveX;
+    move += camera.getTpsRight()   * input.moveX;
 
     if (glm::length(move) > 0.001f) {
         const bool runModifier = input.sprint;
@@ -153,8 +144,8 @@ void MovementSystem::resolveHorizontalCollisions(
     }
 }
 
-void MovementSystem::resolveObstacleCollisions(flecs::entity entity,
-                                               const std::vector<flecs::entity>& obstacles) const {
+void MovementSystem::resolveObstacleCollisions(
+    flecs::entity entity, const std::vector<flecs::entity>& obstacles) const {
     for (flecs::entity obs : obstacles) {
         if (!obs.is_alive()) continue;
         if (!obs.has<CObstacle>() || !obs.has<CTransform>()) continue;

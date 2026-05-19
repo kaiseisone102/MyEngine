@@ -1,8 +1,30 @@
-// src/renderer/resource_factory.cpp
-
+// \MyEngine\src\renderer\resource_factory.cpp
+// =============================================================================
+// resource_factory.cpp
+// =============================================================================
+// 実装内容:
+//   VkBuffer / VkImage の生成・メモリ確保・転送・レイアウト遷移のヘルパー。
+//   ワンタイムコマンド用に専用の TRANSIENT コマンドプールを持つ。
+//
+// 注意:
+//   - ctx_ は所有しない。init〜shutdown の間、 呼び出し側が寿命を保証する。
+//   - createBuffer/createImage は AllocateMemory 失敗時に先に作った
+//     buffer/image を破棄してから throw する (リーク防止)。
+//   - transitionImageLayout は color aspect 限定。 サポート済み遷移:
+//       UNDEFINED          → TRANSFER_DST_OPTIMAL    (テクスチャアップロード前)
+//       TRANSFER_DST       → SHADER_READ_ONLY        (テクスチャアップロード後)
+//       UNDEFINED          → SHADER_READ_ONLY        (空テクスチャの初期化)
+//       未サポート遷移は generic fallback で実行 (パフォーマンス悪いが安全)。
+// =============================================================================
 #include "renderer/resource_factory.h"
 
+#include <vk_mem_alloc.h>
+
 #include <stdexcept>
+
+// =============================================================================
+// init / shutdown
+// =============================================================================
 
 void ResourceFactory::init(const VulkanContext* ctx) {
     ctx_ = ctx;
@@ -13,8 +35,9 @@ void ResourceFactory::init(const VulkanContext* ctx) {
     VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     ci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     ci.queueFamilyIndex = ctx_->graphicsFamily();
-    if (vkCreateCommandPool(ctx_->device(), &ci, nullptr, &transientPool_) != VK_SUCCESS)
+    if (vkCreateCommandPool(ctx_->device(), &ci, nullptr, &transientPool_) != VK_SUCCESS) {
         throw std::runtime_error("ResourceFactory: vkCreateCommandPool failed");
+    }
 }
 
 void ResourceFactory::shutdown() {
@@ -25,16 +48,25 @@ void ResourceFactory::shutdown() {
     ctx_ = nullptr;
 }
 
+// =============================================================================
+// findMemoryType
+// =============================================================================
+
 uint32_t ResourceFactory::findMemoryType(uint32_t typeFilter,
                                          VkMemoryPropertyFlags properties) const {
     const auto& memProps = ctx_->memoryProperties();
     for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
         if ((typeFilter & (1u << i)) &&
-            (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+            (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
+        }
     }
     throw std::runtime_error("ResourceFactory::findMemoryType: no suitable memory type");
 }
+
+// =============================================================================
+// createBuffer
+// =============================================================================
 
 void ResourceFactory::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                    VkMemoryPropertyFlags properties, VkBuffer& buffer,
@@ -43,19 +75,28 @@ void ResourceFactory::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     bi.size = size;
     bi.usage = usage;
     bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateBuffer(ctx_->device(), &bi, nullptr, &buffer) != VK_SUCCESS)
+    if (vkCreateBuffer(ctx_->device(), &bi, nullptr, &buffer) != VK_SUCCESS) {
         throw std::runtime_error("ResourceFactory::createBuffer: vkCreateBuffer failed");
+    }
 
     VkMemoryRequirements req{};
     vkGetBufferMemoryRequirements(ctx_->device(), buffer, &req);
+
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = findMemoryType(req.memoryTypeBits, properties);
-    if (vkAllocateMemory(ctx_->device(), &ai, nullptr, &bufferMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(ctx_->device(), &ai, nullptr, &bufferMemory) != VK_SUCCESS) {
+        // リーク防止: 先に作った buffer を破棄してから throw
+        vkDestroyBuffer(ctx_->device(), buffer, nullptr);
+        buffer = VK_NULL_HANDLE;
         throw std::runtime_error("ResourceFactory::createBuffer: vkAllocateMemory failed");
-
+    }
     vkBindBufferMemory(ctx_->device(), buffer, bufferMemory, 0);
 }
+
+// =============================================================================
+// createImage
+// =============================================================================
 
 void ResourceFactory::createImage(uint32_t width, uint32_t height, VkFormat format,
                                   VkImageTiling tiling, VkImageUsageFlags usage,
@@ -72,19 +113,28 @@ void ResourceFactory::createImage(uint32_t width, uint32_t height, VkFormat form
     ci.usage = usage;
     ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (vkCreateImage(ctx_->device(), &ci, nullptr, &image) != VK_SUCCESS)
+    if (vkCreateImage(ctx_->device(), &ci, nullptr, &image) != VK_SUCCESS) {
         throw std::runtime_error("ResourceFactory::createImage: vkCreateImage failed");
+    }
 
     VkMemoryRequirements req{};
     vkGetImageMemoryRequirements(ctx_->device(), image, &req);
+
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = findMemoryType(req.memoryTypeBits, properties);
-    if (vkAllocateMemory(ctx_->device(), &ai, nullptr, &imageMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(ctx_->device(), &ai, nullptr, &imageMemory) != VK_SUCCESS) {
+        // リーク防止: 先に作った image を破棄してから throw
+        vkDestroyImage(ctx_->device(), image, nullptr);
+        image = VK_NULL_HANDLE;
         throw std::runtime_error("ResourceFactory::createImage: vkAllocateMemory failed");
-
+    }
     vkBindImageMemory(ctx_->device(), image, imageMemory, 0);
 }
+
+// =============================================================================
+// One-time commands
+// =============================================================================
 
 VkCommandBuffer ResourceFactory::beginOneTimeCommands() const {
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -92,8 +142,9 @@ VkCommandBuffer ResourceFactory::beginOneTimeCommands() const {
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
     VkCommandBuffer cmd{};
-    if (vkAllocateCommandBuffers(ctx_->device(), &ai, &cmd) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(ctx_->device(), &ai, &cmd) != VK_SUCCESS) {
         throw std::runtime_error("ResourceFactory: beginOneTimeCommands alloc failed");
+    }
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &bi);
@@ -105,11 +156,16 @@ void ResourceFactory::endOneTimeCommands(VkCommandBuffer cmd) const {
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
-    if (vkQueueSubmit(ctx_->graphicsQueue(), 1, &si, VK_NULL_HANDLE) != VK_SUCCESS)
+    if (vkQueueSubmit(ctx_->graphicsQueue(), 1, &si, VK_NULL_HANDLE) != VK_SUCCESS) {
         throw std::runtime_error("ResourceFactory: endOneTimeCommands submit failed");
+    }
     vkQueueWaitIdle(ctx_->graphicsQueue());
     vkFreeCommandBuffers(ctx_->device(), transientPool_, 1, &cmd);
 }
+
+// =============================================================================
+// copyBuffer
+// =============================================================================
 
 void ResourceFactory::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) const {
     VkCommandBuffer cmd = beginOneTimeCommands();
@@ -118,6 +174,10 @@ void ResourceFactory::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) 
     vkCmdCopyBuffer(cmd, src, dst, 1, &region);
     endOneTimeCommands(cmd);
 }
+
+// =============================================================================
+// copyBufferToImage
+// =============================================================================
 
 void ResourceFactory::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width,
                                         uint32_t height) const {
@@ -128,6 +188,10 @@ void ResourceFactory::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t
     vkCmdCopyBufferToImage(cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     endOneTimeCommands(cmd);
 }
+
+// =============================================================================
+// transitionImageLayout (color aspect 限定)
+// =============================================================================
 
 void ResourceFactory::transitionImageLayout(VkImage image, VkImageLayout oldLayout,
                                             VkImageLayout newLayout) const {
@@ -140,7 +204,9 @@ void ResourceFactory::transitionImageLayout(VkImage image, VkImageLayout oldLayo
     barrier.image = image;
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-    VkPipelineStageFlags srcStage{}, dstStage{};
+    VkPipelineStageFlags srcStage{};
+    VkPipelineStageFlags dstStage{};
+
     if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
         newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
         barrier.srcAccessMask = 0;
@@ -153,9 +219,74 @@ void ResourceFactory::transitionImageLayout(VkImage image, VkImageLayout oldLayo
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+               newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        // 空テクスチャの初期化等で使う
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else {
-        throw std::runtime_error("ResourceFactory::transitionImageLayout: unsupported transition");
+        // 想定外の遷移は generic fallback (パフォーマンス悪いが安全)
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     }
+
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     endOneTimeCommands(cmd);
+}
+
+// =============================================================================
+// VMA-based helpers (Phase 1B-3+)
+// =============================================================================
+// These use the VMA allocator owned by VulkanContext, which was initialized
+// with VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT.
+
+void ResourceFactory::createBufferVMA(VkDeviceSize size, VkBufferUsageFlags usage,
+                                       VmaMemoryUsage memoryUsage,
+                                       VmaAllocationCreateFlags flags,
+                                       VkBuffer& buffer, VmaAllocation& allocation) const {
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = usage;
+    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo ai{};
+    ai.usage = memoryUsage;
+    ai.flags = flags;
+
+    if (vmaCreateBuffer(ctx_->allocator(), &bi, &ai, &buffer, &allocation, nullptr) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("ResourceFactory::createBufferVMA: vmaCreateBuffer failed");
+    }
+}
+
+void ResourceFactory::createImageVMA(uint32_t width, uint32_t height, VkFormat format,
+                                      VkImageTiling tiling, VkImageUsageFlags usage,
+                                      VmaMemoryUsage memoryUsage,
+                                      VmaAllocationCreateFlags flags,
+                                      VkImage& image, VmaAllocation& allocation) const {
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.extent.width = width;
+    ci.extent.height = height;
+    ci.extent.depth = 1;
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.format = format;
+    ci.tiling = tiling;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ci.usage = usage;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo ai{};
+    ai.usage = memoryUsage;
+    ai.flags = flags;
+
+    if (vmaCreateImage(ctx_->allocator(), &ci, &ai, &image, &allocation, nullptr) != VK_SUCCESS) {
+        throw std::runtime_error("ResourceFactory::createImageVMA: vmaCreateImage failed");
+    }
 }

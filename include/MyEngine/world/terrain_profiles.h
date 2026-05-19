@@ -1,36 +1,35 @@
 #pragma once
 // =============================================================================
-// terrain_profiles.h — ステージごとの高さ関数集
+// terrain_profiles.h - height functions per stage
 // =============================================================================
-// TerrainMesh::HeightFunc に渡せる「高さ関数」 を集めたヘッダ。
-// 各関数は (worldX, worldZ) を受け取って高さ (m) を返す純関数。
+// Collection of "height functions" passable to TerrainMesh::HeightFunc.
+// Each function takes (worldX, worldZ) and returns height (m) as a pure function.
 //
-// 設計:
-//   - sin/cos の合成で perlin noise と同等の「滑らかな起伏」 を表現
-//   - 外部ライブラリ依存なし (std::sin / std::cos のみ)
-//   - 各プロファイルは大・中・細の 3 段スケールで自然な見た目を出す
-//   - ステージごとに `addTerrain(data, ..., terrain_profile::xxx)` で使い分け
+// Design:
+//   - sin/cos composition for perlin-noise-like smooth undulations
+//   - No external library dependency (std::sin / std::cos only)
+//   - Each profile uses 3-tier scale (large/mid/fine) for natural look
+//   - Use per stage via `addTerrain(data, ..., terrain_profile::xxx)`
 //
-// 新しいプロファイル追加手順:
-//   1. ここに inline float xxx(float x, float z) を追加
-//   2. stage_registry.cpp の対応ステージで addTerrain の第 4 引数に渡す
+// How to add a new profile:
+//   1. Add inline float xxx(float x, float z) here
+//   2. Pass it as the 4th arg of addTerrain in the corresponding stage
 // =============================================================================
-
 #include <cmath>
 
 namespace terrain_profile {
 
-// ─── flat: 完全に平ら ─────────────────────────────────────
-// Terminal のような屋内的・整地済みステージで使う。
+// flat: completely flat
+// For indoor/cleared stages like Terminal.
 inline float flat(float, float) { return 0.f; }
 
-// ─── rollingHills: 緩やかな丘陵 (±1m 控えめ) ─────────────
-// player の cube ground (平らな板) と最大 1m 程度のズレで済む控えめ起伏。
-// 3 段スケール合成で「自然な草原のうねり」 を表現。
-//   大スケール: 波長 ~30m、 振幅 ±0.6m  (大きなうねり)
-//   中スケール: 波長 ~10m、 振幅 ±0.3m  (中間の起伏)
-//   細スケール: 波長 ~3m 、 振幅 ±0.1m  (細かい凹凸)
-//   合計: 概ね ±1m に収まる
+// rollingHills: gentle rolling hills (modest +/- 1m)
+// Player's cube ground (flat board) deviates by at most ~1m. Modest undulation.
+// 3-tier scale composition expresses "natural meadow waves".
+//   large: wavelength ~30m, amplitude +/- 0.6m  (big waves)
+//   mid:   wavelength ~10m, amplitude +/- 0.3m  (mid undulations)
+//   fine:  wavelength ~3m,  amplitude +/- 0.1m  (fine bumps)
+//   total: roughly within +/- 1m
 inline float rollingHills(float x, float z) {
     const float h1 = std::sin(x * 0.21f) * std::cos(z * 0.18f) * 0.6f;
     const float h2 = std::sin(x * 0.60f + 1.3f) * std::sin(z * 0.55f + 0.7f) * 0.3f;
@@ -38,43 +37,41 @@ inline float rollingHills(float x, float z) {
     return h1 + h2 + h3;
 }
 
-// ─── stage1_1_terrain: Stage 1-1 用 (起伏 + 急な丘 + くぼみ) ─
-// rollingHills をベースに、 特定の位置に「mesa (テーブルマウンテン)」 と
-// くぼみを追加する。
+// stage1_1_terrain: Stage 1-1 (undulation + steep hill + dent)
+// Based on rollingHills, adds a steep mesa (table mountain) and a dent at
+// specific positions.
 //
-// 急な丘 (mesa): 中心 (15, 0, 15)
-//   - 頂上半径 2m: 平らな高さ +2m
-//   - 急斜面 半径 2m〜3.5m: smoothstep で 2m → 0m に補間
-//     最大勾配 = 高さ 2m / 幅 1.5m × 1.5 (smoothstep 係数) = 2.0 → 約 63°
-//     45° 閾値より確実に急で、 movement_system が登れない判定をする。
-//   - 半径 3.5m 以上: 平地 (高さ 0)
+// Steep hill (mesa): center (15, 0, 15)
+//   - top radius 2m: flat height +2m
+//   - steep slope radius 2m to 3.5m: smoothstep interpolation 2m -> 0m
+//     max slope = height 2m / width 1.5m * 1.5 (smoothstep coef) = 2.0 ~= 63deg
+//     Definitely steeper than 45deg threshold, movement_system will reject it.
+//   - radius >= 3.5m: flat (height 0)
 //
-// くぼみ: 中心 (-12, -12)、 σ=7m、 深さ 3m
-//   勾配は 3/7 ≈ 0.43 (23°) 程度、 普通に降りられる。
+// Dent: center (-12, -12), sigma=7m, depth 3m
+//   Slope ~ 3/7 = 0.43 (23deg), can be descended normally.
 inline float stage1_1_terrain(float x, float z) {
-    // ベース: 緩やかな丘陵 (±1m 程度)
+    // Base: gentle rolling hills (+/- 1m or so)
     float h = rollingHills(x, z);
 
-    // 急な丘 (mesa 形状、 登れない想定)
+    // Steep hill (mesa shape, intended to be unclimbable)
     {
         const float dx = x - 15.f;
         const float dz = z - 15.f;
         const float r = std::sqrt(dx * dx + dz * dz);
-        constexpr float innerR = 2.0f;  // 平らな頂上の半径
-        constexpr float outerR = 3.5f;  // 急斜面の外端
+        constexpr float innerR = 2.0f;
+        constexpr float outerR = 3.5f;
         constexpr float height = 2.0f;
         if (r < innerR) {
             h += height;
         } else if (r < outerR) {
-            // smoothstep で innerR (high) → outerR (low) に補間
-            const float t = (r - innerR) / (outerR - innerR);  // 0..1
-            const float s = t * t * (3.f - 2.f * t);           // smoothstep
+            const float t = (r - innerR) / (outerR - innerR);
+            const float s = t * t * (3.f - 2.f * t);  // smoothstep
             h += height * (1.f - s);
         }
-        // r >= outerR: 加算なし (平地に戻る)
     }
 
-    // くぼみ (降りられる想定、 ガウス関数)
+    // Dent (gaussian, descendable)
     {
         const float dx = x - (-12.f);
         const float dz = z - (-12.f);
@@ -87,10 +84,10 @@ inline float stage1_1_terrain(float x, float z) {
     return h;
 }
 
-// (将来追加候補)
-// - mountainous: 山岳地形 (±5m、 急斜面)
-// - meadow:      平原 (±0.3m、 ほぼ平ら)
-// - canyon:      谷地形 (X 方向に長い谷)
-// - islands:     海面 + 小島群
+// (future candidates)
+// - mountainous: mountain terrain (+/- 5m, steep slopes)
+// - meadow:      plain (+/- 0.3m, nearly flat)
+// - canyon:      valley terrain (long valley in X direction)
+// - islands:     sea + small islands
 
 }  // namespace terrain_profile

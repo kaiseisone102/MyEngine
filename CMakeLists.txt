@@ -9,10 +9,10 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
         set(CMAKE_TOOLCHAIN_FILE "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE PATH "vcpkg toolchain" FORCE)
     else()
         message(FATAL_ERROR
-            "CMAKE_TOOLCHAIN_FILE が未設定です。vcpkg を使うには次のいずれかが必要です:\n"
+            "CMAKE_TOOLCHAIN_FILE が未設定です。vcpkg を使ぁE��は次のぁE��れかが忁E��でぁE\n"
             "  • cmake --preset windows-vcpkg\n"
             "  • cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake\n"
-            "  • 環境変数 VCPKG_ROOT を vcpkg のクローン先に設定してから再実行\n")
+            "  • 環墁E��数 VCPKG_ROOT めEvcpkg のクローン先に設定してから再実行\n")
     endif()
 endif()
 
@@ -30,6 +30,7 @@ find_package(Stb REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(poly2tri CONFIG REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_path(MINIAUDIO_INCLUDE_DIR NAMES miniaudio.h REQUIRED)
 
 set(SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
@@ -64,21 +65,21 @@ add_custom_command(
         "${SHADER_INT_DIR}/water_vert.spv"
         "${SHADER_INT_DIR}/water_frag.spv"
         "${SHADER_INT_DIR}/water_reflect_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/shadow.vert"            -o "${SHADER_INT_DIR}/shadow_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/shadow_skinned.vert"    -o "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/debug_line.vert"        -o "${SHADER_INT_DIR}/debug_line_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/debug_line.frag"        -o "${SHADER_INT_DIR}/debug_line_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/hud.vert"               -o "${SHADER_INT_DIR}/hud_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/hud.frag"               -o "${SHADER_INT_DIR}/hud_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/particle.vert"          -o "${SHADER_INT_DIR}/particle_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/particle.frag"          -o "${SHADER_INT_DIR}/particle_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water.vert"             -o "${SHADER_INT_DIR}/water_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"  
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow.vert"            -o "${SHADER_INT_DIR}/shadow_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow_skinned.vert"    -o "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/debug_line.vert"        -o "${SHADER_INT_DIR}/debug_line_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/debug_line.frag"        -o "${SHADER_INT_DIR}/debug_line_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/hud.vert"               -o "${SHADER_INT_DIR}/hud_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/hud.frag"               -o "${SHADER_INT_DIR}/hud_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/particle.vert"          -o "${SHADER_INT_DIR}/particle_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/particle.frag"          -o "${SHADER_INT_DIR}/particle_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.vert"             -o "${SHADER_INT_DIR}/water_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"  
     DEPENDS
         "${SHADER_SRC_DIR}/triangle.vert"
         "${SHADER_SRC_DIR}/triangle.frag"
@@ -146,8 +147,6 @@ add_executable(${PROJECT_NAME}
     src/loop/mode_select_layer.cpp
     src/loop/settings_layer.cpp
     src/loop/title_layer.cpp
-  
-    src/material/material.cpp
 
     src/renderer/animation.cpp
     src/renderer/animator.cpp
@@ -162,7 +161,6 @@ add_executable(${PROJECT_NAME}
     src/renderer/vulkan_context.cpp
     src/renderer/resource_factory.cpp
     src/renderer/vulkan_renderer.cpp
-    src/renderer/scene_renderer.cpp
     src/renderer/swapchain.cpp
     src/renderer/texture.cpp
     src/renderer/main_pass.cpp
@@ -185,6 +183,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/water_pipeline.cpp
 
     src/scene/scene_data.cpp
+    src/scene/scene_renderer.cpp
 
     src/systems/anim_state_system.cpp
     src/systems/audio_event_system.cpp
@@ -210,8 +209,6 @@ add_executable(${PROJECT_NAME}
     src/systems/spawn_system.cpp
     src/systems/spirit_system.cpp
     src/systems/demonVillageBgmGenerator.cpp
-    
-    src/world/scene_builder_from_world.cpp
     src/world/stage_registry.cpp
     src/world/world_builder.cpp
     src/world/world_terrain.cpp
@@ -250,6 +247,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     imgui::imgui
     assimp::assimp
     poly2tri::poly2tri
+    GPUOpen::VulkanMemoryAllocator
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -263,6 +261,7 @@ endif()
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /EHsc)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL)
 endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

@@ -10,8 +10,8 @@
 //   - 将来 swordType / armorType を追加する場合も同じパターンで拡張可能
 //
 // 使い方:
-//   - shieldModelForType(assets, ShieldType::Iron) -> const Model* (shield_iron)
-//   - applyShieldChange(player, assets, ShieldType::Silver) -> CShield + CEquipment 更新
+//   - shieldModelForType(assets, ShieldType::Normal) → const Model* (shield_iron)
+//   - applyShieldChange(player, assets, ShieldType::Silver) → CShield + CEquipment 更新
 // =============================================================================
 
 #include <flecs.h>

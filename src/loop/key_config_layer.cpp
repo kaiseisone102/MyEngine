@@ -13,7 +13,7 @@
 #include "core/event_bus.h"
 #include "core/game_state.h"
 #include "loop/layer_factory.h"
-#include "renderer/scene_renderer.h"
+#include "scene/scene_renderer.h"
 #include "renderer/vulkan_renderer.h"
 
 namespace {
@@ -25,9 +25,9 @@ constexpr int kBackIndex = kActionCount + 2;
 
 }  // namespace
 
-KeyConfigLayer::KeyConfigLayer(render::SceneRenderer& renderer, GameState& state,
+KeyConfigLayer::KeyConfigLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, GameState& state,
                                ILayerFactory& factory)
-    : MenuLayerBase(renderer), state_(state), factory_(factory) {}
+    : MenuLayerBase(renderer, vulkan), state_(state), factory_(factory) {}
 
 KeyConfigLayer::~KeyConfigLayer() = default;
 
@@ -188,7 +188,7 @@ void KeyConfigLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
             return;
         }
         if (findEvent<WindowResizeRequested>(events)) {
-            renderer().vulkan().onResize();
+            vulkan().onResize();
             return;
         }
         return;

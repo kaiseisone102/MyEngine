@@ -1,22 +1,20 @@
 // include/MyEngine/renderer/texture.h
-
 #pragma once
 // =============================================================================
-// Texture — Step 4 で VulkanRenderer から切り出したクラス
+// Texture — Phase 1-D 段階2-c で loadFromMemory を追加
 // =============================================================================
-// 責務:
-//   - VkImage / VkDeviceMemory / VkImageView / VkSampler 一式の管理
-//   - stb_image による PNG ロード
-//   - ロード失敗時のフォールバック（チェッカーボード生成）
-//   - ステージング経由の GPU アップロード
+//   - 既存: loadFromFileOrCheckerboard(path)
+//   - 新規: loadFromMemory(encodedBytes, size)  ← glTF 埋め込みテクスチャ用
 //
-// 設計メモ:
-//   - フォーマットは VK_FORMAT_R8G8B8A8_SRGB 固定（将来拡張時に引数化）
-//   - サンプラ設定もデフォルト固定（REPEAT / LINEAR / アニソ無効）
+// loadFromMemory は stb_image::stbi_load_from_memory を使うため、
+// PNG/JPEG/BMP 等のエンコード済みバイト列を渡す前提。
+// 生 RGBA バイト列をそのまま GPU に流す API は今回は作らない。
 // =============================================================================
 
 #include <vulkan/vulkan.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 class VulkanContext;
@@ -24,9 +22,14 @@ class ResourceFactory;
 
 class Texture {
    public:
-    // path のファイルが存在すれば読み込み、なければチェッカーボードを生成する。
     void loadFromFileOrCheckerboard(const VulkanContext* ctx, const ResourceFactory* resources,
                                     const std::string& path);
+
+    // メモリ上のエンコード済み画像 (PNG/JPEG等) からロードする。
+    // size = エンコード済みバイト数。デコード失敗時はチェッカーボードにフォールバック。
+    void loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
+                        const uint8_t* encodedData, size_t size);
+
     void destroy();
 
     VkImageView view() const { return view_; }
@@ -43,4 +46,10 @@ class Texture {
     void createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
                             int height);
     void createSampler();
+
+    // 共通: 与えられた RGBA8 ピクセルから image/view/sampler を作る。
+    void buildFromRgbaPixels(const ResourceFactory* resources, const uint8_t* pixels, int w, int h);
+
+    // フォールバックチェッカーボード生成 (256x256, 32px tile)
+    static void generateCheckerboard(uint8_t* dst, int w, int h);
 };

@@ -1,16 +1,147 @@
-// src/renderer/main_pass.cpp
+// =============================================================================
+// main_pass.cpp — Phase 1C: opaque/transparent + Water + DebugLine + Particle
+//                            + HUD + ImGui
+// =============================================================================
 #include "renderer/main_pass.h"
 
 #include <cstddef>
+#include <iostream>
 #include <stdexcept>
 
+#include "renderer/debug_line_pass.h"
+#include "renderer/debug_line_renderer.h"
+#include "renderer/hud_draw_list.h"
+#include "renderer/hud_pass.h"
 #include "renderer/imgui_layer.h"
 #include "renderer/material.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
+#include "renderer/particle_pass.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
+#include "renderer/terrain_mesh.h"
 #include "renderer/vulkan_context.h"
+#include "renderer/water_pass.h"
+
+namespace {
+
+void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+                    const Mesh* mesh, const std::vector<MeshDrawItem>& list) {
+    if (!mesh || list.empty()) return;
+    mesh->bind(cmd);
+    VkDescriptorSet lastMatSet = VK_NULL_HANDLE;
+    for (const MeshDrawItem& item : list) {
+        VkDescriptorSet matSet = defaultMatSet;
+        if (item.material && item.material->descriptorSet() != VK_NULL_HANDLE) {
+            matSet = item.material->descriptorSet();
+        }
+        if (matSet != lastMatSet) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
+                                      0, nullptr);
+            lastMatSet = matSet;
+        }
+        MainPass::StaticPushConstants pc{};
+        pc.model = item.model;
+        pc.alpha = item.alpha;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                            sizeof(MainPass::StaticPushConstants), &pc);
+        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
+    }
+}
+
+void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
+                            VkDescriptorSet defaultMatSet,
+                            const std::vector<StaticModelDrawItem>& list) {
+    if (list.empty()) return;
+    const Model* curModel = nullptr;
+    const std::vector<Material>* curMaterials = nullptr;
+
+    for (const StaticModelDrawItem& item : list) {
+        if (!item.sourceModel) continue;
+        if (item.sourceModel != curModel) {
+            curModel = item.sourceModel;
+            curMaterials = &curModel->materials();
+        }
+
+        MainPass::StaticPushConstants pc{};
+        pc.model = item.model;
+        pc.alpha = item.alpha;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                            sizeof(MainPass::StaticPushConstants), &pc);
+
+        for (const SubMesh& sm : curModel->subMeshes()) {
+            if (sm.indexCount == 0) continue;
+            VkDescriptorSet matSet = defaultMatSet;
+            if (curMaterials && sm.materialIndex < curMaterials->size()) {
+                VkDescriptorSet ms = (*curMaterials)[sm.materialIndex].descriptorSet();
+                if (ms != VK_NULL_HANDLE) matSet = ms;
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
+                                      0, nullptr);
+            sm.bind(cmd);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+        }
+    }
+}
+
+void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+                       const std::vector<TerrainDrawItem>& list) {
+    if (list.empty()) return;
+    VkDescriptorSet lastMatSet = VK_NULL_HANDLE;
+    for (const TerrainDrawItem& item : list) {
+        if (!item.terrain) continue;
+        VkDescriptorSet matSet = defaultMatSet;
+        if (item.material && item.material->descriptorSet() != VK_NULL_HANDLE) {
+            matSet = item.material->descriptorSet();
+        }
+        if (matSet != lastMatSet) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
+                                      0, nullptr);
+            lastMatSet = matSet;
+        }
+        MainPass::StaticPushConstants pc{};
+        pc.model = item.model;
+        pc.alpha = item.alpha;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                            sizeof(MainPass::StaticPushConstants), &pc);
+        item.terrain->bind(cmd);
+        vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1, 0, 0, 0);
+    }
+}
+
+void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+                       const std::vector<SkinnedDrawItem>& list) {
+    if (list.empty()) return;
+    const Model* curModel = nullptr;
+    const std::vector<Material>* curMaterials = nullptr;
+    for (const SkinnedDrawItem& item : list) {
+        if (!item.sourceModel) continue;
+        if (item.sourceModel != curModel) {
+            curModel = item.sourceModel;
+            curMaterials = &curModel->materials();
+        }
+        MainPass::SkinnedPushConstants pc{};
+        pc.model = item.model;
+        pc.skinOffset = item.skinOffset;
+        pc.alpha = item.alpha;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                            sizeof(MainPass::SkinnedPushConstants), &pc);
+        for (const SubMesh& sm : curModel->subMeshes()) {
+            if (sm.indexCount == 0) continue;
+            VkDescriptorSet matSet = defaultMatSet;
+            if (curMaterials && sm.materialIndex < curMaterials->size()) {
+                VkDescriptorSet ms = (*curMaterials)[sm.materialIndex].descriptorSet();
+                if (ms != VK_NULL_HANDLE) matSet = ms;
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
+                                      0, nullptr);
+            sm.bind(cmd);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+        }
+    }
+}
+
+}  // namespace
 
 void MainPass::init(const InitInfo& info) {
     if (!info.ctx || !info.swapchain) throw std::runtime_error("MainPass::init: invalid info");
@@ -18,7 +149,25 @@ void MainPass::init(const InitInfo& info) {
     swapchain_ = info.swapchain;
 
     createRenderPass();
-    createPipeline(info.frameSetLayout, info.materialSetLayout, info.shaderDir);
+
+    createStaticLayout(info.frameSetLayout, info.materialSetLayout);
+    {
+        PipelineBuildArgs argsOp{staticLayout_, "triangle_vert.spv", "triangle_frag.spv", false};
+        staticPipelineOpaque_ = buildPipeline(argsOp, info.shaderDir);
+        PipelineBuildArgs argsTr{staticLayout_, "triangle_vert.spv", "triangle_frag.spv", true};
+        staticPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
+    }
+
+    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout, info.skinSetLayout);
+    {
+        PipelineBuildArgs argsOp{skinnedLayout_, "triangle_skinned_vert.spv",
+                                   "triangle_skinned_frag.spv", false};
+        skinnedPipelineOpaque_ = buildPipeline(argsOp, info.shaderDir);
+        PipelineBuildArgs argsTr{skinnedLayout_, "triangle_skinned_vert.spv",
+                                   "triangle_skinned_frag.spv", true};
+        skinnedPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
+    }
+
     createFramebuffers();
 }
 
@@ -75,16 +224,46 @@ void MainPass::createRenderPass() {
         throw std::runtime_error("MainPass: vkCreateRenderPass failed");
 }
 
-void MainPass::createPipeline(VkDescriptorSetLayout frameSetLayout,
-                              VkDescriptorSetLayout materialSetLayout,
-                              const std::string& shaderDir) {
-    if (frameSetLayout == VK_NULL_HANDLE || materialSetLayout == VK_NULL_HANDLE)
-        throw std::runtime_error("MainPass::createPipeline: set layout missing");
+void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
+                                     VkDescriptorSetLayout materialSetLayout) {
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(StaticPushConstants);
 
-    VkShaderModule vert =
-        shader_util::loadShaderModule(ctx_->device(), shaderDir + "triangle_vert.spv");
-    VkShaderModule frag =
-        shader_util::loadShaderModule(ctx_->device(), shaderDir + "triangle_frag.spv");
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 2;
+    lci.pSetLayouts = setLayouts;
+    lci.pushConstantRangeCount = 1;
+    lci.pPushConstantRanges = &pc;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &staticLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("MainPass: static layout failed");
+    }
+}
+
+void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
+                                      VkDescriptorSetLayout materialSetLayout,
+                                      VkDescriptorSetLayout skinSetLayout) {
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(SkinnedPushConstants);
+
+    VkDescriptorSetLayout setLayouts[3] = {frameSetLayout, materialSetLayout, skinSetLayout};
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 3;
+    lci.pSetLayouts = setLayouts;
+    lci.pushConstantRangeCount = 1;
+    lci.pPushConstantRanges = &pc;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &skinnedLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("MainPass: skinned layout failed");
+    }
+}
+
+VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir) {
+    VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.vertSpv);
+    VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.fragSpv);
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -96,19 +275,17 @@ void MainPass::createPipeline(VkDescriptorSetLayout frameSetLayout,
     stages[1].module = frag;
     stages[1].pName = "main";
 
-    // ─── 頂点入力 ────────────────────────────────────────────────
-    // Phase 2 段階A: jointIndices (location=4) と jointWeights (location=5) を追加。
-    // シェーダー側は段階F まで読み取らないが、attribute は今のうちに通しておく。
     VkVertexInputBindingDescription bind{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription attrs[6]{};
     attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(Vertex, pos))};
     attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(Vertex, color))};
     attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, static_cast<uint32_t>(offsetof(Vertex, texCoord))};
-    attrs[3] = {3, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(Vertex, normal))};
+    attrs[3] = {3, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                  static_cast<uint32_t>(offsetof(Vertex, normal))};
     attrs[4] = {4, 0, VK_FORMAT_R32G32B32A32_SINT,
-                static_cast<uint32_t>(offsetof(Vertex, jointIndices))};
+                  static_cast<uint32_t>(offsetof(Vertex, jointIndices))};
     attrs[5] = {5, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                static_cast<uint32_t>(offsetof(Vertex, jointWeights))};
+                  static_cast<uint32_t>(offsetof(Vertex, jointWeights))};
 
     VkPipelineVertexInputStateCreateInfo vi{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -139,12 +316,24 @@ void MainPass::createPipeline(VkDescriptorSetLayout frameSetLayout,
     VkPipelineDepthStencilStateCreateInfo ds{
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     ds.depthTestEnable = VK_TRUE;
-    ds.depthWriteEnable = VK_TRUE;
+    ds.depthWriteEnable = args.transparent ? VK_FALSE : VK_TRUE;
     ds.depthCompareOp = VK_COMPARE_OP_LESS;
 
     VkPipelineColorBlendAttachmentState blendAtt{};
     blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (args.transparent) {
+        blendAtt.blendEnable = VK_TRUE;
+        blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAtt.colorBlendOp = VK_BLEND_OP_ADD;
+        blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
+    } else {
+        blendAtt.blendEnable = VK_FALSE;
+    }
+
     VkPipelineColorBlendStateCreateInfo cb{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = 1;
@@ -154,23 +343,6 @@ void MainPass::createPipeline(VkDescriptorSetLayout frameSetLayout,
     VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
-
-    VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    pc.offset = 0;
-    pc.size = sizeof(glm::mat4);
-
-    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
-    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 2;
-    lci.pSetLayouts = setLayouts;
-    lci.pushConstantRangeCount = 1;
-    lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &pipelineLayout_) != VK_SUCCESS) {
-        vkDestroyShaderModule(ctx_->device(), vert, nullptr);
-        vkDestroyShaderModule(ctx_->device(), frag, nullptr);
-        throw std::runtime_error("MainPass: vkCreatePipelineLayout failed");
-    }
 
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pci.stageCount = 2;
@@ -183,17 +355,19 @@ void MainPass::createPipeline(VkDescriptorSetLayout frameSetLayout,
     pci.pDepthStencilState = &ds;
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
-    pci.layout = pipelineLayout_;
+    pci.layout = args.layout;
     pci.renderPass = renderPass_;
     pci.subpass = 0;
-    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline_) !=
-        VK_SUCCESS) {
-        vkDestroyShaderModule(ctx_->device(), vert, nullptr);
-        vkDestroyShaderModule(ctx_->device(), frag, nullptr);
-        throw std::runtime_error("MainPass: vkCreateGraphicsPipelines failed");
-    }
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    const VkResult r =
+        vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline);
+
     vkDestroyShaderModule(ctx_->device(), vert, nullptr);
     vkDestroyShaderModule(ctx_->device(), frag, nullptr);
+
+    if (r != VK_SUCCESS) throw std::runtime_error("MainPass: vkCreateGraphicsPipelines failed");
+    return pipeline;
 }
 
 void MainPass::createFramebuffers() {
@@ -250,46 +424,143 @@ void MainPass::execute(const ExecuteInfo& info) {
     rp.pClearValues = clearValues;
 
     vkCmdBeginRenderPass(info.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
-    VkViewport viewport{
-        0.f, 0.f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.f, 1.f};
-    vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+    VkViewport viewport{0.f, 0.f, static_cast<float>(extent.width),
+                          static_cast<float>(extent.height), 0.f, 1.f};
     VkRect2D scissor{{0, 0}, extent};
-    vkCmdSetScissor(info.cmd, 0, 1, &scissor);
 
-    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1,
-                            &info.frameSet, 0, nullptr);
+    // ============================================================
+    // PHASE 1: 不透明 (opaque)
+    // ============================================================
+    const auto* meshOp = info.meshDrawListOpaque;
+    const auto* staticOp = info.staticModelDrawListOpaque;
+    const auto* terrainOp = info.terrainDrawListOpaque;
+    const auto* modelOp = info.modelDrawListOpaque;
 
-    if (info.mesh && info.meshDrawList && !info.meshDrawList->empty()) {
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1,
-                                &info.defaultMaterialSet, 0, nullptr);
-        info.mesh->bind(info.cmd);
-        for (const glm::mat4& model : *info.meshDrawList) {
-            vkCmdPushConstants(info.cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                               sizeof(glm::mat4), &model);
-            vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
-        }
+    const bool hasOpaqueStatic =
+        (info.mesh && meshOp && !meshOp->empty()) ||
+        (staticOp && !staticOp->empty()) ||
+        (terrainOp && !terrainOp->empty());
+
+    static int s_mp_dbg=0;
+    if (s_mp_dbg++<5) { std::cout<<"[DEBUG] MainPass: meshOp="<<(meshOp?meshOp->size():(size_t)999)<<" modelOp="<<(modelOp?modelOp->size():(size_t)999)<<" staticOp="<<(staticOp?staticOp->size():(size_t)999)<<" hasOpaqueStatic="<<hasOpaqueStatic<<"\n"; }
+    if (hasOpaqueStatic) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineOpaque_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
+                                  &info.frameSet, 0, nullptr);
+
+        if (info.mesh && meshOp)
+            drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh, *meshOp);
+        if (staticOp)
+            drawStaticModelList(info.cmd, staticLayout_, info.defaultMaterialSet, *staticOp);
+        if (terrainOp)
+            drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet, *terrainOp);
     }
 
-    if (info.model && info.modelDrawList && !info.modelDrawList->empty()) {
-        const auto& materials = info.model->materials();
-        for (const glm::mat4& model : *info.modelDrawList) {
-            vkCmdPushConstants(info.cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                               sizeof(glm::mat4), &model);
-            for (const SubMesh& sm : info.model->subMeshes()) {
-                if (sm.indexCount == 0) continue;
-                VkDescriptorSet matSet = info.defaultMaterialSet;
-                if (sm.materialIndex < materials.size()) {
-                    VkDescriptorSet ms = materials[sm.materialIndex].descriptorSet();
-                    if (ms != VK_NULL_HANDLE) matSet = ms;
-                }
-                vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_,
-                                        1, 1, &matSet, 0, nullptr);
-                sm.bind(info.cmd);
-                vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, 0, 0, 0);
-            }
+    if (modelOp && !modelOp->empty()) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
+                                  &info.frameSet, 0, nullptr);
+        if (info.skinSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 2,
+                                      1, &info.skinSet, 0, nullptr);
         }
+        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, *modelOp);
+    }
+
+    // ============================================================
+    // PHASE 1.5: 水面 (opaque と transparent の間)
+    // ============================================================
+    if (info.waterPass && info.waterDrawList && !info.waterDrawList->empty()) {
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+
+        WaterPass::ExecuteInfo wi{};
+        wi.cmd = info.cmd;
+        wi.frameSet = info.frameSet;
+        wi.waterDrawList = info.waterDrawList;
+        wi.time = info.waterTime;
+        wi.frameIndex = info.frameIndex;
+        wi.useReflection = info.waterUseReflection;
+        wi.reflectVP = info.waterReflectVP;
+        info.waterPass->execute(wi);
+    }
+
+    // ============================================================
+    // PHASE 2: 半透明 (transparent) — 奥→手前ソート済み想定
+    // ============================================================
+    const auto* meshTr = info.meshDrawListTransparent;
+    const auto* staticTr = info.staticModelDrawListTransparent;
+    const auto* terrainTr = info.terrainDrawListTransparent;
+    const auto* modelTr = info.modelDrawListTransparent;
+
+    const bool hasTransparentStatic =
+        (info.mesh && meshTr && !meshTr->empty()) ||
+        (staticTr && !staticTr->empty()) ||
+        (terrainTr && !terrainTr->empty());
+
+    if (hasTransparentStatic) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineTransparent_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
+                                  &info.frameSet, 0, nullptr);
+
+        if (info.mesh && meshTr)
+            drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh, *meshTr);
+        if (staticTr)
+            drawStaticModelList(info.cmd, staticLayout_, info.defaultMaterialSet, *staticTr);
+        if (terrainTr)
+            drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet, *terrainTr);
+    }
+
+    if (modelTr && !modelTr->empty()) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineTransparent_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
+                                  &info.frameSet, 0, nullptr);
+        if (info.skinSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 2,
+                                      1, &info.skinSet, 0, nullptr);
+        }
+        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, *modelTr);
+    }
+
+    // ============================================================
+    // PHASE 3: Overlay (debug, particle, hud, imgui)
+    // ============================================================
+    if (info.debugLinePass && info.debugLines) {
+        DebugLinePass::ExecuteInfo dbg{};
+        dbg.cmd = info.cmd;
+        dbg.frameSet = info.frameSet;
+        dbg.frameIndex = info.frameIndex;
+        dbg.lineVertices = &info.debugLines->lineVertices();
+        dbg.triVertices = &info.debugLines->triVertices();
+        info.debugLinePass->execute(dbg);
+    }
+
+    if (info.particlePass && info.particles) {
+        ParticlePass::ExecuteInfo pi{};
+        pi.cmd = info.cmd;
+        pi.frameSet = info.frameSet;
+        pi.frameIndex = info.frameIndex;
+        pi.particles = info.particles;
+        pi.cullingDistance = info.particleCullingDistance;
+        info.particlePass->execute(pi);
+    }
+
+    if (info.hudPass && info.hud) {
+        HudPass::ExecuteInfo hi{};
+        hi.cmd = info.cmd;
+        hi.drawList = info.hud;
+        hi.screenW = info.screenW;
+        hi.screenH = info.screenH;
+        info.hudPass->execute(hi);
     }
 
     if (info.imgui) info.imgui->recordDrawCommands(info.cmd);
@@ -300,13 +571,30 @@ void MainPass::execute(const ExecuteInfo& info) {
 void MainPass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     destroyFramebuffers();
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
+
+    if (skinnedPipelineTransparent_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), skinnedPipelineTransparent_, nullptr);
+        skinnedPipelineTransparent_ = VK_NULL_HANDLE;
     }
-    if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), pipelineLayout_, nullptr);
-        pipelineLayout_ = VK_NULL_HANDLE;
+    if (skinnedPipelineOpaque_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), skinnedPipelineOpaque_, nullptr);
+        skinnedPipelineOpaque_ = VK_NULL_HANDLE;
+    }
+    if (skinnedLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_->device(), skinnedLayout_, nullptr);
+        skinnedLayout_ = VK_NULL_HANDLE;
+    }
+    if (staticPipelineTransparent_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), staticPipelineTransparent_, nullptr);
+        staticPipelineTransparent_ = VK_NULL_HANDLE;
+    }
+    if (staticPipelineOpaque_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), staticPipelineOpaque_, nullptr);
+        staticPipelineOpaque_ = VK_NULL_HANDLE;
+    }
+    if (staticLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_->device(), staticLayout_, nullptr);
+        staticLayout_ = VK_NULL_HANDLE;
     }
     if (renderPass_ != VK_NULL_HANDLE) {
         vkDestroyRenderPass(ctx_->device(), renderPass_, nullptr);

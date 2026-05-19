@@ -1,12 +1,9 @@
 // =============================================================================
-// simulation_system.cpp — + ItemPickupSystem::update に sound 渡す
-// =============================================================================
+// simulation_system.cpp  E+ ItemPickupSystem::update に sound 渡ぁE// =============================================================================
 #include "systems/simulation_system.h"
-
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-
 #include "core/aabb.h"
 #include "core/action_state.h"
 #include "core/components.h"
@@ -128,10 +125,10 @@ void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, floa
     ws.animStateSystem.update(s, dt, input);
     ws.skeletalAnimSystem.update(s, dt);
     ws.itemPhysicsSystem.update(wd, dt, gravity);
-    // ─── アイテム拾い (SoundManager 注入) ────
+    // ─── アイチE��拾ぁE(SoundManager 注入) ────
     ws.itemPickupSystem.update(wd.shieldItems, wd.armorItems, wd.gripItems, wd.keyItems,
-                               wd.moneyItems, wd.potionItems, wd.spiritItems, wd.player,
-                               wd.vulkan.assets(), ws.sound);
+                               wd.moneyItems, wd.potionItems, wd.spiritItems,
+                               wd.player, wd.vulkan.assets(), ws.sound);
     wd.player.ensure<CHealth>().tick(dt);
     ws.combatSystem.update(wd, wd.player, dt);
     wd.enemies.erase(std::remove_if(wd.enemies.begin(), wd.enemies.end(),
@@ -167,7 +164,8 @@ void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, floa
         for (flecs::entity e : graveToDestruct) {
             if (!e.is_alive()) continue;
             std::cout << "[Grave] destructing faded grave '" << e.name().c_str() << "'\n";
-            wd.graves.erase(std::remove(wd.graves.begin(), wd.graves.end(), e), wd.graves.end());
+            wd.graves.erase(std::remove(wd.graves.begin(), wd.graves.end(), e),
+                            wd.graves.end());
             e.destruct();
         }
     }
@@ -178,7 +176,7 @@ void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, floa
     ws.movementSystem.resolveHorizontalCollisions(wd.player, wd.platforms);
     ws.movementSystem.resolveObstacleCollisions(wd.player, wd.obstacles);
     ws.physicsSystem.update(wd.player, wd.platforms, wd.obstacles, &wd.terrains, dt, gravity,
-                            jumpSpeed);
+                             jumpSpeed);
     if (wd.player.get<CPhysics>().onGround) {
         ws.combatSystem.cancelAerialOnLanding(wd.player, wd);
     }

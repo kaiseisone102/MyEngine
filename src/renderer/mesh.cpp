@@ -67,14 +67,98 @@ void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resource
                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
     uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+}
 
-    // ここで CPU 側の vertices/indices は破棄される（自動）。
-    // 後で CPU アクセスしたい場合はメンバに残す設計に変更する。
+// =============================================================================
+// createCube — 足元基準の 1x1x1 cube をコードで生成
+// =============================================================================
+// 頂点座標:
+//   X: [-0.5, +0.5]
+//   Y: [ 0  ,  1  ]   ← 足元基準
+//   Z: [-0.5, +0.5]
+//
+// scale 適用後の AABB は AABB::fromBottomCenter(pos, scale) と完全に一致:
+//   X: [pos.x - scale.x*0.5, pos.x + scale.x*0.5]
+//   Y: [pos.y, pos.y + scale.y]
+//   Z: [pos.z - scale.z*0.5, pos.z + scale.z*0.5]
+//
+// 6 面 × 4 頂点 = 24 頂点 (面ごとに別頂点。 法線と UV が面ごとに異なるため共有不可)。
+// 6 面 × 2 三角形 = 12 三角形 = 36 インデックス。
+//
+// 巻き方向:
+//   Vulkan の規約 (front face = CCW、 cullMode=BACK) に合わせて、
+//   外側から見て CCW になるように頂点順を選ぶ。
+// =============================================================================
+void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources) {
+    ctx_ = ctx;
+
+    // 立方体の 8 隅 (足元基準: Y は [0, 1])
+    //   y=0 (底面)              y=1 (上面)
+    //     (-x,0,+z) (+x,0,+z)     (-x,1,+z) (+x,1,+z)
+    //     (-x,0,-z) (+x,0,-z)     (-x,1,-z) (+x,1,-z)
+    const float h = 0.5f;  // 水平方向のハーフサイズ
+
+    // 各面 (法線、 4 頂点の座標) を定義し、 UV と triangulation を共通処理。
+    struct Face {
+        glm::vec3 normal;
+        glm::vec3 corners[4];  // 反時計回り (外から見て)
+    };
+
+    const Face faces[6] = {
+        // +Y (上面)
+        {{0.f, 1.f, 0.f}, {{-h, 1.f, -h}, {-h, 1.f, +h}, {+h, 1.f, +h}, {+h, 1.f, -h}}},
+        // -Y (底面)
+        {{0.f, -1.f, 0.f}, {{-h, 0.f, +h}, {-h, 0.f, -h}, {+h, 0.f, -h}, {+h, 0.f, +h}}},
+        // +X (右面)
+        {{1.f, 0.f, 0.f}, {{+h, 0.f, -h}, {+h, 1.f, -h}, {+h, 1.f, +h}, {+h, 0.f, +h}}},
+        // -X (左面)
+        {{-1.f, 0.f, 0.f}, {{-h, 0.f, +h}, {-h, 1.f, +h}, {-h, 1.f, -h}, {-h, 0.f, -h}}},
+        // +Z (奥面)
+        {{0.f, 0.f, 1.f}, {{+h, 0.f, +h}, {+h, 1.f, +h}, {-h, 1.f, +h}, {-h, 0.f, +h}}},
+        // -Z (前面)
+        {{0.f, 0.f, -1.f}, {{-h, 0.f, -h}, {-h, 1.f, -h}, {+h, 1.f, -h}, {+h, 0.f, -h}}},
+    };
+
+    // UV: 各面で (0,0)→(0,1)→(1,1)→(1,0) (左下→左上→右上→右下)。
+    // V 反転は loadFromObj と異なり、 ここでは画像座標と直接対応させる。
+    const glm::vec2 uvs[4] = {{0.f, 1.f}, {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}};
+
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(24);
+    indices.reserve(36);
+
+    for (const Face& f : faces) {
+        const uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
+        for (int i = 0; i < 4; ++i) {
+            Vertex v{};
+            v.pos = f.corners[i];
+            v.color = {1.f, 1.f, 1.f};
+            v.texCoord = uvs[i];
+            v.normal = f.normal;
+            // jointIndices / jointWeights は default 初期化で 0
+            vertices.push_back(v);
+        }
+        // 4 頂点を 2 三角形に: (0,1,2) と (0,2,3) (反時計回り = 外向き)
+        indices.push_back(baseIdx + 0);
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx + 0);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx + 3);
+    }
+
+    indexCount_ = static_cast<uint32_t>(indices.size());
+
+    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
 }
 
 void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
                         VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory) const {
-    // staging（HOST_VISIBLE）→ device-local（高速）
+    // staging(HOST_VISIBLE)→ device-local (高速)
     VkBuffer staging{};
     VkDeviceMemory stagingMem{};
     resources->createBuffer(

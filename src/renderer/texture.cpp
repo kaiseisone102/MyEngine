@@ -2,17 +2,31 @@
 
 #include "renderer/texture.h"
 
-// stb_image: IMPLEMENTATION マクロを 1 つの .cpp でだけ定義する（二重定義厳禁）
-// Step 4 で vulkan_renderer.cpp からここに移動した
+// stb_image: IMPLEMENTATION マクロを 1 つの .cpp でだけ定義する
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
 #include <vector>
 
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
+
+void Texture::generateCheckerboard(uint8_t* dst, int w, int h) {
+    const int tile = 32;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const bool even = ((x / tile) + (y / tile)) % 2 == 0;
+            const size_t idx = static_cast<size_t>((y * w + x) * 4);
+            dst[idx + 0] = even ? 230 : 50;
+            dst[idx + 1] = even ? 200 : 100;
+            dst[idx + 2] = even ? 50 : 210;
+            dst[idx + 3] = 255;
+        }
+    }
+}
 
 void Texture::loadFromFileOrCheckerboard(const VulkanContext* ctx, const ResourceFactory* resources,
                                          const std::string& path) {
@@ -24,34 +38,60 @@ void Texture::loadFromFileOrCheckerboard(const VulkanContext* ctx, const Resourc
     const uint8_t* pixels = stbiPix;
 
     if (!pixels) {
-        // フォールバック: 256x256 の黄×青チェッカーボード
+        // フォールバック: 256x256 チェッカーボード
+        std::cerr << "[Texture] file not found, falling back to checkerboard: " << path << "\n";
         texW = texH = 256;
-        const int tile = 32;
         owned.resize(static_cast<size_t>(texW * texH * 4));
-        for (int y = 0; y < texH; ++y) {
-            for (int x = 0; x < texW; ++x) {
-                const bool even = ((x / tile) + (y / tile)) % 2 == 0;
-                const size_t idx = static_cast<size_t>((y * texW + x) * 4);
-                owned[idx + 0] = even ? 230 : 50;
-                owned[idx + 1] = even ? 200 : 100;
-                owned[idx + 2] = even ? 50 : 210;
-                owned[idx + 3] = 255;
-            }
-        }
+        generateCheckerboard(owned.data(), texW, texH);
+        pixels = owned.data();
+    } else {
+        std::cout << "[Texture] loaded from file: " << path << " (" << texW << "x" << texH
+                  << ")\n";
+    }
+
+    buildFromRgbaPixels(resources, pixels, texW, texH);
+
+    if (stbiPix) stbi_image_free(stbiPix);
+}
+
+void Texture::loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
+                             const uint8_t* encodedData, size_t size) {
+    ctx_ = ctx;
+
+    int texW = 0, texH = 0, texCh = 0;
+    uint8_t* stbiPix = nullptr;
+    std::vector<uint8_t> owned;
+    const uint8_t* pixels = nullptr;
+
+    if (encodedData && size > 0) {
+        stbiPix = stbi_load_from_memory(encodedData, static_cast<int>(size), &texW, &texH, &texCh,
+                                        STBI_rgb_alpha);
+        pixels = stbiPix;
+    }
+
+    if (!pixels) {
+        std::cerr << "[Texture] loadFromMemory failed, falling back to checkerboard\n";
+        texW = texH = 256;
+        owned.resize(static_cast<size_t>(texW * texH * 4));
+        generateCheckerboard(owned.data(), texW, texH);
         pixels = owned.data();
     }
 
-    createImageAndView(resources, pixels, texW, texH);
-    createSampler();
+    buildFromRgbaPixels(resources, pixels, texW, texH);
 
     if (stbiPix) stbi_image_free(stbiPix);
+}
+
+void Texture::buildFromRgbaPixels(const ResourceFactory* resources, const uint8_t* pixels, int w,
+                                  int h) {
+    createImageAndView(resources, pixels, w, h);
+    createSampler();
 }
 
 void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
                                  int height) {
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * 4);
 
-    // ステージングバッファを用意してピクセルを書き込む
     VkBuffer staging{};
     VkDeviceMemory stagingMem{};
     resources->createBuffer(
@@ -64,13 +104,11 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     std::memcpy(data, pixels, static_cast<size_t>(imageSize));
     vkUnmapMemory(ctx_->device(), stagingMem);
 
-    // DEVICE_LOCAL な最終画像を作成
     resources->createImage(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                            VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, image_, memory_);
 
-    // レイアウト遷移 → コピー → レイアウト遷移 の 3 ステップ
     resources->transitionImageLayout(image_, VK_IMAGE_LAYOUT_UNDEFINED,
                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     resources->copyBufferToImage(staging, image_, static_cast<uint32_t>(width),
@@ -81,7 +119,6 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     vkDestroyBuffer(ctx_->device(), staging, nullptr);
     vkFreeMemory(ctx_->device(), stagingMem, nullptr);
 
-    // ImageView
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = image_;
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;

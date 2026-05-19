@@ -1,5 +1,5 @@
 // =============================================================================
-// hud_pass.cpp — HUD 描画パス本体
+// hud_pass.cpp — HUD 描画パス本体 (shape mode 対応)
 // =============================================================================
 #include "renderer/hud_pass.h"
 
@@ -23,7 +23,6 @@ void HudPass::execute(const ExecuteInfo& info) {
     if (!info.drawList || info.drawList->empty()) return;
     if (info.screenW <= 0.f || info.screenH <= 0.f) return;
 
-    // viewport / scissor は MainPass 終了時点で設定されているが、 念のため再設定。
     VkViewport viewport{};
     viewport.x = 0.f;
     viewport.y = 0.f;
@@ -40,12 +39,15 @@ void HudPass::execute(const ExecuteInfo& info) {
 
     vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.pipeline());
 
-    for (const auto& r : info.drawList->rects()) {
+    for (const auto& s : info.drawList->shapes()) {
         HudPipeline::PushConstants pc{};
         pc.screenSize = {info.screenW, info.screenH};
-        pc.rectMin = r.min;
-        pc.rectSize = r.size;
-        pc.color = r.color;
+        pc.rectMin = s.min;
+        pc.rectSize = s.size;
+        pc.color = s.color;
+        pc.shapeMode = static_cast<int32_t>(s.mode);
+        pc.flags = s.flags;
+        pc.extraParams = s.extraParams;
         vkCmdPushConstants(info.cmd, pipeline_.layout(),
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc),
                            &pc);

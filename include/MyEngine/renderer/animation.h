@@ -74,7 +74,7 @@ struct AnimationChannel {
     mutable size_t lastRotIdx = 0;
     mutable size_t lastScaleIdx = 0;
 
-    // 既存 API: TRSをサンプリング -> 合成 matrix を返す
+    // 既存 API: TRSをサンプリング → 合成 matrix を返す
     glm::mat4 sampleLocalMatrix(float t) const;
 
     // Phase 3-F: TRS のままサンプリング (クロスフェード補間用)

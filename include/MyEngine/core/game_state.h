@@ -1,6 +1,7 @@
-// /core/game_state.h
 #pragma once
-// + spirits vector + graves vector + SpiritSystem
+// =============================================================================
+// game_state.h — + WorldWater waters
+// =============================================================================
 
 #include <SDL3/SDL.h>
 #include <flecs.h>
@@ -14,6 +15,8 @@
 #include "event_bus.h"
 #include "game_settings.h"
 #include "renderer/terrain_mesh.h"
+#include "world/world_terrain.h"
+#include "world/world_water.h"
 #include "renderer/vulkan_renderer.h"
 #include "spawn_trigger.h"
 #include "systems/anim_state_system.h"
@@ -35,10 +38,9 @@
 #include "systems/spawn_system.h"
 #include "systems/spin_animation_system.h"
 #include "systems/spirit_system.h"
-#include "world/world_terrain.h"
 
 struct DebugFlags {
-    bool showHitboxes = false;
+    bool showHitboxes   = false;
     bool overlayVisible = false;
     RenderDebugSystem::Corner overlayCorner = RenderDebugSystem::Corner::BottomLeft;
 };
@@ -72,13 +74,15 @@ struct WorldData {
     std::vector<flecs::entity> gripItems;
     std::vector<flecs::entity> keyItems;
     std::vector<flecs::entity> moneyItems;
+    std::vector<flecs::entity> potionItems;
+    std::vector<flecs::entity> spiritItems;
     std::vector<flecs::entity> decorations;
     std::vector<flecs::entity> gates;
     std::vector<flecs::entity> chests;
-    std::vector<flecs::entity> graves;     // 状態を持つ墓
-    std::vector<flecs::entity> obstacles;  // 木/墓/宝箱/岩 等
-    std::vector<flecs::entity> spiritItems;
+    std::vector<flecs::entity> graves;
+    std::vector<flecs::entity> obstacles;
     WorldTerrain terrains;
+    WorldWater waters;
 };
 
 struct SystemsRegistry {

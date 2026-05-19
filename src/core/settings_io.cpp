@@ -1,8 +1,7 @@
 // =============================================================================
-// settings_io.cpp — GameSettings の JSON 永続化 実装
+// settings_io.cpp — + reflectionQuality + reflectShadows
 // =============================================================================
 #include "core/settings_io.h"
-
 #include <SDL3/SDL.h>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -10,28 +9,17 @@
 #include <rapidjson/filewritestream.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/writer.h>
-
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
-
 #include "core/game_settings.h"
-
 namespace settings_io {
-
 namespace {
-
 constexpr int kSettingsVersion = 1;
-
-// SDL_GetPrefPath は確保した文字列の所有権を呼び出し側に渡す (SDL_free が必要)。
-// プロセスで 1 度だけ計算して static にキャッシュする。
 std::string computeSettingsPath() {
-    // SDL_GetPrefPath  : char* を返す。 SDL_free で解放必要。
-    // SDL_GetBasePath  : const char* を返す。 解放不要 (内部静的)。
     char* prefPath = SDL_GetPrefPath("MyEngine", "MyEngine");
     if (!prefPath) {
-        // 取得失敗時は実行ファイル隣にフォールバック
         const char* bp = SDL_GetBasePath();
         std::string fallback = bp ? bp : "";
         fallback += "settings.json";
@@ -44,8 +32,6 @@ std::string computeSettingsPath() {
     path += "settings.json";
     return path;
 }
-
-// rapidjson に値の存否 + 型チェックを行う小さなヘルパ
 bool readFloat(const rapidjson::Value& obj, const char* key, float& out) {
     if (!obj.HasMember(key)) return false;
     const auto& v = obj[key];
@@ -53,17 +39,28 @@ bool readFloat(const rapidjson::Value& obj, const char* key, float& out) {
     out = static_cast<float>(v.GetDouble());
     return true;
 }
-
+bool readInt(const rapidjson::Value& obj, const char* key, int& out) {
+    if (!obj.HasMember(key)) return false;
+    const auto& v = obj[key];
+    if (!v.IsInt()) return false;
+    out = v.GetInt();
+    return true;
+}
+bool readBool(const rapidjson::Value& obj, const char* key, bool& out) {
+    if (!obj.HasMember(key)) return false;
+    const auto& v = obj[key];
+    if (!v.IsBool()) return false;
+    out = v.GetBool();
+    return true;
+}
 bool readBinding(const rapidjson::Value& obj, const char* key, InputBinding& out) {
     if (!obj.HasMember(key)) return false;
     const auto& b = obj[key];
     if (!b.IsObject()) return false;
     if (!b.HasMember("source") || !b["source"].IsString()) return false;
     if (!b.HasMember("code") || !b["code"].IsInt()) return false;
-
     const std::string source = b["source"].GetString();
     const int code = b["code"].GetInt();
-
     if (source == "keyboard") {
         out = InputBinding{InputBinding::Source::Keyboard, code};
         return true;
@@ -72,10 +69,8 @@ bool readBinding(const rapidjson::Value& obj, const char* key, InputBinding& out
         out = InputBinding{InputBinding::Source::Mouse, code};
         return true;
     }
-    return false;  // 不明な source
+    return false;
 }
-
-// Writer に Binding を書き出すヘルパ
 template <typename Writer>
 void writeBinding(Writer& w, const char* key, const InputBinding& b) {
     w.Key(key);
@@ -86,42 +81,33 @@ void writeBinding(Writer& w, const char* key, const InputBinding& b) {
     w.Int(b.code);
     w.EndObject();
 }
-
 }  // namespace
-
 const std::string& defaultSettingsPath() {
-    // C++11 以降 thread-safe な local static 初期化
     static const std::string path = computeSettingsPath();
     return path;
 }
-
 GameSettings load(const std::string& path) {
-    GameSettings settings;  // デフォルト値
-
+    GameSettings settings;
     FILE* fp = std::fopen(path.c_str(), "rb");
     if (!fp) {
         std::cout << "[SettingsIO] No settings file found at '" << path
                   << "' — using defaults (will be created on first save)\n";
         return settings;
     }
-
     char buffer[8192];
     rapidjson::FileReadStream is(fp, buffer, sizeof(buffer));
     rapidjson::Document doc;
     doc.ParseStream(is);
     std::fclose(fp);
-
     if (doc.HasParseError()) {
         std::cerr << "[SettingsIO] WARNING: parse error at offset " << doc.GetErrorOffset() << ": "
                   << rapidjson::GetParseError_En(doc.GetParseError()) << " — using defaults\n";
-        return settings;  // デフォルト維持
+        return settings;
     }
     if (!doc.IsObject()) {
         std::cerr << "[SettingsIO] WARNING: root is not an object — using defaults\n";
         return settings;
     }
-
-    // バージョンチェック (互換性は今後追加)
     int version = 0;
     if (doc.HasMember("version") && doc["version"].IsInt()) {
         version = doc["version"].GetInt();
@@ -131,11 +117,25 @@ GameSettings load(const std::string& path) {
                   << " expected=" << kSettingsVersion << ") — using defaults\n";
         return settings;
     }
-
-    // 各フィールドを安全に読む (失敗してもデフォルトのまま続行)
     readFloat(doc, "bgmVolume", settings.bgmVolume);
     readFloat(doc, "sfxVolume", settings.sfxVolume);
     readFloat(doc, "mouseSensitivity", settings.mouseSensitivity);
+    readFloat(doc, "drawDistance", settings.drawDistance);
+
+    // ─── Reflection ────
+    {
+        int qi = static_cast<int>(settings.reflectionQuality);
+        if (readInt(doc, "reflectionQuality", qi)) {
+            // 範囲外なら デフォルト (Half) にフォールバック
+            if (qi < 0 || qi > 3) {
+                std::cerr << "[SettingsIO] WARNING: reflectionQuality out of range (" << qi
+                          << "), using default Half\n";
+                qi = static_cast<int>(ReflectionQuality::Half);
+            }
+            settings.reflectionQuality = static_cast<ReflectionQuality>(qi);
+        }
+        readBool(doc, "reflectShadows", settings.reflectShadows);
+    }
 
     if (doc.HasMember("keyMapping") && doc["keyMapping"].IsObject()) {
         const auto& km = doc["keyMapping"];
@@ -153,12 +153,9 @@ GameSettings load(const std::string& path) {
         readBinding(km, "strongAttack", settings.keyMapping.strongAttack);
         readBinding(km, "guard", settings.keyMapping.guard);
     }
-
-    // 一時フラグは永続化対象外
     settings.keyMappingDirty = false;
     settings.persistDirty = false;
-
-    // 範囲クランプ (壊れた値が入っていても安全)
+    settings.reflectionDirty = false;
     auto clamp = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
     settings.bgmVolume =
         clamp(settings.bgmVolume, GameSettings::kMinVolume, GameSettings::kMaxVolume);
@@ -166,11 +163,11 @@ GameSettings load(const std::string& path) {
         clamp(settings.sfxVolume, GameSettings::kMinVolume, GameSettings::kMaxVolume);
     settings.mouseSensitivity = clamp(settings.mouseSensitivity, GameSettings::kMinSensitivity,
                                       GameSettings::kMaxSensitivity);
-
+    settings.drawDistance = clamp(settings.drawDistance, GameSettings::kMinDrawDistance,
+                                  GameSettings::kMaxDrawDistance);
     std::cout << "[SettingsIO] loaded from '" << path << "'\n";
     return settings;
 }
-
 bool save(const GameSettings& settings, const std::string& path) {
     FILE* fp = std::fopen(path.c_str(), "wb");
     if (!fp) {
@@ -178,22 +175,27 @@ bool save(const GameSettings& settings, const std::string& path) {
                   << "' for writing: " << std::strerror(errno) << "\n";
         return false;
     }
-
     char buffer[8192];
     rapidjson::FileWriteStream os(fp, buffer, sizeof(buffer));
     rapidjson::PrettyWriter<rapidjson::FileWriteStream> w(os);
-
     w.StartObject();
     {
         w.Key("version");
         w.Int(kSettingsVersion);
-
         w.Key("bgmVolume");
         w.Double(settings.bgmVolume);
         w.Key("sfxVolume");
         w.Double(settings.sfxVolume);
         w.Key("mouseSensitivity");
         w.Double(settings.mouseSensitivity);
+        w.Key("drawDistance");
+        w.Double(settings.drawDistance);
+
+        // ─── Reflection ────
+        w.Key("reflectionQuality");
+        w.Int(static_cast<int>(settings.reflectionQuality));
+        w.Key("reflectShadows");
+        w.Bool(settings.reflectShadows);
 
         w.Key("keyMapping");
         w.StartObject();
@@ -216,10 +218,8 @@ bool save(const GameSettings& settings, const std::string& path) {
         w.EndObject();
     }
     w.EndObject();
-
     std::fclose(fp);
     std::cout << "[SettingsIO] saved to '" << path << "'\n";
     return true;
 }
-
 }  // namespace settings_io

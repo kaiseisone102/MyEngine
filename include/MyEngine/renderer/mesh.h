@@ -24,16 +24,17 @@ class VulkanContext;
 class ResourceFactory;
 
 struct Vertex {
-    glm::vec3 pos;                                  // location=0
-    glm::vec3 color;                                // location=1
-    glm::vec2 texCoord;                             // location=2
-    glm::vec3 normal;                               // location=3
-    glm::ivec4 jointIndices = {0, 0, 0, 0};         // location=4
-    glm::vec4 jointWeights = {0.f, 0.f, 0.f, 0.f};  // location=5
+    glm::vec3  pos;                              // location=0
+    glm::vec3  color;                            // location=1
+    glm::vec2  texCoord;                         // location=2
+    glm::vec3  normal;                           // location=3
+    glm::ivec4 jointIndices = {0, 0, 0, 0};      // location=4
+    glm::vec4  jointWeights = {0.f, 0.f, 0.f, 0.f}; // location=5
 
     bool operator==(const Vertex& o) const {
-        return pos == o.pos && color == o.color && texCoord == o.texCoord && normal == o.normal &&
-               jointIndices == o.jointIndices && jointWeights == o.jointWeights;
+        return pos == o.pos && color == o.color && texCoord == o.texCoord &&
+               normal == o.normal && jointIndices == o.jointIndices &&
+               jointWeights == o.jointWeights;
     }
 };
 
@@ -60,6 +61,12 @@ class Mesh {
    public:
     void loadFromObj(const VulkanContext* ctx, const ResourceFactory* resources,
                      const std::string& path);
+
+    // 足元基準の 1x1x1 cube をコードで生成 (ファイル不要)。
+    // 頂点座標: X[-0.5, +0.5], Y[0, 1], Z[-0.5, +0.5]
+    // scale 適用後の AABB は AABB::fromBottomCenter と完全に一致する。
+    void createCube(const VulkanContext* ctx, const ResourceFactory* resources);
+
     void destroy();
     void bind(VkCommandBuffer cmd) const;
     uint32_t indexCount() const { return indexCount_; }

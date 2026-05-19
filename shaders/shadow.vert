@@ -1,26 +1,20 @@
 // =============================================================================
-// shadow.vert
+// shadow.vert - Phase 1A2: uses shared types.h
 // =============================================================================
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "shared/types.h"
 
 layout(location = 0) in vec3 inPosition;
 
-layout(binding = 0) uniform UniformBufferObject {
-    mat4  vp;
-    mat4  lightVP;
-    vec3  lightPos;
-    vec3  lightColor;
-    vec3  viewPos;
-    float ambient;
-    float specular;
-    float shadowStrength;
-    float shadowBias;
+layout(binding = 0) uniform UBO {
+    FrameUBO frame;
 } ubo;
 
-layout(push_constant) uniform PushConstants {
-    mat4 model;
-} push;
+layout(push_constant) uniform PC {
+    ShadowStaticPushConstants push;
+};
 
 void main() {
-    gl_Position = ubo.lightVP * push.model * vec4(inPosition, 1.0);
+    gl_Position = ubo.frame.lightVP * push.model * vec4(inPosition, 1.0);
 }

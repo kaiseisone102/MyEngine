@@ -5,6 +5,12 @@
 // 役割:
 //   各 Layer の buildScene() の中で「線・弧・扇形を積む」 ためのインターフェース。
 //   Vulkan には依存しない (頂点を vector に積むだけ)。
+//   実際の GPU 描画は DebugLinePass が、 ここに溜まった頂点を読み出して行う。
+//
+// 寿命:
+//   VulkanRenderer が所有 (per-frame 状態だが、 オブジェクト自体は使い回し)。
+//   フレームの最初に clear() され、 buildScene で addLine 等が呼ばれ、
+//   DebugLinePass::execute が頂点を GPU に流す、 という流れ。
 //
 // 主要 API:
 //   低レベル:
@@ -22,12 +28,14 @@
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <vector>
 
 #include "renderer/debug_line_vertex.h"
 
 class DebugLineRenderer {
    public:
+    // フレーム開始時に呼ぶ (内部 vector をクリア)
     void clear() {
         lineVertices_.clear();
         triVertices_.clear();
@@ -47,6 +55,8 @@ class DebugLineRenderer {
     }
 
     // ─── 水平面 (XZ) の弧/扇形 API ──────────────────────────────────
+    // yaw 規約: 0° = +Z 方向、 +角度 = +X 方向 (atan2(x, z) と整合)
+
     void addArcXZ(const glm::vec3& center, float radius, float startDeg, float endDeg,
                   const glm::vec4& color, int segments = 32) {
         if (segments < 1) segments = 1;
@@ -61,20 +71,18 @@ class DebugLineRenderer {
     }
 
     void addCircleXZ(const glm::vec3& center, float radius, const glm::vec4& color,
-                     int segments = 64) {
+                     int segments = 48) {
         addArcXZ(center, radius, 0.f, 360.f, color, segments);
     }
 
     void addSectorOutlineXZ(const glm::vec3& center, float radius, float startDeg, float endDeg,
                             const glm::vec4& color, int segments = 32) {
-        const float startRad = glm::radians(startDeg);
-        const float endRad = glm::radians(endDeg);
-        const glm::vec3 startEdge =
-            center + glm::vec3{std::sin(startRad), 0.f, std::cos(startRad)} * radius;
-        const glm::vec3 endEdge =
-            center + glm::vec3{std::sin(endRad), 0.f, std::cos(endRad)} * radius;
+        const float sa = glm::radians(startDeg);
+        const float ea = glm::radians(endDeg);
+        const glm::vec3 startEdge = center + glm::vec3{std::sin(sa), 0.f, std::cos(sa)} * radius;
+        const glm::vec3 endEdge   = center + glm::vec3{std::sin(ea), 0.f, std::cos(ea)} * radius;
         addLine(center, startEdge, color);
-        addLine(center, endEdge, color);
+        addLine(center, endEdge,   color);
         addArcXZ(center, radius, startDeg, endDeg, color, segments);
     }
 
@@ -91,15 +99,17 @@ class DebugLineRenderer {
         }
     }
 
-    // ─── 任意 2 ベクトル間の弧 (短弧、 slerp) ───────────────────────
+    // ─── 任意 2 ベクトル間の弧 (短弧、 slerp) ──────────────────────
     void addArcDir(const glm::vec3& center, const glm::vec3& startDir, const glm::vec3& endDir,
                    float radius, const glm::vec4& color, int segments = 32) {
         if (segments < 1) segments = 1;
-        glm::vec3 prevPoint = center + startDir * radius;
+        const glm::vec3 a = glm::normalize(startDir);
+        const glm::vec3 b = glm::normalize(endDir);
+        glm::vec3 prevPoint = center + a * radius;
         for (int i = 1; i <= segments; ++i) {
             const float t = static_cast<float>(i) / static_cast<float>(segments);
-            const glm::vec3 curDir = slerpUnit(startDir, endDir, t);
-            const glm::vec3 curPoint = center + curDir * radius;
+            const glm::vec3 dir = slerpUnit(a, b, t);
+            const glm::vec3 curPoint = center + dir * radius;
             addLine(prevPoint, curPoint, color);
             prevPoint = curPoint;
         }
@@ -108,10 +118,10 @@ class DebugLineRenderer {
     void addSectorOutlineDir(const glm::vec3& center, const glm::vec3& startDir,
                              const glm::vec3& endDir, float radius, const glm::vec4& color,
                              int segments = 32) {
-        const glm::vec3 startEdge = center + startDir * radius;
-        const glm::vec3 endEdge = center + endDir * radius;
+        const glm::vec3 startEdge = center + glm::normalize(startDir) * radius;
+        const glm::vec3 endEdge   = center + glm::normalize(endDir)   * radius;
         addLine(center, startEdge, color);
-        addLine(center, endEdge, color);
+        addLine(center, endEdge,   color);
         addArcDir(center, startDir, endDir, radius, color, segments);
     }
 
@@ -119,20 +129,19 @@ class DebugLineRenderer {
                             const glm::vec3& endDir, float radius, const glm::vec4& color,
                             int segments = 32) {
         if (segments < 1) segments = 1;
-        glm::vec3 prevPoint = center + startDir * radius;
+        const glm::vec3 a = glm::normalize(startDir);
+        const glm::vec3 b = glm::normalize(endDir);
+        glm::vec3 prevPoint = center + a * radius;
         for (int i = 1; i <= segments; ++i) {
             const float t = static_cast<float>(i) / static_cast<float>(segments);
-            const glm::vec3 curDir = slerpUnit(startDir, endDir, t);
-            const glm::vec3 curPoint = center + curDir * radius;
+            const glm::vec3 dir = slerpUnit(a, b, t);
+            const glm::vec3 curPoint = center + dir * radius;
             addTriangle(center, prevPoint, curPoint, color);
             prevPoint = curPoint;
         }
     }
 
-    // ─── 軸 + 符号付き角度ベース (方向と長弧を完全制御、 360° 超え OK) ─
-    // startDir を rotationAxis 回りに sweepAngleDeg 回転させた軌跡。
-    // 符号で回転方向、 360°超えで複数周も表現可能。
-    // segments は弧の分解数 (大きい sweep ほど多めが綺麗)。
+    // ─── 軸 + 符号付き角度 (方向と長弧を完全制御、 360°超え OK) ────
     void addArcAxis(const glm::vec3& center, const glm::vec3& startDir,
                     const glm::vec3& rotationAxis, float sweepAngleDeg, float radius,
                     const glm::vec4& color, int segments = 32) {
@@ -153,7 +162,6 @@ class DebugLineRenderer {
                               const glm::vec3& rotationAxis, float sweepAngleDeg, float radius,
                               const glm::vec4& color, int segments = 32) {
         const glm::vec3 startEdge = center + startDir * radius;
-        // 終点を計算
         const float fullAngleRad = glm::radians(sweepAngleDeg);
         const glm::quat fullQ = glm::angleAxis(fullAngleRad, rotationAxis);
         const glm::vec3 endDir = fullQ * startDir;
@@ -180,7 +188,7 @@ class DebugLineRenderer {
         }
     }
 
-    // ─── アクセサ ───────────────────────────────────────────────────
+    // ─── アクセサ (DebugLinePass が読む) ────────────────────────────
     const std::vector<DebugLineVertex>& lineVertices() const { return lineVertices_; }
     const std::vector<DebugLineVertex>& triVertices() const { return triVertices_; }
 

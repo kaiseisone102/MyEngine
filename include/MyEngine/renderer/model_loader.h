@@ -1,31 +1,38 @@
 // include/MyEngine/renderer/model_loader.h
 #pragma once
 // =============================================================================
-// model_loader.h — Assimp による 3D モデル読み込み
+// model_loader.h — Phase 2 段階G-1
 // =============================================================================
-// 提供する API:
-//   - probe(path)           : 診断用。コンソールに頂点数等を表示。Phase 1-B 名残。
-//   - load(ctx, res, path)  : 本番用。Assimp で読んで Model に詰めて返す。
+// load(): メッシュ + マテリアル + スケルトン + アニメ込みでフルロード
+//          (アニメは戻り値の outAnimations に書き出す)
+// loadAnimationsOnly(): メッシュ無視でアニメだけ抽出
+//          (Mixamo の "Without Skin" でダウンロードした walk.glb 等に使う)
 // =============================================================================
 
 #include <string>
+#include <vector>
 
+#include "renderer/animation.h"
 #include "renderer/model.h"
 
 class VulkanContext;
 class ResourceFactory;
+class AssetRegistry;
 
 class ModelLoader {
    public:
-    // 診断用 (Phase 1-B)。コンソールに概要を表示するだけ。
     static bool probe(const std::string& path);
 
-    // 本番ロード API (Phase 1 段階B-C)。
-    //   - Assimp でファイルを読み、各 aiMesh を SubMesh に変換
-    //   - GPU バッファ (VertexBuffer/IndexBuffer) も作成
-    //   - 失敗時は空の Model を返す (Model::empty() == true)
-    //
-    // 注: テクスチャ/マテリアルは段階Bでは扱わない。Phase 1-D で対応。
-    static Model load(const VulkanContext* ctx, const ResourceFactory* resources,
-                      const std::string& path);
+    // フルロード: メッシュ + マテリアル + スケルトン + アニメ
+    // - outModel        : メッシュ・マテリアル・スケルトンが入る
+    // - outAnimations   : このファイルから抽出したアニメクリップ群
+    // 戻り値: ロード成功かどうか
+    static bool load(const VulkanContext* ctx, const ResourceFactory* resources,
+                     AssetRegistry& assets, const std::string& path,
+                     Model& outModel, std::vector<AnimationClip>& outAnimations);
+
+    // アニメだけロード: メッシュ・マテリアル・テクスチャは無視
+    // 戻り値: 成功時 true (clips に1個以上アニメが入る)
+    static bool loadAnimationsOnly(const std::string& path,
+                                   std::vector<AnimationClip>& outAnimations);
 };

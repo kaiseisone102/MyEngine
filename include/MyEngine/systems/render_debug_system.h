@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+
 #include <string>
 
 #include "core/components.h"
@@ -32,16 +33,14 @@ struct DebugOverlayData {
     int silverKeys = 0;
     // お金
     int money = 0;
-    // 魂
-    int spiritCount = 0;
     // SkinBufferPool
     int skinnedAllocated = 0;
     int skinnedCapacity = 128;
 
     // ─── キーバインド ───────────────────────────────────────
-    std::string moveKeysLabel = "W/A/S/D";
-    std::string jumpKeyLabel = "Space";
-    std::string attackKeyLabel = "LMB";
+    std::string moveKeysLabel        = "W/A/S/D";
+    std::string jumpKeyLabel         = "Space";
+    std::string attackKeyLabel       = "LMB";
     std::string strongAttackKeyLabel = "RMB";
     std::string toggleCameraKeyLabel = "Tab";
 

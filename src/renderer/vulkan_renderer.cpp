@@ -1,10 +1,8 @@
 // src/renderer/vulkan_renderer.cpp
 // =============================================================================
-// vulkan_renderer.cpp — リファクタ Step 10 (案C 徹底分離後)
-//
-// drawFrame は acquire → frameUniforms.update → passChain.recordFrame
-// → submitAndPresent の 4 ステップのみ。
-// 描画ロジック・行列計算・Pass 順序はすべて SceneData / PassChain に委譲済み。
+// + ParticleSystem 連携 (C 案: setCurrentParticles で保持して drawFrame で使う)
+// + Phase 1C: scene_.toLightingData() 廃止 → currentLighting_ を直接使う
+//            recordFrame に normalLighting / waterTime / reflectShadows を渡す
 // =============================================================================
 
 #include "renderer/vulkan_renderer.h"
@@ -21,21 +19,18 @@ void VulkanRenderer::init(SDL_Window* window) {
     shaderDir_ = std::string(base) + "shaders/";
     assetDir_ = std::string(base) + "assets/";
 
-    // [Step 1-3] コア
     ctx_.init(window);
     resources_.init(&ctx_);
     swapchain_.init(&ctx_, &resources_, window, ctx_.findDepthFormat());
 
-    // [Step 5] FrameSync
     frameSync_.init(&ctx_);
 
-    // [Step 4 → AssetRegistry] Mesh / Texture
     assets_.init(&ctx_, &resources_, assetDir_);
 
-    // [Step 6] FrameUniforms (Layout を先に確保。PassChain が layout を要求するため)
     frameUniforms_.init(&ctx_, &resources_);
 
-    // [Step 8-9, 7] PassChain (ShadowPass + MainPass + ImGuiLayer + 配線)
+    skinBufferPool_.init(&ctx_, &resources_);
+
     {
         PassChain::InitInfo info{};
         info.window = window_;
@@ -43,7 +38,8 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.resources = &resources_;
         info.swapchain = &swapchain_;
         info.frameUniforms = &frameUniforms_;
-        info.defaultTexture = &assets_.defaultTexture();
+        info.assets = &assets_;
+        info.skinSetLayout = skinBufferPool_.layout();
         info.shaderDir = shaderDir_;
         passChain_.init(info);
     }
@@ -65,15 +61,14 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         return;
     }
 
-    // 1) UBO 更新 (シーン情報 → LightingData は SceneData が組む)
-    frameUniforms_.update(acq.frameIndex, scene_.toLightingData());
+    // Phase 1C: 旧 scene_.toLightingData() を廃止。 camera_system が
+    // setLighting() で渡した currentLighting_ をそのまま使う。
+    frameUniforms_.update(acq.frameIndex, currentLighting_);
 
-    // 2) ImGui フレーム + ユーザコールバック
     passChain_.beginUI();
     if (uiCallback) uiCallback();
     passChain_.endUI();
 
-    // 3) コマンド記録 (ShadowPass → MainPass を内部で順に発行)
     {
         PassChain::RecordInfo info{};
         info.cmd = acq.cmd;
@@ -82,10 +77,28 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         info.scene = &scene_;
         info.assets = &assets_;
         info.frameUniforms = &frameUniforms_;
+        info.skinSet = skinBufferPool_.descriptorSet(acq.frameIndex);
+        info.debugLines = &debugLines_;
+        info.particles = currentParticles_;
+        info.hud = &hud_;
+        const VkExtent2D ext = swapchain_.extent();
+        info.screenW = static_cast<float>(ext.width);
+        info.screenH = static_cast<float>(ext.height);
+
+        // Phase 1C: 反射 VP の生成と shadowStrength 調整に必要な追加情報。
+        info.normalLighting = currentLighting_;
+        info.waterTime = waterTime_;
+        info.reflectShadows = reflectShadows_;
+
         passChain_.recordFrame(info);
     }
 
-    // 4) 提出 + Present
+    // フレーム終わったら particles ポインタはクリア。
+    // 次フレームの buildScene で setter が再度呼ばれる想定。
+    // Layer が遷移したり Title 画面のように setter を呼ばない場合に
+    // 古い (もう無効な) ポインタを使わないための安全策。
+    currentParticles_ = nullptr;
+
     if (frameSync_.submitAndPresent(swapchain_.handle(), acq.imageIndex)) {
         recreateSwapchain();
     }
@@ -95,12 +108,12 @@ void VulkanRenderer::shutdown() {
     if (ctx_.device() == VK_NULL_HANDLE) return;
     vkDeviceWaitIdle(ctx_.device());
 
-    // init と逆順:
-    passChain_.shutdown();      // [Step 7,8,9]
-    frameUniforms_.shutdown();  // [Step 6]
-    assets_.shutdown();         // [Step 4]
-    frameSync_.shutdown();      // [Step 5]
-    swapchain_.shutdown();      // [Step 3]
-    resources_.shutdown();      // [Step 2]
-    ctx_.shutdown();            // [Step 1]
+    passChain_.shutdown();
+    skinBufferPool_.shutdown();
+    frameUniforms_.shutdown();
+    assets_.shutdown();
+    frameSync_.shutdown();
+    swapchain_.shutdown();
+    resources_.shutdown();
+    ctx_.shutdown();
 }

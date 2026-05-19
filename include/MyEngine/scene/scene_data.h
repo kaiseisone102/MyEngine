@@ -1,122 +1,114 @@
-// include/MyEngine/scene/scene_data.h
 #pragma once
 // =============================================================================
-// scene_data.h — Phase 5-F (Lighting/Shadow 強化)
+// scene_data.h ÃÂ¢ÃÂÃÂ ÃÂ¦ÃÂÃÂÃÂ§ÃÂÃÂ»ÃÂ£ÃÂÃÂ­ÃÂ£ÃÂÃÂ¥ÃÂ£ÃÂÃÂ¼ (opaque + transparent ÃÂ¥ÃÂÃÂ¥) + Water list
 // =============================================================================
-// Phase 5-B 追加 (既):
-//   StaticModelDrawItem  : 装備品など静的 Model
-//   addStaticModelObject(): staticModelDrawList_ に追加
-//
-// Phase 5-F 追加:
-//   setPlayerCenter()    : ライト視点を Player 中心に追従させるための位置
-//                          影が常に Player 周辺に生成される (Player が移動しても消えない)
-// =============================================================================
+
+#include <vector>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <algorithm>
 #include <glm/glm.hpp>
-#include <vector>
 
-#include "renderer/frame_uniforms.h"
+#include "core/water.h"  // WaterDrawParams
 
+class Material;
 class Model;
+class TerrainMesh;
+class WaterMesh;
 
-struct SkinnedDrawItem {
+struct MeshDrawItem {
     glm::mat4 model{1.f};
-    int32_t skinOffset = 0;
-    const Model* sourceModel = nullptr;
+    const Material* material = nullptr;
+    float alpha = 1.f;
 };
 
 struct StaticModelDrawItem {
     glm::mat4 model{1.f};
     const Model* sourceModel = nullptr;
+    float alpha = 1.f;
+};
+
+struct SkinnedDrawItem {
+    glm::mat4 model{1.f};
+    const Model* sourceModel = nullptr;
+    int skinOffset = 0;
+    float alpha = 1.f;
+};
+
+struct TerrainDrawItem {
+    glm::mat4 model{1.f};
+    const TerrainMesh* terrain = nullptr;
+    const Material* material = nullptr;
+    float alpha = 1.f;
+};
+
+struct WaterDrawItem {
+    glm::vec3 center{0.f};
+    glm::vec2 sizeXZ{16.f, 16.f};
+    const WaterMesh* mesh = nullptr;
+    WaterDrawParams drawParams;
 };
 
 class SceneData {
    public:
-    void setViewProjection(const glm::mat4& view, const glm::mat4& proj) {
-        view_ = view;
-        proj_ = proj;
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ opaque (ÃÂ¤ÃÂ¸ÃÂÃÂ©ÃÂÃÂÃÂ¦ÃÂÃÂ) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+    const std::vector<MeshDrawItem>& meshDrawListOpaque() const { return meshOpaque_; }
+    std::vector<MeshDrawItem>& meshDrawListOpaque() { return meshOpaque_; }
+    const std::vector<StaticModelDrawItem>& staticModelDrawListOpaque() const { return staticOpaque_; }
+    std::vector<StaticModelDrawItem>& staticModelDrawListOpaque() { return staticOpaque_; }
+    const std::vector<SkinnedDrawItem>& modelDrawListOpaque() const { return modelOpaque_; }
+    std::vector<SkinnedDrawItem>& modelDrawListOpaque() { return modelOpaque_; }
+    const std::vector<TerrainDrawItem>& terrainDrawListOpaque() const { return terrainOpaque_; }
+    std::vector<TerrainDrawItem>& terrainDrawListOpaque() { return terrainOpaque_; }
+
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ transparent (ÃÂ¥ÃÂÃÂÃÂ©ÃÂÃÂÃÂ¦ÃÂÃÂ) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+    const std::vector<MeshDrawItem>& meshDrawListTransparentConst() const { return meshTransparent_; }
+    std::vector<MeshDrawItem>& meshDrawListTransparent() { return meshTransparent_; }
+    const std::vector<StaticModelDrawItem>& staticModelDrawListTransparentConst() const {
+        return staticTransparent_;
     }
-    const glm::mat4& view() const { return view_; }
-    const glm::mat4& projection() const { return proj_; }
-
-    void clearObjects() {
-        meshDrawList_.clear();
-        modelDrawList_.clear();
-        staticModelDrawList_.clear();
+    std::vector<StaticModelDrawItem>& staticModelDrawListTransparent() { return staticTransparent_; }
+    const std::vector<SkinnedDrawItem>& modelDrawListTransparentConst() const {
+        return modelTransparent_;
     }
-
-    void addMeshObject(const glm::mat4& modelMatrix) { meshDrawList_.push_back(modelMatrix); }
-
-    void addModelObject(const glm::mat4& modelMatrix, int32_t skinOffset,
-                        const Model* sourceModel) {
-        modelDrawList_.push_back({modelMatrix, skinOffset, sourceModel});
+    std::vector<SkinnedDrawItem>& modelDrawListTransparent() { return modelTransparent_; }
+    const std::vector<TerrainDrawItem>& terrainDrawListTransparentConst() const {
+        return terrainTransparent_;
     }
+    std::vector<TerrainDrawItem>& terrainDrawListTransparent() { return terrainTransparent_; }
 
-    void addStaticModelObject(const glm::mat4& modelMatrix, const Model* sourceModel) {
-        staticModelDrawList_.push_back({modelMatrix, sourceModel});
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Water ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+    const std::vector<WaterDrawItem>& waterDrawList() const { return waters_; }
+    std::vector<WaterDrawItem>& waterDrawList() { return waters_; }
+
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ culling distance ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+    float cullingDistance() const { return cullingDistance_; }
+    void setCullingDistance(float d) { cullingDistance_ = d; }
+
+    void clear() {
+        meshOpaque_.clear();
+        staticOpaque_.clear();
+        modelOpaque_.clear();
+        terrainOpaque_.clear();
+        meshTransparent_.clear();
+        staticTransparent_.clear();
+        modelTransparent_.clear();
+        terrainTransparent_.clear();
+        waters_.clear();
     }
-
-    void addObject(const glm::mat4& modelMatrix) { addMeshObject(modelMatrix); }
-
-    void sortModelDrawListBySourceModel() {
-        std::sort(modelDrawList_.begin(), modelDrawList_.end(),
-                  [](const SkinnedDrawItem& a, const SkinnedDrawItem& b) {
-                      return a.sourceModel < b.sourceModel;
-                  });
-    }
-
-    void sortStaticModelDrawListBySourceModel() {
-        std::sort(staticModelDrawList_.begin(), staticModelDrawList_.end(),
-                  [](const StaticModelDrawItem& a, const StaticModelDrawItem& b) {
-                      return a.sourceModel < b.sourceModel;
-                  });
-    }
-
-    const std::vector<glm::mat4>& meshDrawList() const { return meshDrawList_; }
-    const std::vector<SkinnedDrawItem>& modelDrawList() const { return modelDrawList_; }
-    const std::vector<StaticModelDrawItem>& staticModelDrawList() const {
-        return staticModelDrawList_;
-    }
-
-    void setLightingParams(const glm::vec3& lightPos, const glm::vec3& lightColor,
-                           const glm::vec3& viewPos, float ambient = 0.15f, float specular = 0.5f) {
-        lightPos_ = lightPos;
-        lightColor_ = lightColor;
-        viewPos_ = viewPos;
-        ambient_ = ambient;
-        specular_ = specular;
-    }
-    void setShadowParams(float strength, float bias) {
-        shadowStrength_ = strength;
-        shadowBias_ = bias;
-    }
-
-    // Phase 5-F: ライト視点の中心位置 (Player 位置を指定)
-    // toLightingData() でこの位置を中心にライト正射影を構築する。
-    void setPlayerCenter(const glm::vec3& p) { playerCenter_ = p; }
-
-    FrameUniforms::LightingData toLightingData() const;
 
    private:
-    glm::mat4 view_{1.f};
-    glm::mat4 proj_{1.f};
+    std::vector<MeshDrawItem> meshOpaque_;
+    std::vector<StaticModelDrawItem> staticOpaque_;
+    std::vector<SkinnedDrawItem> modelOpaque_;
+    std::vector<TerrainDrawItem> terrainOpaque_;
 
-    std::vector<glm::mat4> meshDrawList_;
-    std::vector<SkinnedDrawItem> modelDrawList_;
-    std::vector<StaticModelDrawItem> staticModelDrawList_;
+    std::vector<MeshDrawItem> meshTransparent_;
+    std::vector<StaticModelDrawItem> staticTransparent_;
+    std::vector<SkinnedDrawItem> modelTransparent_;
+    std::vector<TerrainDrawItem> terrainTransparent_;
 
-    glm::vec3 lightPos_{10.f, 20.f, 10.f};
-    glm::vec3 lightColor_{1.f, 1.f, 1.f};
-    glm::vec3 viewPos_{0.f, 0.f, 5.f};
-    float ambient_ = 0.15f;
-    float specular_ = 0.5f;
-    float shadowStrength_ = 0.8f;   // Phase 5-F: 0.6 -> 0.8 (強化)
-    float shadowBias_     = 0.0015f; // Phase 5-F: 0.003 -> 0.0015 (細かく)
+    std::vector<WaterDrawItem> waters_;
 
-    // Phase 5-F: ライト視点の中心 (Player 位置)
-    // setPlayerCenter() で設定。 デフォルトは原点。
-    glm::vec3 playerCenter_{0.f, 0.f, 0.f};
+    float cullingDistance_ = 100.f;
 };

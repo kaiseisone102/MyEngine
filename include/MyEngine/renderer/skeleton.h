@@ -1,15 +1,11 @@
-// include/MyEngine/renderer/skeleton.h
 #pragma once
 // =============================================================================
-// skeleton.h — Phase 2 段階C
-// =============================================================================
-// 注意: Assimp の aiMatrix4x4 は template typedef のため、ここで前方宣言すると
-// 「typedef redefinition with different types」エラーになる。
-// Assimp 型の include は skeleton.cpp 側にだけ置く。
-// aiScene / aiNode はポインタ受け渡しのみなので不完全型前方宣言で OK。
+// skeleton.h — Phase 5-B
+// findBoneByAnyName API 追加 (複数候補ボーン名から最初の一致を返す)
 // =============================================================================
 
 #include <glm/glm.hpp>
+#include <initializer_list>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,6 +31,12 @@ class Skeleton {
 
     int findBoneByName(const std::string& name) const;
 
+    // Phase 5-B: 複数候補名から最初に見つかったボーンのインデックスを返す
+    // モデルごとに装備用ボーン名が異なる場合 (Mixamo / 自作モデルなど) のフォールバック検索用。
+    // 例: findBoneByAnyName({"mixamorig:Shield_joint", "ShieldJoint", "shield_attach"})
+    // 一致するものがなければ -1 を返す。
+    int findBoneByAnyName(std::initializer_list<const char*> candidates) const;
+
     const glm::mat4& globalInverseTransform() const { return globalInverseTransform_; }
 
     void computeBindPoseSkinMatrices(std::vector<glm::mat4>& out) const;
@@ -44,8 +46,6 @@ class Skeleton {
     std::unordered_map<std::string, int> nameToIndex_;
     glm::mat4 globalInverseTransform_{1.f};
 
-    // toGlmMat4 は skeleton.cpp 内部の無名 namespace に置く
-    // (aiMatrix4x4 の完全型が必要なため header では宣言しない)
     void collectBoneNames(const aiScene* scene,
                           std::unordered_map<std::string, glm::mat4>& outOffsets);
     void buildHierarchy(const aiNode* node, int parentIndex,

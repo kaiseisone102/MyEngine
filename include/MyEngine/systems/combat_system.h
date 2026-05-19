@@ -1,26 +1,36 @@
 #pragma once
+// =============================================================================
+// combat_system.h — + SoundManager 注入 (slash SE 用)
+// =============================================================================
+// 攻撃成立時に slash.mp3 を再生する。 既に攻撃中で無視される場合は無音。
+// =============================================================================
 
 #include <flecs.h>
 
+#include "core/attack_def.h"
 #include "core/components.h"
+
+struct WorldData;
+class SoundManager;
 
 class CombatSystem {
    public:
-    // 横薙ぎ攻撃（Left_mouse_button）。sweepDeg=150
-    void requestAttack(flecs::entity player) const;
+    // 攻撃要求 (現在 idle なら開始、 そうでなければ無視)。
+    // 開始したときだけ sound.playSlash() を発火。
+    void requestAttack(flecs::entity attacker, SoundManager& sound) const;
+    void requestStrongAttack(flecs::entity attacker, SoundManager& sound) const;
 
-    // 頭上から振り下ろし　強攻撃（Right_mouse_button）。sweepDeg=105
-    void requestStrongAttack(flecs::entity player) const;
+    void update(WorldData& data, flecs::entity attacker, float dt) const;
+    void cancelAerialOnLanding(flecs::entity attacker, WorldData& data) const;
+    bool isInputLocked(flecs::entity attacker) const;
+    AttackPhase getPhase(flecs::entity attacker) const;
+    glm::vec3 getCurrentSweepWorldDir(flecs::entity attacker) const;
 
-    // 攻撃タイマー更新。
-    void update(flecs::entity player, float dt) const;
-
-    // 入力ロック判定。空中攻撃（isAerial=true）の場合は false を返す（移動制限なし）。
-    bool isInputLocked(flecs::entity player) const;
-
-    // 着地時に空中攻撃をキャンセルする。地上攻撃・非攻撃中は何もしない。
-    void cancelAerialOnLanding(flecs::entity player) const;
-
-    // 攻撃可視化などで使う現在のスイープ角（ワールドYaw）。
-    float getAttackYawDeg(const CTransform& transform, const CAttack& attack) const;
+   private:
+    void startAttack(flecs::entity attacker, const AttackDef& def, bool isAerial) const;
+    void performSweepHit(WorldData& data, flecs::entity attacker, CAttack& atk,
+                          const glm::vec3& prevWorldDir,
+                          const glm::vec3& currWorldDir) const;
+    void performShockwaveHit(WorldData& data, flecs::entity attacker, CAttack& atk) const;
+    void endAttack(flecs::entity attacker) const;
 };

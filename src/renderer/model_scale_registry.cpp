@@ -23,27 +23,29 @@ const std::unordered_map<std::string, Entry>& table() {
         // ─── 盾 ──────────────────────────────────────────────
         // 床に置いてあるとき: 見つけやすく少し大きめ
         // 装備時: 手のサイズに合わせて小さめ
-        {"shield_iron", {{0.01f, 0.01f, 0.01f}, {1.0f, 1.0f, 1.0f}}},
-        {"shield_silver", {{0.01f, 0.01f, 0.01f}, {1.0f, 1.0f, 1.0f}}},
-        {"shield_gold", {{0.01f, 0.01f, 0.01f}, {1.0f, 1.0f, 1.0f}}},
+        {"shield_iron",    {{0.30f, 0.30f, 0.30f}, {0.20f, 0.20f, 0.20f}}},
+        {"shield_silver",  {{0.30f, 0.30f, 0.30f}, {0.20f, 0.20f, 0.20f}}},
+        {"shield_gold",    {{0.30f, 0.30f, 0.30f}, {0.20f, 0.20f, 0.20f}}},
 
         // ─── 武器 ────────────────────────────────────────────
         // 主に装備用、 デフォルト 1.0 で十分 (床配置の用途は今はない)
-        {"sword_std", {{1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}}},
+        {"sword_std",      {{1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}}},
 
         // ─── 装飾オブジェクト ─────────────────────────────────
         // 装備されない (equippedScale は (0,0,0) のまま、 ここに来ることもない想定)
         // 実物大が分からないので、 まず 1.0f で配置 → 必要に応じて調整
-        {"grave_1", {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
-        {"grave_spirit", {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
-        {"rock_1", {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
+        {"grave_1",         {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
+        {"grave_spirit",    {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
+        {"rock_1",          {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
         {"tree_noLeaves_1", {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
         {"tree_noLeaves_2", {{1.0f, 1.0f, 1.0f}, {0.f, 0.f, 0.f}}},
     };
     return kTable;
 }
 
-bool isZero(const glm::vec3& v) { return v.x == 0.f && v.y == 0.f && v.z == 0.f; }
+bool isZero(const glm::vec3& v) {
+    return v.x == 0.f && v.y == 0.f && v.z == 0.f;
+}
 
 }  // namespace
 
@@ -51,7 +53,8 @@ glm::vec3 get(const std::string& modelName, Context ctx) {
     const auto& t = table();
     auto it = t.find(modelName);
     if (it == t.end()) {
-        std::cerr << "[ModelScale] WARNING: not registered: '" << modelName << "', using {1,1,1}\n";
+        std::cerr << "[ModelScale] WARNING: not registered: '" << modelName
+                  << "', using {1,1,1}\n";
         return glm::vec3{1.f, 1.f, 1.f};
     }
     const Entry& entry = it->second;

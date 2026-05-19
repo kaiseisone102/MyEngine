@@ -18,16 +18,16 @@ glm::mat4 toGlmMat4(const aiMatrix4x4& m) {
 }
 
 void dumpMat4(const char* label, const glm::mat4& m) {
-    // std::cout << "[Skeleton DEBUG] " << label << ":\n";
-    // std::cout << std::fixed << std::setprecision(4);
-    // for (int row = 0; row < 4; ++row) {
-    //     std::cout << "  ";
-    //     for (int col = 0; col < 4; ++col) {
-    //         std::cout << std::setw(10) << m[col][row] << " ";
-    //     }
-    //     std::cout << "\n";
-    // }
-    // std::cout << std::defaultfloat;
+    std::cout << "[Skeleton DEBUG] " << label << ":\n";
+    std::cout << std::fixed << std::setprecision(4);
+    for (int row = 0; row < 4; ++row) {
+        std::cout << "  ";
+        for (int col = 0; col < 4; ++col) {
+            std::cout << std::setw(10) << m[col][row] << " ";
+        }
+        std::cout << "\n";
+    }
+    std::cout << std::defaultfloat;
 }
 
 }  // namespace
@@ -80,7 +80,7 @@ void Skeleton::build(const aiScene* scene) {
     const glm::mat4 rootNodeTransform = toGlmMat4(scene->mRootNode->mTransformation);
     globalInverseTransform_ = rootNodeTransform;
 
-    dumpMat4("rootNode->mTransformation (used as skeleton root parent)", rootNodeTransform);
+    // dumpMat4("rootNode->mTransformation (used as skeleton root parent)", rootNodeTransform);
 
     std::unordered_map<std::string, glm::mat4> offsets;
     collectBoneNames(scene, offsets);
@@ -91,8 +91,8 @@ void Skeleton::build(const aiScene* scene) {
 
     buildHierarchy(scene->mRootNode, -1, offsets);
 
-    // std::cout << "[Skeleton] built: " << bones_.size() << " bones (offsets collected: "
-    //           << offsets.size() << ")\n";
+    std::cout << "[Skeleton] built: " << bones_.size()
+              << " bones (offsets collected: " << offsets.size() << ")\n";
 
     if (bones_.size() < offsets.size()) {
         std::cerr << "[Skeleton] WARNING: " << (offsets.size() - bones_.size())
