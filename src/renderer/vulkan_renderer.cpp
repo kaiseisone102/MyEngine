@@ -45,7 +45,8 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.frameUniforms = &frameUniforms_;
         info.assets = &assets_;
         info.bindlessSetLayout = bindlessTextures_.layout();
-        info.hdrColorView = hdrTarget_.view();  // Phase 1H-2
+        info.hdrColorView = hdrTarget_.view();
+        info.hdrColorSampler = hdrTarget_.sampler();  // Phase 1H-3  // Phase 1H-2
         info.hdrColorFormat = hdrTarget_.format();
         info.shaderDir = shaderDir_;
         passChain_.init(info);
@@ -57,7 +58,7 @@ void VulkanRenderer::recreateSwapchain() {
     // Phase 1H-2: HDR target must be recreated BEFORE MainPass framebuffers (which use its view)
     hdrTarget_.shutdown();
     createHdrTarget();
-    passChain_.onSwapchainResized(hdrTarget_.view());
+    passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler());
 }
 
 void VulkanRenderer::onResize() {

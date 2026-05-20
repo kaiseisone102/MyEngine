@@ -66,6 +66,16 @@ void PassChain::init(const InitInfo& info) {
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
     }
+    {
+        PostPass::InitInfo poi{};
+        poi.ctx = info.ctx;
+        poi.swapchain = info.swapchain;
+        poi.hdrColorView = info.hdrColorView;
+        poi.hdrColorSampler = info.hdrColorSampler;
+        poi.shaderDir = info.shaderDir;
+        postPass_.init(poi);
+    }
+
 
     // ─── DebugLinePass ───────────────────────────────────────────
     {
@@ -153,6 +163,7 @@ void PassChain::shutdown() {
     hudPass_.shutdown();
     particlePass_.shutdown();
     debugLinePass_.shutdown();
+    postPass_.shutdown();  // Phase 1H-3
     mainPass_.shutdown();
     shadowPass_.shutdown();
     swapchain_ = nullptr;
@@ -167,12 +178,16 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
     }
 }
 
-void PassChain::onSwapchainResized(VkImageView hdrColorView) {
+void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler) {
     // Phase 1H-2: forward new HDR view to MainPass before re-creating framebuffer
     if (hdrColorView != VK_NULL_HANDLE) {
         mainPass_.setHdrColorView(hdrColorView);
     }
     mainPass_.onSwapchainResized();
+    // Phase 1H-3: forward new HDR view + sampler to PostPass
+    if (hdrColorView != VK_NULL_HANDLE) {
+        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler);
+    }
     // swapchain サイズ変更時、 反射 texture も新サイズに合わせて再作成。
     // quality は ReflectionPass が保持してる現在値を維持。
     if (swapchain_) {
@@ -302,6 +317,14 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.screenH = info.screenH;
 
         mainPass_.execute(mi);
+    }
+
+    // Phase 1H-3: tonemap HDR target -> swapchain
+    {
+        PostPass::ExecuteInfo poe{};
+        poe.cmd = info.cmd;
+        poe.imageIndex = info.imageIndex;
+        postPass_.execute(poe);
     }
 
     if (vkEndCommandBuffer(info.cmd) != VK_SUCCESS)

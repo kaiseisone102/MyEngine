@@ -16,6 +16,7 @@
 #include "hud_pass.h"
 #include "imgui_layer.h"
 #include "main_pass.h"
+#include "post_pass.h"
 #include "particle_pass.h"
 #include "reflection_pass.h"
 #include "shadow_pass.h"
@@ -45,6 +46,7 @@ class PassChain {
         // Phase 1H-2: HDR target attachment for MainPass
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
+        VkSampler hdrColorSampler = VK_NULL_HANDLE;  // Phase 1H-3
         std::string shaderDir;
         ReflectionQuality reflectionQuality = ReflectionQuality::Half;
         bool reflectShadows = true;
@@ -81,7 +83,7 @@ class PassChain {
     void beginUI();
     void endUI();
     void recordFrame(const RecordInfo& info);
-    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE);  // Phase 1H-2
+    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE);  // Phase 1H-2/3
 
     void onReflectionQualityChanged(ReflectionQuality quality);
 
@@ -90,6 +92,7 @@ class PassChain {
    private:
     ShadowPass shadowPass_;
     MainPass mainPass_;
+    PostPass postPass_;  // Phase 1H-3
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;
     HudPass hudPass_;
