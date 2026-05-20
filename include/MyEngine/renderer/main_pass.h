@@ -31,12 +31,16 @@ class MainPass {
     using StaticPushConstants = myengine::shared::StaticPushConstants;
 
     using SkinnedPushConstants = myengine::shared::SkinnedPushConstants;
+    // Phase 1D: bindless static draw with texture index in push constant
+    using StaticBindlessPushConstants = myengine::shared::StaticBindlessPushConstants;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         Swapchain* swapchain = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
+        // Phase 1D: bindless texture array set layout (set=1 in bindless pipeline)
+        VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
     };
 
@@ -46,6 +50,9 @@ class MainPass {
         uint32_t frameIndex = 0;
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
         VkDescriptorSet defaultMaterialSet = VK_NULL_HANDLE;
+        // Phase 1D: bindless texture array descriptor set
+        VkDescriptorSet bindlessSet = VK_NULL_HANDLE;
+        bool drawBindlessTestCube = false;  // Step 1D-2c: test cube switch
         // Phase 1B-4b: BDA address for skin matrices (parallel to skinSet, replaces it in 1B-4c)
         VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
@@ -110,11 +117,17 @@ class MainPass {
     VkPipeline skinnedPipelineOpaque_ = VK_NULL_HANDLE;
     VkPipeline skinnedPipelineTransparent_ = VK_NULL_HANDLE;
 
+    // === Phase 1D: bindless pipeline (opaque only for now) ===
+    VkPipelineLayout bindlessLayout_ = VK_NULL_HANDLE;
+    VkPipeline bindlessPipelineOpaque_ = VK_NULL_HANDLE;
+
     void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                              VkDescriptorSetLayout materialSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
                               VkDescriptorSetLayout materialSetLayout);
+    void createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
+                              VkDescriptorSetLayout bindlessSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
     void createFramebuffers();
     void destroyFramebuffers();

@@ -35,6 +35,10 @@ class Texture {
     VkImageView view() const { return view_; }
     VkSampler sampler() const { return sampler_; }
 
+    // === Phase 1D: bindless texture index ===
+    uint32_t bindlessIndex() const { return bindlessIndex_; }
+    void setBindlessIndex(uint32_t idx) { bindlessIndex_ = idx; }
+
    private:
     const VulkanContext* ctx_ = nullptr;
 
@@ -42,6 +46,7 @@ class Texture {
     VkDeviceMemory memory_ = VK_NULL_HANDLE;
     VkImageView view_ = VK_NULL_HANDLE;
     VkSampler sampler_ = VK_NULL_HANDLE;
+    uint32_t bindlessIndex_ = UINT32_MAX;
 
     void createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
                             int height);

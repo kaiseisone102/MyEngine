@@ -17,6 +17,7 @@
 #include "core/particle.h"
 #include "frame_sync.h"
 #include "frame_uniforms.h"
+#include "bindless_texture_registry.h"
 #include "renderer/asset_registry.h"
 #include "renderer/debug_line_renderer.h"
 #include "renderer/hud_draw_list.h"
@@ -57,6 +58,8 @@ class VulkanRenderer {
 
     SkinBufferPool& skinBufferPool() { return skinBufferPool_; }
     const SkinBufferPool& skinBufferPool() const { return skinBufferPool_; }
+    BindlessTextureRegistry& bindlessTextures() { return bindlessTextures_; }
+    const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
 
     DebugLineRenderer& debugLines() { return debugLines_; }
     const DebugLineRenderer& debugLines() const { return debugLines_; }
@@ -93,6 +96,8 @@ class VulkanRenderer {
     FrameUniforms frameUniforms_;
 
     AssetRegistry assets_;
+    // === Phase 1D: bindless texture system ===
+    BindlessTextureRegistry bindlessTextures_;
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;
@@ -103,6 +108,12 @@ class VulkanRenderer {
     const std::vector<particle::Particle>* currentParticles_ = nullptr;
 
     // Phase 1C 追加: 旧 scene.setLightingParams 廃止に伴う移植
+    // === Phase 1C-2: time tracking for FrameUBO.time field ===
+    uint64_t startTickMs_ = 0;
+    uint64_t lastTickMs_ = 0;
+    uint32_t frameNumber_ = 0;
+    float elapsedTime_ = 0.f;
+
     FrameUniforms::LightingUBO currentLighting_{};
     float waterTime_ = 0.f;
     bool reflectShadows_ = true;

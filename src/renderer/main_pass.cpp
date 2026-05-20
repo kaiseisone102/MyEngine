@@ -3,6 +3,7 @@
 //                            + HUD + ImGui
 // =============================================================================
 #include "renderer/main_pass.h"
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cstddef>
 #include <iostream>
@@ -168,6 +169,15 @@ void MainPass::init(const InitInfo& info) {
         PipelineBuildArgs argsTr{skinnedLayout_, "triangle_skinned_vert.spv",
                                    "triangle_skinned_frag.spv", true};
         skinnedPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
+    }
+
+    // === Phase 1D: bindless pipeline (opaque only, test cube) ===
+    if (info.bindlessSetLayout != VK_NULL_HANDLE) {
+        createBindlessLayout(info.frameSetLayout, info.bindlessSetLayout);
+        PipelineBuildArgs argsBl{bindlessLayout_, "triangle_bindless_vert.spv",
+                                  "triangle_bindless_frag.spv", false};
+        bindlessPipelineOpaque_ = buildPipeline(argsBl, info.shaderDir);
+        std::cout << "[MainPass] bindless pipeline created\n";
     }
 
     createFramebuffers();
@@ -558,6 +568,52 @@ void MainPass::execute(const ExecuteInfo& info) {
 
     if (info.imgui) info.imgui->recordDrawCommands(info.cmd);
 
+    // ============================================================
+    // Phase 1D-2d: bindless test cube (floating above world origin)
+    //   Demonstrates that a SINGLE draw using the bindless texture array
+    //   can pick any texture by index, without any per-material descriptor
+    //   set binding. Here we use index 5 (grass_field) on a cube.
+    // ============================================================
+    if (bindlessPipelineOpaque_ != VK_NULL_HANDLE && info.bindlessSet != VK_NULL_HANDLE &&
+        info.mesh) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_);
+
+        VkViewport vp{};
+        vp.x = 0.f;
+        vp.y = 0.f;
+        vp.width = static_cast<float>(extent.width);
+        vp.height = static_cast<float>(extent.height);
+        vp.minDepth = 0.f;
+        vp.maxDepth = 1.f;
+        VkRect2D sc{{0, 0}, extent};
+        vkCmdSetViewport(info.cmd, 0, 1, &vp);
+        vkCmdSetScissor(info.cmd, 0, 1, &sc);
+
+        // set=0 frame uniforms
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_, 0, 1,
+                                &info.frameSet, 0, nullptr);
+        // set=1 bindless texture array (1024 capacity)
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_, 1, 1,
+                                &info.bindlessSet, 0, nullptr);
+
+        // Cube geometry (already created in AssetRegistry::defaultMesh_)
+        info.mesh->bind(info.cmd);
+
+        // Push constant: position + texture index
+        StaticBindlessPushConstants pc{};
+        pc.model = glm::translate(glm::mat4(1.f), glm::vec3(3.f, 5.f, 3.f));
+        pc.alpha = 1.0f;
+        pc.albedoIdx = 5;  // grass_field
+
+        vkCmdPushConstants(info.cmd, bindlessLayout_,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(pc), &pc);
+
+        // Use the default mesh (cube) index count.
+        // Note: info.mesh is a Mesh* whose indexCount() returns the cube's index count.
+        vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
+    }
+
     vkCmdEndRenderPass(info.cmd);
 }
 
@@ -577,6 +633,15 @@ void MainPass::shutdown() {
         vkDestroyPipelineLayout(ctx_->device(), skinnedLayout_, nullptr);
         skinnedLayout_ = VK_NULL_HANDLE;
     }
+    // Phase 1D: bindless pipeline cleanup
+    if (bindlessPipelineOpaque_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), bindlessPipelineOpaque_, nullptr);
+        bindlessPipelineOpaque_ = VK_NULL_HANDLE;
+    }
+    if (bindlessLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_->device(), bindlessLayout_, nullptr);
+        bindlessLayout_ = VK_NULL_HANDLE;
+    }
     if (staticPipelineTransparent_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(ctx_->device(), staticPipelineTransparent_, nullptr);
         staticPipelineTransparent_ = VK_NULL_HANDLE;
@@ -595,4 +660,26 @@ void MainPass::shutdown() {
     }
     ctx_ = nullptr;
     swapchain_ = nullptr;
+}
+
+// =============================================================================
+// Phase 1D: createBindlessLayout
+// =============================================================================
+void MainPass::createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
+                                    VkDescriptorSetLayout bindlessSetLayout) {
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(StaticBindlessPushConstants);
+
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 2;
+    lci.pSetLayouts = setLayouts;
+    lci.pushConstantRangeCount = 1;
+    lci.pPushConstantRanges = &pc;
+
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &bindlessLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("MainPass::createBindlessLayout failed");
+    }
 }

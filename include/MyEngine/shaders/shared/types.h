@@ -55,6 +55,12 @@ struct FrameUBO {
     vec4 ambient;        // .rgb used
     vec4 viewPos;        // .xyz = camera position
     vec4 shadowParams;   // .x = shadow strength, yzw = reserved
+
+    // === Phase 1C extensions ===
+    vec4 time;          // x=time(sec), y=deltaTime, z=frameNumber, w=sin(time*2pi)
+    vec4 screenSize;    // xy=(width,height), zw=(1/width, 1/height)
+    vec4 jitter;        // xy=current frame jitter, zw=previous (TAA reserved)
+    vec4 cameraParams;  // x=nearZ, y=farZ, z=fov(rad), w=aspect
 };
 
 // -----------------------------------------------------------------------------
@@ -67,6 +73,42 @@ struct StaticPushConstants {
     float _pad1;
     float _pad2;
 };
+
+// -----------------------------------------------------------------------------
+// StaticBindlessPushConstants: Phase 1D static draw with bindless texture (96 bytes)
+//
+// Layout:
+//   offset  0 : mat4 model     (64 bytes)
+//   offset 64 : float alpha    ( 4 bytes)
+//   offset 68 : int albedoIdx  ( 4 bytes) - bindless texture slot
+//   offset 72 : pad (24 bytes total to reach 96, aligned to 16)
+//   total = 96 bytes
+// -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct StaticBindlessPushConstants {
+    mat4 model;
+    float alpha;
+    int32_t albedoIdx;
+    int32_t _pad0;
+    int32_t _pad1;
+    int32_t _pad2;
+    int32_t _pad3;
+    int32_t _pad4;
+    int32_t _pad5;
+};
+#else
+struct StaticBindlessPushConstants {
+    mat4 model;
+    float alpha;
+    int albedoIdx;
+    int _pad0;
+    int _pad1;
+    int _pad2;
+    int _pad3;
+    int _pad4;
+    int _pad5;
+};
+#endif
 
 // -----------------------------------------------------------------------------
 // SkinnedPushConstants: per-draw data for skinned 3D meshes (96 bytes)

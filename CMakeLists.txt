@@ -54,6 +54,8 @@ add_custom_command(
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
         "${SHADER_INT_DIR}/shadow_vert.spv"
         "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
         "${SHADER_INT_DIR}/debug_line_vert.spv"
@@ -69,6 +71,8 @@ add_custom_command(
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_bindless.vert" -o "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_bindless.frag" -o "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow.vert"            -o "${SHADER_INT_DIR}/shadow_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow_skinned.vert"    -o "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/debug_line.vert"        -o "${SHADER_INT_DIR}/debug_line_vert.spv"
@@ -85,6 +89,8 @@ add_custom_command(
         "${SHADER_SRC_DIR}/triangle.frag"
         "${SHADER_SRC_DIR}/triangle_skinned.vert"
         "${SHADER_SRC_DIR}/triangle_skinned.frag"
+        "${SHADER_SRC_DIR}/triangle_bindless.vert"
+        "${SHADER_SRC_DIR}/triangle_bindless.frag"
         "${SHADER_SRC_DIR}/shadow.vert"
         "${SHADER_SRC_DIR}/shadow_skinned.vert"
         "${SHADER_SRC_DIR}/debug_line.vert"
@@ -106,6 +112,8 @@ add_custom_target(compile_shaders
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
         "${SHADER_INT_DIR}/shadow_vert.spv"
         "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
         "${SHADER_INT_DIR}/debug_line_vert.spv"
@@ -151,6 +159,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/animation.cpp
     src/renderer/animator.cpp
     src/renderer/asset_registry.cpp
+    src/renderer/bindless_texture_registry.cpp
     src/renderer/debug_line_pass.cpp
     src/renderer/frame_sync.cpp
     src/renderer/frame_uniforms.cpp
@@ -222,6 +231,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
+        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
         "${SHADER_INT_DIR}/shadow_vert.spv"
         "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
         "${SHADER_INT_DIR}/debug_line_vert.spv"

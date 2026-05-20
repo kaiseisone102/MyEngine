@@ -8,6 +8,7 @@
 // =============================================================================
 
 #include <vulkan/vulkan.h>
+#include <cstdint>
 
 class VulkanContext;
 class Texture;
@@ -25,6 +26,11 @@ class Material {
 
     VkDescriptorSet descriptorSet() const { return set_; }
 
+    // === Phase 1D: bindless texture index ===
+    uint32_t bindlessIndex() const { return bindlessIndex_; }
+    void setBindlessIndex(uint32_t idx) { bindlessIndex_ = idx; }
+
    private:
     VkDescriptorSet set_ = VK_NULL_HANDLE;
+    uint32_t bindlessIndex_ = UINT32_MAX;
 };

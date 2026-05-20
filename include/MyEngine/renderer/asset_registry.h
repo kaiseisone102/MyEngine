@@ -32,10 +32,12 @@
 
 class VulkanContext;
 class ResourceFactory;
+class BindlessTextureRegistry;
 
 class AssetRegistry {
    public:
-    void init(VulkanContext* ctx, ResourceFactory* resources, const std::string& assetDir);
+    void init(VulkanContext* ctx, ResourceFactory* resources, const std::string& assetDir,
+              BindlessTextureRegistry* bindless = nullptr);
     void shutdown();
 
     // ─── Phase 2 段階G-1 API ─────────────────────────────────
@@ -76,6 +78,7 @@ class AssetRegistry {
     VulkanContext* ctx_ = nullptr;
     ResourceFactory* resources_ = nullptr;
     std::string assetDir_;
+    BindlessTextureRegistry* bindless_ = nullptr;  // Phase 1D
 
     Mesh defaultMesh_;
     Texture defaultTexture_;

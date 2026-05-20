@@ -6,6 +6,7 @@
 // =============================================================================
 
 #include "renderer/vulkan_renderer.h"
+#include <cmath>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -25,7 +26,9 @@ void VulkanRenderer::init(SDL_Window* window) {
 
     frameSync_.init(&ctx_);
 
-    assets_.init(&ctx_, &resources_, assetDir_);
+    // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
+    bindlessTextures_.init(&ctx_);
+    assets_.init(&ctx_, &resources_, assetDir_, &bindlessTextures_);
 
     frameUniforms_.init(&ctx_, &resources_);
 
@@ -39,6 +42,7 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.swapchain = &swapchain_;
         info.frameUniforms = &frameUniforms_;
         info.assets = &assets_;
+        info.bindlessSetLayout = bindlessTextures_.layout();
         info.shaderDir = shaderDir_;
         passChain_.init(info);
     }
@@ -62,7 +66,27 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
 
     // Phase 1C: 旧 scene_.toLightingData() を廃止。 camera_system が
     // setLighting() で渡した currentLighting_ をそのまま使う。
-    frameUniforms_.update(acq.frameIndex, currentLighting_);
+    // === Phase 1C: time tracking ===
+    const uint64_t nowTicks = SDL_GetTicks();
+    if (startTickMs_ == 0) startTickMs_ = nowTicks;
+    const float dt = (lastTickMs_ > 0) ? static_cast<float>(nowTicks - lastTickMs_) / 1000.f : 0.f;
+    lastTickMs_ = nowTicks;
+    elapsedTime_ = static_cast<float>(nowTicks - startTickMs_) / 1000.f;
+    ++frameNumber_;
+
+    // === Phase 1C: extend LightingUBO with time / screenSize / cameraParams ===
+    auto lighting = currentLighting_;
+    const VkExtent2D extP1C = swapchain_.extent();
+    const float fw = static_cast<float>(extP1C.width);
+    const float fh = static_cast<float>(extP1C.height);
+    const float invW = (fw > 0.f) ? 1.f / fw : 0.f;
+    const float invH = (fh > 0.f) ? 1.f / fh : 0.f;
+    lighting.time = glm::vec4(elapsedTime_, dt, static_cast<float>(frameNumber_), std::sin(elapsedTime_));
+    lighting.screenSize = glm::vec4(fw, fh, invW, invH);
+    lighting.jitter = glm::vec4(0.f);
+    lighting.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
+
+    frameUniforms_.update(acq.frameIndex, lighting);
 
     passChain_.beginUI();
     if (uiCallback) uiCallback();
@@ -77,6 +101,7 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         info.assets = &assets_;
         info.frameUniforms = &frameUniforms_;
         info.skinAddress = skinBufferPool_.bufferAddress(acq.frameIndex);
+        info.bindlessSet = bindlessTextures_.descriptorSet();
         info.debugLines = &debugLines_;
         info.particles = currentParticles_;
         info.hud = &hud_;
@@ -108,6 +133,7 @@ void VulkanRenderer::shutdown() {
     vkDeviceWaitIdle(ctx_.device());
 
     passChain_.shutdown();
+    bindlessTextures_.shutdown();
     skinBufferPool_.shutdown();
     frameUniforms_.shutdown();
     assets_.shutdown();

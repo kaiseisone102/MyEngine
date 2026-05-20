@@ -60,6 +60,7 @@ void PassChain::init(const InitInfo& info) {
         mi.swapchain = info.swapchain;
         mi.frameSetLayout = info.frameUniforms->layout();
         mi.materialSetLayout = info.assets->materialSetLayout();
+        mi.bindlessSetLayout = info.bindlessSetLayout;
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
     }
@@ -264,6 +265,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.frameSet = frameSet;
         mi.defaultMaterialSet = defaultMaterialSet;
         mi.skinAddress = info.skinAddress;
+        mi.bindlessSet = info.bindlessSet;
         mi.mesh = mesh;
 
         mi.meshDrawListOpaque        = &meshOpaque;

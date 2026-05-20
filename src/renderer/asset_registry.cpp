@@ -1,5 +1,6 @@
 // src/renderer/asset_registry.cpp
 #include "renderer/asset_registry.h"
+#include "renderer/bindless_texture_registry.h"
 
 #include <cstdio>
 #include <iostream>
@@ -14,7 +15,9 @@ constexpr uint32_t kMaxMaterialSets = 256;
 }  // namespace
 
 void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
-                         const std::string& assetDir) {
+                         const std::string& assetDir,
+                         BindlessTextureRegistry* bindless) {
+    bindless_ = bindless;
     ctx_ = ctx;
     resources_ = resources;
     assetDir_ = assetDir;
@@ -80,10 +83,20 @@ void AssetRegistry::createMaterialDescriptorPool() {
 
 void AssetRegistry::createDefaultTexture() {
     defaultTexture_.loadFromFileOrCheckerboard(ctx_, resources_, assetDir_ + "texture.png");
+    // Phase 1D: also register the default texture in the bindless array.
+    if (bindless_) {
+        const uint32_t idx = bindless_->registerTexture(defaultTexture_.view(),
+                                                        defaultTexture_.sampler());
+        if (idx != UINT32_MAX) {
+            defaultTexture_.setBindlessIndex(idx);
+            std::cout << "[AssetRegistry] default texture bindless index = " << idx << "\n";
+        }
+    }
 }
 
 void AssetRegistry::createDefaultMaterial() {
     defaultMaterial_.init(ctx_, materialPool_, materialSetLayout_, &defaultTexture_);
+    defaultMaterial_.setBindlessIndex(defaultTexture_.bindlessIndex());
 }
 
 bool AssetRegistry::registerModel(const std::string& name, const std::string& path) {
@@ -214,7 +227,19 @@ bool AssetRegistry::registerTexture(const std::string& name, const std::string& 
 
     auto tex = std::make_unique<Texture>();
     // loadFromFileOrCheckerboard はファイル不在/読込失敗時にチェッカーボードに fallback。
-    tex->loadFromFileOrCheckerboard(ctx_, resources_, assetDir_ + resolvedPath);
+        tex->loadFromFileOrCheckerboard(ctx_, resources_, assetDir_ + resolvedPath);
+
+    // Phase 1D: register this texture in the global bindless array.
+    // The returned index is stored on the Texture so Materials can look it up.
+    if (bindless_) {
+        const uint32_t idx = bindless_->registerTexture(tex->view(), tex->sampler());
+        if (idx != UINT32_MAX) {
+            tex->setBindlessIndex(idx);
+            std::cout << "[AssetRegistry] texture '" << name
+                      << "' bindless index = " << idx << "\n";
+        }
+    }
+
     textures_[name] = std::move(tex);
     std::cout << "[AssetRegistry] registered texture '" << name << "' (path='" << resolvedPath
               << "')\n";
@@ -233,7 +258,10 @@ bool AssetRegistry::registerMaterial(const std::string& name, const std::string&
         return false;
     }
     auto mat = std::make_unique<Material>();
-    mat->init(ctx_, materialPool_, materialSetLayout_, tex);
+        mat->init(ctx_, materialPool_, materialSetLayout_, tex);
+    // Phase 1D: copy the bindless index from the texture to the material
+    // so the renderer can pick the right slot in the bindless array.
+    mat->setBindlessIndex(tex->bindlessIndex());
     materials_[name] = std::move(mat);
     std::cout << "[AssetRegistry] registered material '" << name << "' (texture='" << textureName
               << "')\n";
