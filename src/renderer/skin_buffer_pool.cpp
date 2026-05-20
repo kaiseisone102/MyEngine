@@ -1,4 +1,4 @@
-// src/renderer/skin_buffer_pool.cpp
+// src/renderer/skin_buffer_pool.cpp - Phase 1B-4: BDA-enabled
 #include "renderer/skin_buffer_pool.h"
 
 #include <algorithm>
@@ -6,12 +6,15 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <vk_mem_alloc.h>
+
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
 
 void SkinBufferPool::init(VulkanContext* ctx, ResourceFactory* resources) {
     if (!ctx || !resources) throw std::runtime_error("SkinBufferPool::init: invalid args");
     ctx_ = ctx;
+
     bufferSize_ = static_cast<VkDeviceSize>(TOTAL_BONES) * sizeof(glm::mat4);
 
     createLayout();
@@ -20,11 +23,17 @@ void SkinBufferPool::init(VulkanContext* ctx, ResourceFactory* resources) {
     allocateAndWriteSets();
     initFreeList();
 
-    std::cout << "[SkinBufferPool] init: " << MAX_ENTITIES << " slots × "
-              << MAX_BONES_PER_ENTITY << " bones, total " << (bufferSize_ / 1024) << " KB / frame\n";
+    std::cout << "[SkinBufferPool] init: " << MAX_ENTITIES << " slots x "
+              << MAX_BONES_PER_ENTITY << " bones, total " << (bufferSize_ / 1024)
+              << " KB / frame (BDA enabled)\n";
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        std::cout << "  frame[" << i << "] buffer address = 0x" << std::hex
+                  << addresses_[i] << std::dec << "\n";
+    }
 }
 
 void SkinBufferPool::createLayout() {
+    // Legacy descriptor path - kept during 1B-4a transition.
     VkDescriptorSetLayoutBinding bind{};
     bind.binding = 0;
     bind.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -34,6 +43,7 @@ void SkinBufferPool::createLayout() {
     VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     ci.bindingCount = 1;
     ci.pBindings = &bind;
+
     if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &layout_) != VK_SUCCESS) {
         throw std::runtime_error("SkinBufferPool: vkCreateDescriptorSetLayout failed");
     }
@@ -48,6 +58,7 @@ void SkinBufferPool::createPool() {
     ci.poolSizeCount = 1;
     ci.pPoolSizes = &sz;
     ci.maxSets = MAX_FRAMES_IN_FLIGHT;
+
     if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &pool_) != VK_SUCCESS) {
         throw std::runtime_error("SkinBufferPool: vkCreateDescriptorPool failed");
     }
@@ -55,15 +66,38 @@ void SkinBufferPool::createPool() {
 
 void SkinBufferPool::createBuffers(ResourceFactory* resources) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        resources->createBuffer(
-            bufferSize_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            buffers_[i], memories_[i]);
-        if (vkMapMemory(ctx_->device(), memories_[i], 0, bufferSize_, 0, &mapped_[i]) !=
-            VK_SUCCESS) {
-            throw std::runtime_error("SkinBufferPool: vkMapMemory failed");
+        // VMA-based buffer creation with BDA support.
+        // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT enables vkGetBufferDeviceAddress.
+        // VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT means HOST_VISIBLE.
+        // VMA_ALLOCATION_CREATE_MAPPED_BIT keeps the buffer persistently mapped.
+        resources->createBufferVMA(
+            bufferSize_,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            buffers_[i], allocations_[i]);
+
+        // Retrieve persistently mapped pointer.
+        VmaAllocationInfo allocInfo{};
+        vmaGetAllocationInfo(ctx_->allocator(), allocations_[i], &allocInfo);
+        mapped_[i] = allocInfo.pMappedData;
+        if (!mapped_[i]) {
+            throw std::runtime_error(
+                "SkinBufferPool: VMA allocation is not persistently mapped");
         }
-        // 初期化: 全領域を単位行列で埋める (バインドポーズ相当の安全な初期状態)
+
+        // Get the GPU device address for this buffer.
+        VkBufferDeviceAddressInfo bai{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+        bai.buffer = buffers_[i];
+        addresses_[i] = vkGetBufferDeviceAddress(ctx_->device(), &bai);
+        if (addresses_[i] == 0) {
+            throw std::runtime_error(
+                "SkinBufferPool: vkGetBufferDeviceAddress returned 0");
+        }
+
+        // Initialize whole region with identity matrices (safe default before
+        // any animator writes).
         glm::mat4 ident(1.f);
         for (uint32_t b = 0; b < TOTAL_BONES; ++b) {
             std::memcpy(static_cast<uint8_t*>(mapped_[i]) + b * sizeof(glm::mat4), &ident,
@@ -73,6 +107,8 @@ void SkinBufferPool::createBuffers(ResourceFactory* resources) {
 }
 
 void SkinBufferPool::allocateAndWriteSets() {
+    // Legacy descriptor allocation - kept during 1B-4a transition so shaders
+    // that still bind set=2 keep working.
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
     for (auto& l : layouts) l = layout_;
 
@@ -80,6 +116,7 @@ void SkinBufferPool::allocateAndWriteSets() {
     ai.descriptorPool = pool_;
     ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     ai.pSetLayouts = layouts.data();
+
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, sets_.data()) != VK_SUCCESS) {
         throw std::runtime_error("SkinBufferPool: vkAllocateDescriptorSets failed");
     }
@@ -103,7 +140,6 @@ void SkinBufferPool::allocateAndWriteSets() {
 void SkinBufferPool::initFreeList() {
     freeSlots_.clear();
     freeSlots_.reserve(MAX_ENTITIES);
-    // 後ろから push (= LIFO で前から取り出される)
     for (uint32_t i = 0; i < MAX_ENTITIES; ++i) {
         freeSlots_.push_back(MAX_ENTITIES - 1 - i);
     }
@@ -157,20 +193,16 @@ void SkinBufferPool::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (mapped_[i]) {
-            vkUnmapMemory(ctx_->device(), memories_[i]);
-            mapped_[i] = nullptr;
-        }
         if (buffers_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), buffers_[i], nullptr);
+            // VMA destroys both the buffer and the allocation; persistent
+            // mapping is automatically unmapped.
+            vmaDestroyBuffer(ctx_->allocator(), buffers_[i], allocations_[i]);
             buffers_[i] = VK_NULL_HANDLE;
-        }
-        if (memories_[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(ctx_->device(), memories_[i], nullptr);
-            memories_[i] = VK_NULL_HANDLE;
+            allocations_[i] = VK_NULL_HANDLE;
+            mapped_[i] = nullptr;
+            addresses_[i] = 0;
         }
     }
-
     if (pool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx_->device(), pool_, nullptr);
         pool_ = VK_NULL_HANDLE;
@@ -179,7 +211,6 @@ void SkinBufferPool::shutdown() {
         vkDestroyDescriptorSetLayout(ctx_->device(), layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
     }
-
     freeSlots_.clear();
     allocatedCount_ = 0;
     ctx_ = nullptr;

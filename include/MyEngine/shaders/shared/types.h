@@ -1,5 +1,5 @@
 // =============================================================================
-// shared/types.h - C++ / GLSL shared type definitions (Phase 1A2)
+// shared/types.h - C++ / GLSL shared type definitions (Phase 1B-4)
 // =============================================================================
 // Both C++ and GLSL include this file. struct layouts match exactly between
 // CPU and GPU side. This prevents the kind of UBO/push constant mismatch that
@@ -14,12 +14,20 @@
 //   - All vec3 fields MUST be padded to vec4 alignment (Vulkan std140/std430)
 //   - mat4 starts at 16-byte boundary
 //   - Use vec4 instead of vec3 + float pairs unless explicit padding is clearer
+//   - VkDeviceAddress (uint64_t) is 8-byte aligned, often paired for 16-byte
+//
+// PHASE 1B-4 BDA NOTE:
+//   SkinnedPushConstants / ShadowSkinnedPushConstants now carry a 64-bit GPU
+//   address (skinBuffer) that points directly to the skin matrix array.
+//   On the GLSL side this becomes a buffer_reference typed pointer.
+//   See triangle_skinned.vert / shadow_skinned.vert for usage.
 // =============================================================================
 #ifndef MYENGINE_SHARED_TYPES_H
 #define MYENGINE_SHARED_TYPES_H
 
 #ifdef __cplusplus
   #include <cstdint>
+  #include <vulkan/vulkan.h>  // for VkDeviceAddress
   #include <glm/glm.hpp>
   // Aliases so GLSL-style type names work in C++ context
   using vec2 = glm::vec2;
@@ -50,8 +58,7 @@ struct FrameUBO {
 };
 
 // -----------------------------------------------------------------------------
-// StaticPushConstants: per-draw data for non-skinned 3D meshes
-// (matches MainPass::StaticPushConstants, 80 bytes)
+// StaticPushConstants: per-draw data for non-skinned 3D meshes (80 bytes)
 // -----------------------------------------------------------------------------
 struct StaticPushConstants {
     mat4 model;
@@ -62,16 +69,45 @@ struct StaticPushConstants {
 };
 
 // -----------------------------------------------------------------------------
-// SkinnedPushConstants: per-draw data for skinned 3D meshes
-// (matches MainPass::SkinnedPushConstants, 80 bytes)
+// SkinnedPushConstants: per-draw data for skinned 3D meshes (96 bytes)
+//
+// Layout (CPU/GPU must agree):
+//   offset  0 : mat4 model                  (64 bytes)
+//   offset 64 : uint64 skinBuffer (GPU ptr) ( 8 bytes)
+//   offset 72 : int skinOffset              ( 4 bytes)
+//   offset 76 : float alpha                 ( 4 bytes)
+//   offset 80 : pad                         (16 bytes)
+//   total = 96 bytes
+//
+// GLSL note: on the shader side, skinBuffer is declared as a buffer_reference
+// typed pointer (see triangle_skinned.vert). On the CPU side it's just a
+// VkDeviceAddress / uint64 obtained from vkGetBufferDeviceAddress.
 // -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct SkinnedPushConstants {
+    mat4 model;            // 64
+    VkDeviceAddress skinBuffer;  // 8  (uint64_t)
+    int32_t skinOffset;    // 4
+    float alpha;           // 4
+    int32_t _pad0;         // 4
+    int32_t _pad1;         // 4
+    int32_t _pad2;         // 4
+    int32_t _pad3;         // 4
+};
+#else
+// GLSL forward declaration. SkinMatrices is defined in the consuming shader.
+// We use uint64_t here for the address; the shader then casts it to a typed pointer.
 struct SkinnedPushConstants {
     mat4 model;
+    uint64_t skinBuffer;
     int skinOffset;
     float alpha;
     int _pad0;
     int _pad1;
+    int _pad2;
+    int _pad3;
 };
+#endif
 
 // -----------------------------------------------------------------------------
 // ShadowStaticPushConstants: shadow pass for non-skinned meshes (64 bytes)
@@ -81,20 +117,35 @@ struct ShadowStaticPushConstants {
 };
 
 // -----------------------------------------------------------------------------
-// ShadowSkinnedPushConstants: shadow pass for skinned meshes (80 bytes)
+// ShadowSkinnedPushConstants: shadow pass for skinned meshes (96 bytes)
+// Same layout as SkinnedPushConstants but no alpha.
 // -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct ShadowSkinnedPushConstants {
+    mat4 model;            // 64
+    VkDeviceAddress skinBuffer;  // 8
+    int32_t skinOffset;    // 4
+    int32_t _pad0;         // 4
+    int32_t _pad1;         // 4
+    int32_t _pad2;         // 4
+    int32_t _pad3;         // 4
+    int32_t _pad4;         // 4
+};
+#else
 struct ShadowSkinnedPushConstants {
     mat4 model;
+    uint64_t skinBuffer;
     int skinOffset;
     int _pad0;
     int _pad1;
     int _pad2;
+    int _pad3;
+    int _pad4;
 };
+#endif
 
 // -----------------------------------------------------------------------------
-// WaterPushConstants: water surface draw data (matches water.vert/frag)
-// IMPORTANT: 112 bytes total. C++ side WaterPipeline::PushConstants must
-// be updated to match this layout exactly.
+// WaterPushConstants: water surface draw data (112 bytes)
 // -----------------------------------------------------------------------------
 struct WaterPushConstants {
     mat4 model;            // offset 0,  size 64
