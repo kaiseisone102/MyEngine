@@ -181,10 +181,16 @@ void PostPass::allocateAndUpdateDescriptorSet() {
 }
 
 void PostPass::createPipelineLayout() {
+    VkPushConstantRange pcRange{};
+    pcRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pcRange.offset = 0;
+    pcRange.size = sizeof(int) + sizeof(float);
+
     VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     li.setLayoutCount = 1;
     li.pSetLayouts = &descSetLayout_;
-    li.pushConstantRangeCount = 0;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges = &pcRange;
 
     if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &pipelineLayout_) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreatePipelineLayout failed");
@@ -332,6 +338,10 @@ void PostPass::execute(const ExecuteInfo& info) {
 
     vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSet_, 0, nullptr);
+
+    // Phase 1H-4: push tonemapper mode + exposure
+    struct { int mode; float exposure; } pc{tonemapMode_, exposure_};
+    vkCmdPushConstants(info.cmd, pipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     // Fullscreen triangle (3 vertices, no vertex buffer)
     vkCmdDraw(info.cmd, 3, 1, 0, 0);

@@ -45,6 +45,12 @@ class PostPass {
 
     void execute(const ExecuteInfo& info);
 
+    // Phase 1H-4: tonemapper selection
+    void setTonemapMode(int mode) { tonemapMode_ = mode; }
+    void setExposure(float e) { exposure_ = e; }
+    int  tonemapMode() const { return tonemapMode_; }
+    float exposure() const { return exposure_; }
+
     VkRenderPass renderPass() const { return renderPass_; }
 
    private:
@@ -72,4 +78,6 @@ class PostPass {
     std::vector<VkFramebuffer> framebuffers_;
 
     std::string shaderDir_;
+    int   tonemapMode_ = 0;   // Phase 1H-4
+    float exposure_ = 1.0f;
 };
