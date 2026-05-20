@@ -271,8 +271,6 @@ void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
 }
 
 VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir) {
-    std::cout << "[MainPass] building pipeline: vert=" << args.vertSpv
-              << " skinned=" << args.isSkinned << "\n";
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.vertSpv);
     VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.fragSpv);
 
@@ -452,9 +450,6 @@ void MainPass::execute(const ExecuteInfo& info) {
         (info.mesh && meshOp && !meshOp->empty()) ||
         (staticOp && !staticOp->empty()) ||
         (terrainOp && !terrainOp->empty());
-
-    static int s_mp_dbg=0;
-    if (s_mp_dbg++<5) { std::cout<<"[DEBUG] MainPass: meshOp="<<(meshOp?meshOp->size():(size_t)999)<<" modelOp="<<(modelOp?modelOp->size():(size_t)999)<<" staticOp="<<(staticOp?staticOp->size():(size_t)999)<<" hasOpaqueStatic="<<hasOpaqueStatic<<"\n"; }
     if (hasOpaqueStatic) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineOpaque_);
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);

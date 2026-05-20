@@ -100,8 +100,6 @@ struct ShadowPipelineParams {
 };
 
 VkPipeline createShadowPipeline(const ShadowPipelineParams& p) {
-    std::cout << "[ShadowPass] building pipeline: skinningAttrs="
-              << p.useSkinningAttrs << "\n";
     VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
     stage.module = p.vert;

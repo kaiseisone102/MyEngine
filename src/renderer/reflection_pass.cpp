@@ -151,8 +151,6 @@ void ReflectionPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
 
 VkPipeline ReflectionPass::buildPipeline(const PipelineBuildArgs& args,
                                           const std::string& shaderDir) {
-    std::cout << "[ReflectionPass] building pipeline: vert=" << args.vertSpv
-              << " skinned=" << args.skinned << "\n";
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.vertSpv);
     VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.fragSpv);
 
