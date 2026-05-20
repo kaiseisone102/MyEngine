@@ -6,6 +6,7 @@
 // =============================================================================
 
 #include "renderer/vulkan_renderer.h"
+#include <iostream>
 #include <cmath>
 
 #include <SDL3/SDL.h>
@@ -28,6 +29,7 @@ void VulkanRenderer::init(SDL_Window* window) {
 
     // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
     bindlessTextures_.init(&ctx_);
+    createHdrTarget();
     assets_.init(&ctx_, &resources_, assetDir_, &bindlessTextures_);
 
     frameUniforms_.init(&ctx_, &resources_);
@@ -51,6 +53,8 @@ void VulkanRenderer::init(SDL_Window* window) {
 void VulkanRenderer::recreateSwapchain() {
     swapchain_.recreate();
     passChain_.onSwapchainResized();
+    hdrTarget_.shutdown();
+    createHdrTarget();
 }
 
 void VulkanRenderer::onResize() {
@@ -133,6 +137,7 @@ void VulkanRenderer::shutdown() {
     vkDeviceWaitIdle(ctx_.device());
 
     passChain_.shutdown();
+    hdrTarget_.shutdown();
     bindlessTextures_.shutdown();
     skinBufferPool_.shutdown();
     frameUniforms_.shutdown();
@@ -141,4 +146,18 @@ void VulkanRenderer::shutdown() {
     swapchain_.shutdown();
     resources_.shutdown();
     ctx_.shutdown();
+}
+
+// === Phase 1H-1: HDR render target helper ===
+void VulkanRenderer::createHdrTarget() {
+    RenderTarget::Desc hdrDesc{};
+    hdrDesc.width = swapchain_.extent().width;
+    hdrDesc.height = swapchain_.extent().height;
+    hdrDesc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    hdrDesc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    hdrDesc.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    hdrDesc.createSampler = true;
+    hdrDesc.samplerFilter = VK_FILTER_LINEAR;
+    hdrTarget_.init(&ctx_, &resources_, hdrDesc);
+    std::cout << "[VulkanRenderer] HDR target created (" << hdrDesc.width << "x" << hdrDesc.height << ")\n";
 }

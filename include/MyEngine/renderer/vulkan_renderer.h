@@ -23,6 +23,7 @@
 #include "renderer/hud_draw_list.h"
 #include "renderer/pass_chain.h"
 #include "renderer/skin_buffer_pool.h"
+#include "renderer/render_target.h"
 #include "resource_factory.h"
 #include "scene/scene_data.h"
 #include "swapchain.h"
@@ -60,6 +61,8 @@ class VulkanRenderer {
     const SkinBufferPool& skinBufferPool() const { return skinBufferPool_; }
     BindlessTextureRegistry& bindlessTextures() { return bindlessTextures_; }
     const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
+    RenderTarget& hdrTarget() { return hdrTarget_; }
+    const RenderTarget& hdrTarget() const { return hdrTarget_; }
 
     DebugLineRenderer& debugLines() { return debugLines_; }
     const DebugLineRenderer& debugLines() const { return debugLines_; }
@@ -98,6 +101,8 @@ class VulkanRenderer {
     AssetRegistry assets_;
     // === Phase 1D: bindless texture system ===
     BindlessTextureRegistry bindlessTextures_;
+    void createHdrTarget();  // Phase 1H-1
+    RenderTarget hdrTarget_;  // Phase 1H
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;
