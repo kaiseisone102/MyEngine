@@ -10,6 +10,7 @@
 layout(location = 0) in vec2 vUV;
 layout(location = 1) in vec4 vColor;
 layout(location = 2) in float vAge01;
+layout(location = 3) in float vDistFade;
 
 layout(location = 0) out vec4 outColor;
 
@@ -22,5 +23,5 @@ void main() {
     float fade = 1.0 - (d * 2.0);
     fade = fade * fade;  // 緩い 2 乗カーブで中心が強調される
 
-    outColor = vec4(vColor.rgb, vColor.a * fade);
+    outColor = vec4(vColor.rgb, vColor.a * fade * vDistFade);  // Phase 1B-6: distance fade
 }

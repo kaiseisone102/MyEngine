@@ -71,6 +71,7 @@ void ImGuiLayer::init(const InitInfo& info) {
     // 余裕を持って各タイプ 1000 個用意 (ImGui 公式 example に倣う)。
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},

@@ -163,11 +163,9 @@ void MainPass::init(const InitInfo& info) {
 
     createSkinnedLayout(info.frameSetLayout, info.materialSetLayout);
     {
-        PipelineBuildArgs argsOp{skinnedLayout_, "triangle_skinned_vert.spv",
-                                   "triangle_skinned_frag.spv", false};
+        PipelineBuildArgs argsOp{skinnedLayout_, "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", false, true};
         skinnedPipelineOpaque_ = buildPipeline(argsOp, info.shaderDir);
-        PipelineBuildArgs argsTr{skinnedLayout_, "triangle_skinned_vert.spv",
-                                   "triangle_skinned_frag.spv", true};
+        PipelineBuildArgs argsTr{skinnedLayout_, "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", true, true};
         skinnedPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
     }
 
@@ -273,6 +271,8 @@ void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
 }
 
 VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir) {
+    std::cout << "[MainPass] building pipeline: vert=" << args.vertSpv
+              << " skinned=" << args.isSkinned << "\n";
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.vertSpv);
     VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.fragSpv);
 
@@ -302,7 +302,7 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
     vi.pVertexBindingDescriptions = &bind;
-    vi.vertexAttributeDescriptionCount = 6;
+    vi.vertexAttributeDescriptionCount = args.isSkinned ? 6 : 4;  // Phase 1B-6
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{

@@ -15,10 +15,8 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
 
-layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
 layout(location = 2) in vec3 fragNormal;
-layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
 layout(location = 6) flat in int fragAlbedoIdx;

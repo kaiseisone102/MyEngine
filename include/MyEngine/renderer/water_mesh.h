@@ -21,6 +21,7 @@ class WaterMesh {
    public:
     struct WaterVertex {
         glm::vec3 pos;
+        glm::vec2 texCoord;  // Phase 1B-6: enables fragDepthFactor without descriptor mismatch
     };
 
     void init(VulkanContext* ctx, ResourceFactory* resources, glm::vec3 center, glm::vec2 sizeXZ,

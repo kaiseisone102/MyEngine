@@ -33,6 +33,7 @@ void WaterMesh::init(VulkanContext* ctx, ResourceFactory* resources, glm::vec3 c
             const float worldX = center.x - halfX + tx * sizeXZ.x;
             WaterVertex v{};
             v.pos = glm::vec3{worldX, center.y, worldZ};
+            v.texCoord = glm::vec2(tx, tz);  // Phase 1B-6
             vertices.push_back(v);
         }
     }

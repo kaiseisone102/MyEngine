@@ -101,6 +101,7 @@ class MainPass {
         std::string vertSpv;
         std::string fragSpv;
         bool transparent;
+        bool isSkinned = false;  // Phase 1B-6: 6 attrs if true, 4 attrs if false
     };
 
     VulkanContext* ctx_ = nullptr;

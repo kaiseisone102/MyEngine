@@ -71,14 +71,17 @@ VkPipeline WaterPipeline::buildPipeline(VkRenderPass renderPass, VkPipelineLayou
 
     VkVertexInputBindingDescription bind{0, sizeof(WaterMesh::WaterVertex),
                                           VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attr{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
+    // Phase 1B-6: water now has pos + texCoord
+    VkVertexInputAttributeDescription attrs[2]{};
+    attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(offsetof(WaterMesh::WaterVertex, pos))};
+    attrs[1] = {2, 0, VK_FORMAT_R32G32_SFLOAT, static_cast<uint32_t>(offsetof(WaterMesh::WaterVertex, texCoord))};
 
     VkPipelineVertexInputStateCreateInfo vi{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
     vi.pVertexBindingDescriptions = &bind;
-    vi.vertexAttributeDescriptionCount = 1;
-    vi.pVertexAttributeDescriptions = &attr;
+    vi.vertexAttributeDescriptionCount = 2;
+    vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};

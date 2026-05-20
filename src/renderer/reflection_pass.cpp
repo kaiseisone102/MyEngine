@@ -151,6 +151,8 @@ void ReflectionPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
 
 VkPipeline ReflectionPass::buildPipeline(const PipelineBuildArgs& args,
                                           const std::string& shaderDir) {
+    std::cout << "[ReflectionPass] building pipeline: vert=" << args.vertSpv
+              << " skinned=" << args.skinned << "\n";
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.vertSpv);
     VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + args.fragSpv);
 
@@ -179,7 +181,7 @@ VkPipeline ReflectionPass::buildPipeline(const PipelineBuildArgs& args,
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
     vi.pVertexBindingDescriptions = &bind;
-    vi.vertexAttributeDescriptionCount = 6;
+    vi.vertexAttributeDescriptionCount = args.skinned ? 6 : 4;  // Phase 1B-6
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{
