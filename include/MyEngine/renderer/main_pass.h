@@ -37,7 +37,6 @@ class MainPass {
         Swapchain* swapchain = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout skinSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
     };
 
@@ -47,7 +46,8 @@ class MainPass {
         uint32_t frameIndex = 0;
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
         VkDescriptorSet defaultMaterialSet = VK_NULL_HANDLE;
-        VkDescriptorSet skinSet = VK_NULL_HANDLE;
+        // Phase 1B-4b: BDA address for skin matrices (parallel to skinSet, replaces it in 1B-4c)
+        VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
 
         glm::vec4 clearColor{0.4f, 0.6f, 0.9f, 1.0f};
@@ -114,8 +114,7 @@ class MainPass {
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                              VkDescriptorSetLayout materialSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                              VkDescriptorSetLayout materialSetLayout,
-                              VkDescriptorSetLayout skinSetLayout);
+                              VkDescriptorSetLayout materialSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
     void createFramebuffers();
     void destroyFramebuffers();

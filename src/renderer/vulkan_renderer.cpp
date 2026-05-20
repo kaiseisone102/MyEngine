@@ -39,7 +39,6 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.swapchain = &swapchain_;
         info.frameUniforms = &frameUniforms_;
         info.assets = &assets_;
-        info.skinSetLayout = skinBufferPool_.layout();
         info.shaderDir = shaderDir_;
         passChain_.init(info);
     }
@@ -77,7 +76,7 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         info.scene = &scene_;
         info.assets = &assets_;
         info.frameUniforms = &frameUniforms_;
-        info.skinSet = skinBufferPool_.descriptorSet(acq.frameIndex);
+        info.skinAddress = skinBufferPool_.bufferAddress(acq.frameIndex);
         info.debugLines = &debugLines_;
         info.particles = currentParticles_;
         info.hud = &hud_;

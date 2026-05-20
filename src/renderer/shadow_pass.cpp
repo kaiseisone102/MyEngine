@@ -15,9 +15,6 @@
 
 void ShadowPass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources) throw std::runtime_error("ShadowPass::init: invalid info");
-    if (info.skinSetLayout == VK_NULL_HANDLE) {
-        throw std::runtime_error("ShadowPass::init: skinSetLayout missing");
-    }
     ctx_ = info.ctx;
     extent_ = info.extent;
     depthFormat_ = info.depthFormat;
@@ -26,7 +23,7 @@ void ShadowPass::init(const InitInfo& info) {
     createTarget(info.resources);
     createFramebuffer();
     createStaticPipeline(info.frameSetLayout, info.shaderDir);
-    createSkinnedPipeline(info.frameSetLayout, info.skinSetLayout, info.shaderDir);
+    createSkinnedPipeline(info.frameSetLayout, info.shaderDir);
 }
 
 void ShadowPass::createRenderPass() {
@@ -214,16 +211,15 @@ void ShadowPass::createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
 }
 
 void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
-                                       VkDescriptorSetLayout skinSetLayout,
-                                       const std::string& shaderDir) {
+                                            const std::string& shaderDir) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
     pc.size = sizeof(SkinnedPushConstants);
 
-    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, skinSetLayout};
+    VkDescriptorSetLayout setLayouts[1] = {frameSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 2;
+    lci.setLayoutCount = 1;
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
@@ -312,10 +308,6 @@ void ShadowPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
                                 &info.frameSet, 0, nullptr);
-        if (info.skinSet != VK_NULL_HANDLE) {
-            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1,
-                                    1, &info.skinSet, 0, nullptr);
-        }
 
         const Model* curModel = nullptr;
         for (const SkinnedDrawItem& item : *info.modelDrawList) {
@@ -327,6 +319,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
             SkinnedPushConstants pc{};
             pc.model = item.model;
             pc.skinOffset = item.skinOffset;
+            pc.skinBuffer = info.skinAddress;
             vkCmdPushConstants(info.cmd, skinnedLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
                                sizeof(SkinnedPushConstants), &pc);
             for (const SubMesh& sm : curModel->subMeshes()) {

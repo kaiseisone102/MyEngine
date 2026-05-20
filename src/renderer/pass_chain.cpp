@@ -35,9 +35,6 @@ void PassChain::init(const InitInfo& info) {
     if (!info.ctx || !info.resources || !info.swapchain || !info.frameUniforms || !info.assets) {
         throw std::runtime_error("PassChain::init: required pointer is null");
     }
-    if (info.skinSetLayout == VK_NULL_HANDLE) {
-        throw std::runtime_error("PassChain::init: skinSetLayout missing");
-    }
 
     swapchain_ = info.swapchain;
 
@@ -47,7 +44,6 @@ void PassChain::init(const InitInfo& info) {
         si.ctx = info.ctx;
         si.resources = info.resources;
         si.frameSetLayout = info.frameUniforms->layout();
-        si.skinSetLayout = info.skinSetLayout;
         si.shaderDir = info.shaderDir;
         si.extent = {2048, 2048};
         si.depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -64,7 +60,6 @@ void PassChain::init(const InitInfo& info) {
         mi.swapchain = info.swapchain;
         mi.frameSetLayout = info.frameUniforms->layout();
         mi.materialSetLayout = info.assets->materialSetLayout();
-        mi.skinSetLayout = info.skinSetLayout;
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
     }
@@ -126,7 +121,6 @@ void PassChain::init(const InitInfo& info) {
         ri.quality = info.reflectionQuality;
         ri.frameSetLayout = info.frameUniforms->layout();
         ri.materialSetLayout = info.assets->materialSetLayout();
-        ri.skinSetLayout = info.skinSetLayout;
         ri.shaderDir = info.shaderDir;
         reflectionPass_.init(ri);
     }
@@ -215,7 +209,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ShadowPass::ExecuteInfo si{};
         si.cmd = info.cmd;
         si.frameSet = frameSet;
-        si.skinSet = info.skinSet;
+        si.skinAddress = info.skinAddress;
         si.mesh = mesh;
         si.meshDrawList = &meshOpaque;
         si.modelDrawList = &modelOpaque;
@@ -249,7 +243,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ri.cmd = info.cmd;
         ri.frameSet = reflFrameSet;
         ri.defaultMaterialSet = defaultMaterialSet;
-        ri.skinSet = info.skinSet;
+        ri.skinAddress = info.skinAddress;
         ri.mesh = mesh;
         ri.meshDrawListOpaque = &meshOpaque;
         ri.staticModelDrawListOpaque = &staticOpaque;
@@ -269,7 +263,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.frameIndex = info.frameIndex;
         mi.frameSet = frameSet;
         mi.defaultMaterialSet = defaultMaterialSet;
-        mi.skinSet = info.skinSet;
+        mi.skinAddress = info.skinAddress;
         mi.mesh = mesh;
 
         mi.meshDrawListOpaque        = &meshOpaque;

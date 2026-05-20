@@ -32,7 +32,6 @@ class ShadowPass {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout skinSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
         VkExtent2D extent = {1024, 1024};
         VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -41,7 +40,8 @@ class ShadowPass {
     struct ExecuteInfo {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
-        VkDescriptorSet skinSet = VK_NULL_HANDLE;
+        // Phase 1B-4b: BDA address for skin matrices
+        VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
         const std::vector<MeshDrawItem>* meshDrawList = nullptr;
         const std::vector<SkinnedDrawItem>* modelDrawList = nullptr;
@@ -75,6 +75,5 @@ class ShadowPass {
     void createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
                               const std::string& shaderDir);
     void createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
-                               VkDescriptorSetLayout skinSetLayout,
-                               const std::string& shaderDir);
+                                const std::string& shaderDir);
 };

@@ -99,7 +99,7 @@ struct SkinnedPushConstants {
 // We use uint64_t here for the address; the shader then casts it to a typed pointer.
 struct SkinnedPushConstants {
     mat4 model;
-    uint64_t skinBuffer;
+    uvec2 skinBuffer;  // 64-bit GPU address as uvec2 (use buffer_reference cast)
     int skinOffset;
     float alpha;
     int _pad0;
@@ -134,7 +134,7 @@ struct ShadowSkinnedPushConstants {
 #else
 struct ShadowSkinnedPushConstants {
     mat4 model;
-    uint64_t skinBuffer;
+    uvec2 skinBuffer;  // 64-bit GPU address as uvec2 (use buffer_reference cast)
     int skinOffset;
     int _pad0;
     int _pad1;

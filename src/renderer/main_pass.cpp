@@ -110,7 +110,8 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
 }
 
 void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
-                       const std::vector<SkinnedDrawItem>& list) {
+                          VkDeviceAddress skinAddress,
+                          const std::vector<SkinnedDrawItem>& list) {
     if (list.empty()) return;
     const Model* curModel = nullptr;
     const std::vector<Material>* curMaterials = nullptr;
@@ -123,6 +124,7 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         MainPass::SkinnedPushConstants pc{};
         pc.model = item.model;
         pc.skinOffset = item.skinOffset;
+        pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                             sizeof(MainPass::SkinnedPushConstants), &pc);
@@ -158,7 +160,7 @@ void MainPass::init(const InitInfo& info) {
         staticPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
     }
 
-    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout, info.skinSetLayout);
+    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout);
     {
         PipelineBuildArgs argsOp{skinnedLayout_, "triangle_skinned_vert.spv",
                                    "triangle_skinned_frag.spv", false};
@@ -243,16 +245,15 @@ void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
 }
 
 void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                                      VkDescriptorSetLayout materialSetLayout,
-                                      VkDescriptorSetLayout skinSetLayout) {
+                                       VkDescriptorSetLayout materialSetLayout) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
     pc.size = sizeof(SkinnedPushConstants);
 
-    VkDescriptorSetLayout setLayouts[3] = {frameSetLayout, materialSetLayout, skinSetLayout};
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 3;
+    lci.setLayoutCount = 2;
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
@@ -465,11 +466,7 @@ void MainPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
                                   &info.frameSet, 0, nullptr);
-        if (info.skinSet != VK_NULL_HANDLE) {
-            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 2,
-                                      1, &info.skinSet, 0, nullptr);
-        }
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, *modelOp);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *modelOp);
     }
 
     // ============================================================
@@ -524,11 +521,7 @@ void MainPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
                                   &info.frameSet, 0, nullptr);
-        if (info.skinSet != VK_NULL_HANDLE) {
-            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 2,
-                                      1, &info.skinSet, 0, nullptr);
-        }
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, *modelTr);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *modelTr);
     }
 
     // ============================================================

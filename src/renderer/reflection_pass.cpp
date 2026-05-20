@@ -21,8 +21,7 @@ void ReflectionPass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources) {
         throw std::runtime_error("ReflectionPass::init: invalid info");
     }
-    if (info.frameSetLayout == VK_NULL_HANDLE || info.materialSetLayout == VK_NULL_HANDLE ||
-        info.skinSetLayout == VK_NULL_HANDLE) {
+    if (info.frameSetLayout == VK_NULL_HANDLE || info.materialSetLayout == VK_NULL_HANDLE) {
         throw std::runtime_error("ReflectionPass::init: layouts missing");
     }
     ctx_ = info.ctx;
@@ -33,7 +32,7 @@ void ReflectionPass::init(const InitInfo& info) {
 
     createRenderPass();
     createStaticLayout(info.frameSetLayout, info.materialSetLayout);
-    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout, info.skinSetLayout);
+    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout);
 
     {
         const std::string vert = "triangle_vert.spv";
@@ -133,16 +132,15 @@ void ReflectionPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
 }
 
 void ReflectionPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                                           VkDescriptorSetLayout materialSetLayout,
-                                           VkDescriptorSetLayout skinSetLayout) {
+                                              VkDescriptorSetLayout materialSetLayout) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
     pc.size = sizeof(MainPass::SkinnedPushConstants);
 
-    VkDescriptorSetLayout setLayouts[3] = {frameSetLayout, materialSetLayout, skinSetLayout};
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 3;
+    lci.setLayoutCount = 2;
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
@@ -383,7 +381,8 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
 }
 
 void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
-                      const std::vector<SkinnedDrawItem>& list) {
+                         VkDeviceAddress skinAddress,
+                         const std::vector<SkinnedDrawItem>& list) {
     if (list.empty()) return;
     const Model* curModel = nullptr;
     const std::vector<Material>* curMaterials = nullptr;
@@ -398,6 +397,7 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         MainPass::SkinnedPushConstants pc{};
         pc.model = item.model;
         pc.skinOffset = item.skinOffset;
+        pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(MainPass::SkinnedPushConstants), &pc);
@@ -479,12 +479,7 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
                                 &info.frameSet, 0, nullptr);
-        if (info.skinSet != VK_NULL_HANDLE) {
-            vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 2,
-                                    1, &info.skinSet, 0, nullptr);
-        }
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet,
-                        *info.modelDrawListOpaque);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *info.modelDrawListOpaque);
     }
 
     vkCmdEndRenderPass(info.cmd);

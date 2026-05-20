@@ -40,7 +40,6 @@ class PassChain {
         Swapchain* swapchain = nullptr;
         FrameUniforms* frameUniforms = nullptr;
         AssetRegistry* assets = nullptr;
-        VkDescriptorSetLayout skinSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
         ReflectionQuality reflectionQuality = ReflectionQuality::Half;
         bool reflectShadows = true;
@@ -53,7 +52,8 @@ class PassChain {
         const SceneData* scene = nullptr;
         const AssetRegistry* assets = nullptr;
         FrameUniforms* frameUniforms = nullptr;
-        VkDescriptorSet skinSet = VK_NULL_HANDLE;
+        // Phase 1B-4b: BDA address for skin matrices
+        VkDeviceAddress skinAddress = 0;
         const DebugLineRenderer* debugLines = nullptr;
         const std::vector<particle::Particle>* particles = nullptr;
         const HudDrawList* hud = nullptr;

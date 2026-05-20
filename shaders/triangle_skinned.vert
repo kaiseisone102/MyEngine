@@ -1,8 +1,21 @@
 // =============================================================================
-// triangle_skinned.vert - Phase 1A2: uses shared types.h
+// triangle_skinned.vert - Phase 1B-4b: BDA (buffer_reference) for skin matrices
+// =============================================================================
+// The skin matrix buffer is no longer bound via descriptor set (set=2).
+// Instead, its GPU virtual address is passed via push constant
+// (SkinnedPushConstants::skinBuffer). The shader casts this 64-bit address
+// to a typed pointer using GL_EXT_buffer_reference and reads matrices
+// directly from GPU memory.
+//
+// This is the modern "bindless" Vulkan style: shaders dereference GPU
+// pointers, descriptors are only used for textures.
 // =============================================================================
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
 #include "shared/types.h"
 
 layout(location = 0) in vec3  inPosition;
@@ -23,15 +36,20 @@ layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
 } ubo;
 
-layout(set = 2, binding = 0) readonly buffer SkinMatrices {
+// BDA: a typed pointer to the skin matrix array.
+// std430 + buffer_reference_align=16 matches mat4 alignment in the SSBO.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinMatrices {
     mat4 boneMatrices[];
-} skin;
+};
 
 layout(push_constant) uniform PC {
     SkinnedPushConstants push;
 };
 
 void main() {
+    // Cast the 64-bit address in push.skinBuffer to a typed pointer.
+    SkinMatrices skin = SkinMatrices(push.skinBuffer);
+
     int base = push.skinOffset;
     mat4 skinMatrix =
         skin.boneMatrices[base + inJointIndices.x] * inJointWeights.x

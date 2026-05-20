@@ -24,7 +24,6 @@ class ReflectionPass {
         ResourceFactory* resources = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout skinSetLayout = VK_NULL_HANDLE;
         uint32_t baseWidth = 1280;
         uint32_t baseHeight = 720;
         VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
@@ -38,7 +37,8 @@ class ReflectionPass {
         // 反射用 frameSet (= 反射 view matrix の UBO)
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
         VkDescriptorSet defaultMaterialSet = VK_NULL_HANDLE;
-        VkDescriptorSet skinSet = VK_NULL_HANDLE;
+        // Phase 1B-4b: BDA address for skin matrices
+        VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
 
         // 反射描画では opaque のみ使う (簡略化)
@@ -89,8 +89,7 @@ class ReflectionPass {
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                             VkDescriptorSetLayout materialSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                              VkDescriptorSetLayout materialSetLayout,
-                              VkDescriptorSetLayout skinSetLayout);
+                              VkDescriptorSetLayout materialSetLayout);
 
     struct PipelineBuildArgs {
         VkPipelineLayout layout;
