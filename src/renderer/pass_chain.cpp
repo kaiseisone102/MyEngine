@@ -61,6 +61,8 @@ void PassChain::init(const InitInfo& info) {
         mi.frameSetLayout = info.frameUniforms->layout();
         mi.materialSetLayout = info.assets->materialSetLayout();
         mi.bindlessSetLayout = info.bindlessSetLayout;
+        mi.hdrColorView = info.hdrColorView;  // Phase 1H-2
+        mi.hdrColorFormat = info.hdrColorFormat;
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
     }
@@ -165,7 +167,11 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
     }
 }
 
-void PassChain::onSwapchainResized() {
+void PassChain::onSwapchainResized(VkImageView hdrColorView) {
+    // Phase 1H-2: forward new HDR view to MainPass before re-creating framebuffer
+    if (hdrColorView != VK_NULL_HANDLE) {
+        mainPass_.setHdrColorView(hdrColorView);
+    }
     mainPass_.onSwapchainResized();
     // swapchain サイズ変更時、 反射 texture も新サイズに合わせて再作成。
     // quality は ReflectionPass が保持してる現在値を維持。

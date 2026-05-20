@@ -42,6 +42,9 @@ class PassChain {
         AssetRegistry* assets = nullptr;
         // Phase 1D: bindless texture set layout
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
+        // Phase 1H-2: HDR target attachment for MainPass
+        VkImageView hdrColorView = VK_NULL_HANDLE;
+        VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         std::string shaderDir;
         ReflectionQuality reflectionQuality = ReflectionQuality::Half;
         bool reflectShadows = true;
@@ -78,7 +81,7 @@ class PassChain {
     void beginUI();
     void endUI();
     void recordFrame(const RecordInfo& info);
-    void onSwapchainResized();
+    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE);  // Phase 1H-2
 
     void onReflectionQualityChanged(ReflectionQuality quality);
 

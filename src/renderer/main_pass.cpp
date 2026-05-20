@@ -150,6 +150,8 @@ void MainPass::init(const InitInfo& info) {
     if (!info.ctx || !info.swapchain) throw std::runtime_error("MainPass::init: invalid info");
     ctx_ = info.ctx;
     swapchain_ = info.swapchain;
+    hdrColorView_ = info.hdrColorView;  // Phase 1H-2
+    hdrColorFormat_ = info.hdrColorFormat;
 
     createRenderPass();
 
@@ -183,14 +185,14 @@ void MainPass::init(const InitInfo& info) {
 
 void MainPass::createRenderPass() {
     VkAttachmentDescription color{};
-    color.format = swapchain_->colorFormat();
+    color.format = hdrColorFormat_;  // Phase 1H-2 (was swapchain colorFormat)
     color.samples = VK_SAMPLE_COUNT_1_BIT;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // Phase 1H-2: PostPass will sample this
 
     VkAttachmentDescription depth{};
     depth.format = swapchain_->depthFormat();
@@ -380,21 +382,19 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
 }
 
 void MainPass::createFramebuffers() {
-    const uint32_t count = swapchain_->imageCount();
+    // Phase 1H-2: write into the HDR target (single framebuffer, not per-swapchain-image)
     const VkExtent2D extent = swapchain_->extent();
-    framebuffers_.resize(count);
-    for (uint32_t i = 0; i < count; ++i) {
-        VkImageView attachments[] = {swapchain_->colorView(i), swapchain_->depthView()};
-        VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        ci.renderPass = renderPass_;
-        ci.attachmentCount = 2;
-        ci.pAttachments = attachments;
-        ci.width = extent.width;
-        ci.height = extent.height;
-        ci.layers = 1;
-        if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &framebuffers_[i]) != VK_SUCCESS)
-            throw std::runtime_error("MainPass: vkCreateFramebuffer failed");
-    }
+    framebuffers_.resize(1);
+    VkImageView attachments[] = {hdrColorView_, swapchain_->depthView()};
+    VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    ci.renderPass = renderPass_;
+    ci.attachmentCount = 2;
+    ci.pAttachments = attachments;
+    ci.width = extent.width;
+    ci.height = extent.height;
+    ci.layers = 1;
+    if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &framebuffers_[0]) != VK_SUCCESS)
+        throw std::runtime_error("MainPass: vkCreateFramebuffer failed");
 }
 
 void MainPass::destroyFramebuffers() {
@@ -413,8 +413,8 @@ void MainPass::onSwapchainResized() {
 
 void MainPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("MainPass::execute: invalid cmd");
-    if (info.imageIndex >= framebuffers_.size())
-        throw std::runtime_error("MainPass::execute: imageIndex out of range");
+    if (framebuffers_.empty())
+        throw std::runtime_error("MainPass::execute: framebuffers not created");
     if (info.defaultMaterialSet == VK_NULL_HANDLE)
         throw std::runtime_error("MainPass::execute: defaultMaterialSet missing");
 
@@ -427,7 +427,7 @@ void MainPass::execute(const ExecuteInfo& info) {
 
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     rp.renderPass = renderPass_;
-    rp.framebuffer = framebuffers_[info.imageIndex];
+    rp.framebuffer = framebuffers_[0];  // Phase 1H-2 (single HDR framebuffer)
     rp.renderArea = {{0, 0}, extent};
     rp.clearValueCount = 2;
     rp.pClearValues = clearValues;

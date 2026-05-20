@@ -39,6 +39,9 @@ class MainPass {
         Swapchain* swapchain = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
+        // === Phase 1H-2: HDR render target attachment ===
+        VkImageView hdrColorView = VK_NULL_HANDLE;
+        VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         // Phase 1D: bindless texture array set layout (set=1 in bindless pipeline)
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
@@ -92,6 +95,7 @@ class MainPass {
     void shutdown();
     void execute(const ExecuteInfo& info);
     void onSwapchainResized();
+    void setHdrColorView(VkImageView view) { hdrColorView_ = view; }  // Phase 1H-2
 
     VkRenderPass renderPass() const { return renderPass_; }
 
@@ -108,6 +112,9 @@ class MainPass {
     Swapchain* swapchain_ = nullptr;
 
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
+    // Phase 1H-2: cached HDR target info
+    VkImageView hdrColorView_ = VK_NULL_HANDLE;
+    VkFormat hdrColorFormat_ = VK_FORMAT_UNDEFINED;
     std::vector<VkFramebuffer> framebuffers_;
 
     VkPipelineLayout staticLayout_ = VK_NULL_HANDLE;
