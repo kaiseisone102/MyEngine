@@ -135,6 +135,17 @@ GameSettings load(const std::string& path) {
             settings.reflectionQuality = static_cast<ReflectionQuality>(qi);
         }
         readBool(doc, "reflectShadows", settings.reflectShadows);
+        {
+            int ti = static_cast<int>(settings.tonemapMode);
+            if (readInt(doc, "tonemapMode", ti)) {
+                if (ti < 0 || ti > 2) {
+                    std::cerr << "[SettingsIO] WARNING: tonemapMode out of range (" << ti
+                              << "), using default ACES\n";
+                    ti = static_cast<int>(TonemapMode::ACES);
+                }
+                settings.tonemapMode = static_cast<TonemapMode>(ti);
+            }
+        }
     }
 
     if (doc.HasMember("keyMapping") && doc["keyMapping"].IsObject()) {
@@ -196,6 +207,8 @@ bool save(const GameSettings& settings, const std::string& path) {
         w.Int(static_cast<int>(settings.reflectionQuality));
         w.Key("reflectShadows");
         w.Bool(settings.reflectShadows);
+        w.Key("tonemapMode");
+        w.Int(static_cast<int>(settings.tonemapMode));
 
         w.Key("keyMapping");
         w.StartObject();

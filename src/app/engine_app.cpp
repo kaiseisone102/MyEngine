@@ -104,6 +104,7 @@ void EngineApp::initGame() {
     if (state_.settings.reflectionQuality != ReflectionQuality::Half) {
         state_.worldState.data.vulkan.setReflectionQuality(state_.settings.reflectionQuality);
     }
+    state_.worldState.data.vulkan.setTonemapMode(state_.settings.tonemapMode);
     // Phase 1C: グローバル SceneRenderer、 引数なし、 cullingDistance も保持しない
     sceneRenderer_ = std::make_unique<SceneRenderer>();
     {

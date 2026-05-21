@@ -36,6 +36,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Draw Distance", formatDistance(s.drawDistance)),
         MenuItem("Reflection Quality", reflectionQualityName(s.reflectionQuality)),
         MenuItem("Reflection: Shadows", s.reflectShadows ? "On" : "Off"),
+        MenuItem("Tonemapper", tonemapModeName(s.tonemapMode)),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -87,6 +88,20 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
             }
             break;
         }
+        case kIdxTonemap: {
+            // ACES (0) -> AgX (1) -> Khronos PBR (2) cycle
+            int t = static_cast<int>(s.tonemapMode);
+            t += direction;
+            if (t < 0) t = 2;
+            if (t > 2) t = 0;
+            const TonemapMode newT = static_cast<TonemapMode>(t);
+            if (newT != s.tonemapMode) {
+                s.tonemapMode = newT;
+                vulkan().setTonemapMode(newT);  // \u5373\u9069\u7528 (push constant)
+                changed = true;
+            }
+            break;
+        }
         case kIdxReflectShadows: {
             // 左右どちらでもトグル
             (void)direction;
@@ -124,9 +139,9 @@ void GraphicsSettingsLayer::doSave() {
 
     // Draw distance (SceneRenderer に即時適用、EParticleSystem は GameplayLayer
     // 経由で毎フレーム反映)
-    // Phase 1C: setCullingDistance �p�~ (layer_stack �� state.settings.drawDistance ���Q��)
+    // Phase 1C: setCullingDistance �p�~ (layer_stack �� state.settings.drawDistance ��Q��)
 
-    // Reflection quality: orchestrator 経由で VulkanRenderer に伝えめE    // (snapshot と差刁E��あるときだぁEdirty フラグ立てる、E無駁E�� rebuild 防止)
+    // Reflection quality: orchestrator 経由で VulkanRenderer に伝えめE    // (snapshot と差刁E��あるときだぁEdirty フラグ立てる、E無駁E�� rebuild 防止)
     if (s.reflectionQuality != snapshot_.reflectionQuality) {
         s.reflectionDirty = true;
         std::cout << "[GraphicsSettingsLayer] reflectionQuality changed: "

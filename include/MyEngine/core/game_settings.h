@@ -32,6 +32,22 @@ inline float reflectionQualityScale(ReflectionQuality q) {
     return 0.5f;
 }
 
+
+enum class TonemapMode : int {
+    ACES        = 0,
+    AgX         = 1,
+    PBRNeutral  = 2,
+};
+
+inline const char* tonemapModeName(TonemapMode m) {
+    switch (m) {
+        case TonemapMode::ACES:       return "ACES";
+        case TonemapMode::AgX:        return "AgX";
+        case TonemapMode::PBRNeutral: return "Khronos PBR";
+    }
+    return "ACES";
+}
+
 struct GameSettings {
     float bgmVolume        = 0.5f;
     float sfxVolume        = 1.0f;
@@ -41,6 +57,7 @@ struct GameSettings {
     float drawDistance     = 100.0f;  // m
     ReflectionQuality reflectionQuality = ReflectionQuality::Half;
     bool reflectShadows = false;  // 反射描画でも影を計算するか (重い)
+    TonemapMode tonemapMode = TonemapMode::ACES;
 
     KeyMapping keyMapping;
 

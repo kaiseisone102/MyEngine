@@ -46,6 +46,11 @@ class VulkanRenderer {
         passChain_.onReflectionQualityChanged(q);
     }
 
+    // Phase 1H-4: tonemapper (push constant \u306e\u307f\u306e\u305f\u3081 waitIdle \u4e0d\u8981)
+    void setTonemapMode(TonemapMode m) {
+        passChain_.setTonemapMode(static_cast<int>(m));
+    }
+
     SceneData& scene() { return scene_; }
     const SceneData& scene() const { return scene_; }
 

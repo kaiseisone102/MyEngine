@@ -86,6 +86,7 @@ class PassChain {
     void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE);  // Phase 1H-2/3
 
     void onReflectionQualityChanged(ReflectionQuality quality);
+    void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }
 
     void processEvent(const SDL_Event& e) { ImGuiLayer::processEvent(e); }
 
