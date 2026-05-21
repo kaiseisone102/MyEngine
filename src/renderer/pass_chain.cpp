@@ -18,6 +18,7 @@
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
 #include "scene/scene_data.h"
+#include "renderer/terrain_mesh.h"
 
 namespace {
 
@@ -330,6 +331,16 @@ void PassChain::recordFrame(const RecordInfo& info) {
         fr.extract(info.normalLighting.proj * info.normalLighting.view);
 
         const Mesh* grassMesh = const_cast<Mesh*>(&info.assets->grassMesh());
+        const auto& grassTerrains = terrainOpaque;
+        auto groundHeight = [&](float wx, float wz) -> float {
+            float best = -1e30f;
+            for (const auto& ti : grassTerrains) {
+                if (!ti.terrain) continue;
+                const float hh = ti.terrain->sampleHeight(wx, wz);
+                if (hh > best) best = hh;
+            }
+            return best;
+        };
         int total = 0, visible = 0;
         {
             InstancedMeshDrawItem item;
@@ -348,6 +359,9 @@ void PassChain::recordFrame(const RecordInfo& info) {
                     const float rz = (((h >> 8) & 0xFF) / 255.0f - 0.5f) * spacing;
                     const float sc = 0.8f + ((h >> 16) & 0xFF) / 255.0f * 0.8f;  // 0.8..1.6
                     glm::vec3 pos(origin + x * spacing + rx, 0.0f, origin + z * spacing + rz);
+                    const float gy = groundHeight(pos.x, pos.z);
+                    if (gy < -1e29f) continue;  // no terrain here -> no grass
+                    pos.y = gy;                 // sit on the ground
                     if (!fr.sphereVisible(pos + glm::vec3(0, sc * 0.5f, 0), sc)) continue;
                     ++visible;
                     glm::mat4 m(1.f);
