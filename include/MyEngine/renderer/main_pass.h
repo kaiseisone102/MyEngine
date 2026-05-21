@@ -33,6 +33,7 @@ class MainPass {
     using SkinnedPushConstants = myengine::shared::SkinnedPushConstants;
     // Phase 1D: bindless static draw with texture index in push constant
     using StaticBindlessPushConstants = myengine::shared::StaticBindlessPushConstants;
+    using InstancedPushConstants = myengine::shared::InstancedPushConstants;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
@@ -63,6 +64,8 @@ class MainPass {
         glm::vec4 clearColor{0.4f, 0.6f, 0.9f, 1.0f};
 
         const std::vector<MeshDrawItem>* meshDrawListOpaque = nullptr;
+        const std::vector<InstancedMeshDrawItem>* instancedMeshDrawListOpaque = nullptr;
+        VkDeviceAddress instanceBufferAddress = 0;
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;
         const std::vector<TerrainDrawItem>* terrainDrawListOpaque = nullptr;
@@ -128,6 +131,9 @@ class MainPass {
     // === Phase 1D: bindless pipeline (opaque only for now) ===
     VkPipelineLayout bindlessLayout_ = VK_NULL_HANDLE;
     VkPipeline bindlessPipelineOpaque_ = VK_NULL_HANDLE;
+    // === Phase 1E: instanced pipeline (opaque) ===
+    VkPipelineLayout instancedLayout_ = VK_NULL_HANDLE;
+    VkPipeline instancedPipelineOpaque_ = VK_NULL_HANDLE;
 
     void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
@@ -136,6 +142,7 @@ class MainPass {
                               VkDescriptorSetLayout materialSetLayout);
     void createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
                               VkDescriptorSetLayout bindlessSetLayout);
+    void createInstancedLayout(VkDescriptorSetLayout frameSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
     void createFramebuffers();
     void destroyFramebuffers();

@@ -171,6 +171,14 @@ void MainPass::init(const InitInfo& info) {
         skinnedPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
     }
 
+    // === Phase 1E: instanced pipeline (opaque) ===
+    createInstancedLayout(info.frameSetLayout);
+    {
+        PipelineBuildArgs argsInst{instancedLayout_, "triangle_instanced_vert.spv", "triangle_frag.spv", false};
+        instancedPipelineOpaque_ = buildPipeline(argsInst, info.shaderDir);
+        std::cout << "[MainPass] instanced pipeline created\n";
+    }
+
     // === Phase 1D: bindless pipeline (opaque only, test cube) ===
     if (info.bindlessSetLayout != VK_NULL_HANDLE) {
         createBindlessLayout(info.frameSetLayout, info.bindlessSetLayout);
@@ -251,6 +259,23 @@ void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
     lci.pPushConstantRanges = &pc;
     if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &staticLayout_) != VK_SUCCESS) {
         throw std::runtime_error("MainPass: static layout failed");
+    }
+}
+
+void MainPass::createInstancedLayout(VkDescriptorSetLayout frameSetLayout) {
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(InstancedPushConstants);
+
+    // Only set=0 (frame UBO). No material set in this minimal instanced path.
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 1;
+    lci.pSetLayouts = &frameSetLayout;
+    lci.pushConstantRangeCount = 1;
+    lci.pPushConstantRanges = &pc;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &instancedLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("MainPass: instanced layout failed");
     }
 }
 
@@ -465,6 +490,29 @@ void MainPass::execute(const ExecuteInfo& info) {
             drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet, *terrainOp);
     }
 
+    // === Phase 1E: instanced opaque meshes ===
+    if (info.instancedMeshDrawListOpaque && !info.instancedMeshDrawListOpaque->empty()
+        && info.instanceBufferAddress != 0) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, instancedPipelineOpaque_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, instancedLayout_, 0, 1,
+                                &info.frameSet, 0, nullptr);
+        for (const InstancedMeshDrawItem& item : *info.instancedMeshDrawListOpaque) {
+            if (!item.mesh || item.instances.empty()) continue;
+            item.mesh->bind(info.cmd);
+            InstancedPushConstants pc{};
+            pc.instanceBuffer = info.instanceBufferAddress;
+            pc.albedoIdx = -1;
+            pc.alpha = item.alpha;
+            vkCmdPushConstants(info.cmd, instancedLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(InstancedPushConstants), &pc);
+            const uint32_t count = static_cast<uint32_t>(item.instances.size());
+            // firstInstance = item.instanceOffset -> gl_InstanceIndex starts there
+            vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, 0, 0, item.instanceOffset);
+        }
+    }
+
     if (modelOp && !modelOp->empty()) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_);
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
@@ -613,6 +661,14 @@ void MainPass::execute(const ExecuteInfo& info) {
 }
 
 void MainPass::shutdown() {
+    if (instancedPipelineOpaque_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), instancedPipelineOpaque_, nullptr);
+        instancedPipelineOpaque_ = VK_NULL_HANDLE;
+    }
+    if (instancedLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_->device(), instancedLayout_, nullptr);
+        instancedLayout_ = VK_NULL_HANDLE;
+    }
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     destroyFramebuffers();
 
