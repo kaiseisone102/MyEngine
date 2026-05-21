@@ -52,6 +52,7 @@ add_custom_command(
     OUTPUT
         "${SHADER_INT_DIR}/triangle_vert.spv"
         "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -72,6 +73,7 @@ add_custom_command(
         "${SHADER_INT_DIR}/post_tonemap_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.vert" -o "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.frag" -o "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -116,6 +118,7 @@ add_custom_target(compile_shaders
     DEPENDS
         "${SHADER_INT_DIR}/triangle_vert.spv"
         "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -240,6 +243,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_INT_DIR}/triangle_vert.spv"
         "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"

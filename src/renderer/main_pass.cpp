@@ -174,7 +174,7 @@ void MainPass::init(const InitInfo& info) {
     // === Phase 1E: instanced pipeline (opaque) ===
     createInstancedLayout(info.frameSetLayout);
     {
-        PipelineBuildArgs argsInst{instancedLayout_, "triangle_instanced_vert.spv", "triangle_frag.spv", false};
+        PipelineBuildArgs argsInst{instancedLayout_, "triangle_instanced_vert.spv", "triangle_instanced_frag.spv", false};
         instancedPipelineOpaque_ = buildPipeline(argsInst, info.shaderDir);
         std::cout << "[MainPass] instanced pipeline created\n";
     }

@@ -16,6 +16,7 @@
 #include "hud_pass.h"
 #include "imgui_layer.h"
 #include "main_pass.h"
+#include "instance_buffer_pool.h"
 #include "post_pass.h"
 #include "particle_pass.h"
 #include "reflection_pass.h"
@@ -93,6 +94,7 @@ class PassChain {
    private:
     ShadowPass shadowPass_;
     MainPass mainPass_;
+    InstanceBufferPool instancePool_;  // Phase 1E
     PostPass postPass_;  // Phase 1H-3
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;
