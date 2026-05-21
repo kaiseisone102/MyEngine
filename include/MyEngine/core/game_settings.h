@@ -48,6 +48,14 @@ inline const char* tonemapModeName(TonemapMode m) {
     return "ACES";
 }
 
+inline const char* shadowQualityName(int q) {
+    switch (q) {
+        case 0:  return "Off";
+        case 2:  return "High";
+        default: return "Soft";
+    }
+}
+
 struct GameSettings {
     float bgmVolume        = 0.5f;
     float sfxVolume        = 1.0f;
@@ -58,6 +66,7 @@ struct GameSettings {
     ReflectionQuality reflectionQuality = ReflectionQuality::Half;
     bool reflectShadows = false;  // 反射描画でも影を計算するか (重い)
     bool grassWind = true;        // Phase 1F: grass wind sway (toggle)
+    int shadowQuality = 1;        // Phase 1G: 0=hard, 1=PCF3x3, 2=PCF5x5
     TonemapMode tonemapMode = TonemapMode::ACES;
 
     KeyMapping keyMapping;

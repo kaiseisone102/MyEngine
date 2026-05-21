@@ -38,16 +38,23 @@ float sampleShadow(vec4 lightPos) {
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
     float currentDepth = proj.z;
     float bias = 0.005;
-    // PCF 3x3: average 9 neighboring depth comparisons for soft edges
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    int pcfR = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=3x3,2=5x5
     float shadow = 0.0;
-    for (int sx = -1; sx <= 1; ++sx) {
-        for (int sy = -1; sy <= 1; ++sy) {
-            float d = texture(shadowMap, proj.xy + vec2(sx, sy) * texelSize).r;
-            shadow += (currentDepth - bias > d) ? 1.0 : 0.0;
+    if (pcfR <= 0) {
+        float d = texture(shadowMap, proj.xy).r;
+        shadow = (currentDepth - bias > d) ? 1.0 : 0.0;
+    } else {
+        vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+        float cnt = 0.0;
+        for (int sx = -pcfR; sx <= pcfR; ++sx) {
+            for (int sy = -pcfR; sy <= pcfR; ++sy) {
+                float d = texture(shadowMap, proj.xy + vec2(sx, sy) * texelSize).r;
+                shadow += (currentDepth - bias > d) ? 1.0 : 0.0;
+                cnt += 1.0;
+            }
         }
+        shadow /= cnt;
     }
-    shadow /= 9.0;
     return 1.0 - shadow * ubo.frame.shadowParams.x;
 }
 

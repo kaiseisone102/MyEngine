@@ -84,6 +84,7 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
 
     // === Phase 1C: extend LightingUBO with time / screenSize / cameraParams ===
     auto lighting = currentLighting_;
+    lighting.shadowParams.y = float(shadowQuality_);  // PCF quality
     const VkExtent2D extP1C = swapchain_.extent();
     const float fw = static_cast<float>(extP1C.width);
     const float fh = static_cast<float>(extP1C.height);
@@ -119,6 +120,7 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
 
         // Phase 1C: 反射 VP の生成と shadowStrength 調整に必要な追加情報。
         info.normalLighting = currentLighting_;
+        info.normalLighting.shadowParams.y = float(shadowQuality_);
         info.waterTime = waterTime_;
         info.reflectShadows = reflectShadows_;
 

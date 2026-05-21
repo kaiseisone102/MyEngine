@@ -38,6 +38,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Reflection: Shadows", s.reflectShadows ? "On" : "Off"),
         MenuItem("Tonemapper", tonemapModeName(s.tonemapMode)),
         MenuItem("Grass Wind", s.grassWind ? "On" : "Off"),
+        MenuItem("Shadow Quality", shadowQualityName(s.shadowQuality)),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -61,6 +62,13 @@ void GraphicsSettingsLayer::handleConfirm(int selectedIndex, LayerCommands& cmds
             auto& s = state_.settings;
             s.grassWind = !s.grassWind;
             vulkan().setGrassWind(s.grassWind);
+            hasUnsavedChanges_ = true;
+            break;
+        }
+        case kIdxShadowQuality: {
+            auto& s = state_.settings;
+            s.shadowQuality = (s.shadowQuality + 1) % 3;  // Off->Soft->High cycle
+            vulkan().setShadowQuality(s.shadowQuality);
             hasUnsavedChanges_ = true;
             break;
         }
@@ -122,6 +130,17 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
             s.grassWind = !s.grassWind;
             vulkan().setGrassWind(s.grassWind);
             changed = true;
+            break;
+        }
+        case kIdxShadowQuality: {
+            int q = s.shadowQuality + direction;
+            if (q < 0) q = 2;
+            if (q > 2) q = 0;
+            if (q != s.shadowQuality) {
+                s.shadowQuality = q;
+                vulkan().setShadowQuality(q);
+                changed = true;
+            }
             break;
         }
         default:
