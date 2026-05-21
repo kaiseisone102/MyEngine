@@ -89,8 +89,8 @@ struct StaticBindlessPushConstants {
     mat4 model;
     float alpha;
     int32_t albedoIdx;
-    int32_t _pad0;
-    int32_t _pad1;
+    float metallic;   // Phase 1K-2
+    float roughness;  // Phase 1K-2
     int32_t _pad2;
     int32_t _pad3;
     int32_t _pad4;
@@ -101,8 +101,8 @@ struct StaticBindlessPushConstants {
     mat4 model;
     float alpha;
     int albedoIdx;
-    int _pad0;
-    int _pad1;
+    float metallic;   // Phase 1K-2
+    float roughness;  // Phase 1K-2
     int _pad2;
     int _pad3;
     int _pad4;
@@ -199,6 +199,29 @@ struct InstanceData {
     mat4 model;
     vec4 color;
     vec4 params;
+};
+
+// -----------------------------------------------------------------------------
+// GpuMaterial: Phase 1K-2 - unified PBR material, stored in an SSBO indexed by
+//   materialId. Read via BDA (buffer address passed in the frame UBO).
+//   Texture indices are bindless slots; -1 means "no texture, use the factor".
+//   vec4(16) + float*4(16) + int*8(32) = 64 bytes, std430 16-byte aligned.
+//   No BDA inside, so one definition serves both C++ and GLSL.
+// -----------------------------------------------------------------------------
+struct GpuMaterial {
+    vec4  baseColorFactor;   // fallback / tint when albedoIdx < 0
+    float metallic;          // fallback when mrIdx < 0
+    float roughness;         // fallback when mrIdx < 0
+    float emissiveStrength;  // reserved (emissive use later)
+    float _pad0;
+    int   albedoIdx;         // bindless texture slot, -1 = none
+    int   normalIdx;         // 1K-5 normal map, -1 = use vertex normal
+    int   mrIdx;             // 1K-4 metallic-roughness map, -1 = use factors
+    int   aoIdx;             // 1K-6 AO map, -1 = none
+    int   emissiveIdx;       // reserved, -1 = none
+    int   _pad1;
+    int   _pad2;
+    int   _pad3;
 };
 
 // -----------------------------------------------------------------------------
