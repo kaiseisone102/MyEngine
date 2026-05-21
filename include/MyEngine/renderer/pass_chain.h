@@ -95,6 +95,8 @@ class PassChain {
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }
     void setGrassColorVariation(bool on) { grassColorVariation_ = on; }
     bool grassColorVariation() const { return grassColorVariation_; }
+    void setGrassWind(bool on) { windEnabled_ = on; }
+    bool grassWind() const { return windEnabled_; }
 
     void processEvent(const SDL_Event& e) { ImGuiLayer::processEvent(e); }
 
@@ -103,6 +105,7 @@ class PassChain {
     MainPass mainPass_;
     InstanceBufferPool instancePool_;  // Phase 1E
     bool grassColorVariation_ = true;  // Phase 1F: grass color variation toggle
+    bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
     int lastInstancedVisible_ = 0;  // Phase 1F
     int lastInstancedTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3

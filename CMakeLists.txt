@@ -93,7 +93,9 @@ add_custom_command(
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/particle.frag"          -o "${SHADER_INT_DIR}/particle_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.vert"             -o "${SHADER_INT_DIR}/water_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"  
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_fullscreen.vert"  -o "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_tonemap.frag"     -o "${SHADER_INT_DIR}/post_tonemap_frag.spv"  
     DEPENDS
         "${SHADER_SRC_DIR}/triangle.vert"
         "${SHADER_SRC_DIR}/triangle.frag"

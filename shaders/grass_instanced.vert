@@ -48,6 +48,17 @@ void main() {
     vec4 instParams = ib.data[gl_InstanceIndex].params;
 
     vec4 worldPos = model * vec4(inPosition, 1.0);
+
+    // Wind sway: tip bends more than the root, phase varies by world pos.
+    // instParams.y = wind enable (0 = off, skips the whole calc).
+    if (instParams.y > 0.5) {
+        float tsec = ubo.frame.time.x;
+        float phase = worldPos.x * 0.35 + worldPos.z * 0.35;
+        float bend = inPosition.y * inPosition.y;  // 0 at root, 1 at tip
+        worldPos.x += sin(tsec * 1.6 + phase) * 0.18 * bend;
+        worldPos.z += cos(tsec * 1.3 + phase) * 0.12 * bend;
+    }
+
     gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
 
     fragWorldPos = vec3(worldPos);
