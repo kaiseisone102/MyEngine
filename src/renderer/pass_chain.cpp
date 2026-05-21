@@ -346,8 +346,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
             InstancedMeshDrawItem item;
             item.mesh = grassMesh;
             item.alpha = 1.0f;
-            const int N = 70;          // 70x70 grid
-            const float spacing = 2.0f;
+            const int N = 110;         // denser, wider
+            const float spacing = 1.2f;
             const float origin = -(N * spacing) * 0.5f;
             for (int z = 0; z < N; ++z) {
                 for (int x = 0; x < N; ++x) {
@@ -357,15 +357,19 @@ void PassChain::recordFrame(const RecordInfo& info) {
                                        static_cast<uint32_t>(z * 19349663);
                     const float rx = ((h & 0xFF) / 255.0f - 0.5f) * spacing;
                     const float rz = (((h >> 8) & 0xFF) / 255.0f - 0.5f) * spacing;
-                    const float sc = 0.8f + ((h >> 16) & 0xFF) / 255.0f * 0.8f;  // 0.8..1.6
+                    const float sc = 0.5f + ((h >> 16) & 0xFF) / 255.0f * 0.5f;  // 0.5..1.0
                     glm::vec3 pos(origin + x * spacing + rx, 0.0f, origin + z * spacing + rz);
                     const float gy = groundHeight(pos.x, pos.z);
                     if (gy < -1e29f) continue;  // no terrain here -> no grass
                     pos.y = gy;                 // sit on the ground
                     if (!fr.sphereVisible(pos + glm::vec3(0, sc * 0.5f, 0), sc)) continue;
                     ++visible;
+                    const float ang = ((h >> 24) & 0xFF) / 255.0f * 6.2831853f;
+                    const float cs = std::cos(ang), sn = std::sin(ang);
                     glm::mat4 m(1.f);
-                    m[0][0] = sc; m[1][1] = sc; m[2][2] = sc;
+                    m[0][0] = cs * sc;  m[0][2] = -sn * sc;
+                    m[2][0] = sn * sc;  m[2][2] = cs * sc;
+                    m[1][1] = sc;
                     m[3][0] = pos.x; m[3][1] = pos.y; m[3][2] = pos.z;
                     item.instances.push_back(m);
                 }
