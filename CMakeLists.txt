@@ -9,10 +9,10 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
         set(CMAKE_TOOLCHAIN_FILE "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE PATH "vcpkg toolchain" FORCE)
     else()
         message(FATAL_ERROR
-            "CMAKE_TOOLCHAIN_FILE が未設定です。vcpkg を使ぁE��は次のぁE��れかが忁E��でぁE\n"
-            "  • cmake --preset windows-vcpkg\n"
-            "  • cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake\n"
-            "  • 環墁E��数 VCPKG_ROOT めEvcpkg のクローン先に設定してから再実行\n")
+            "CMAKE_TOOLCHAIN_FILE 縺梧悴險ｭ螳壹〒縺吶Ｗcpkg 繧剃ｽｿ縺・・ｽ・ｽ縺ｯ谺｡縺ｮ縺・・ｽ・ｽ繧後°縺悟ｿ・・ｽ・ｽ縺ｧ縺・\n"
+            "  窶｢ cmake --preset windows-vcpkg\n"
+            "  窶｢ cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake\n"
+            "  窶｢ 迺ｰ蠅・・ｽ・ｽ謨ｰ VCPKG_ROOT 繧・vcpkg 縺ｮ繧ｯ繝ｭ繝ｼ繝ｳ蜈医↓險ｭ螳壹＠縺ｦ縺九ｉ蜀榊ｮ溯｡圭n")
     endif()
 endif()
 
@@ -51,6 +51,7 @@ find_program(GLSLANG_VALIDATOR NAMES glslangValidator glslangValidator.exe
 add_custom_command(
     OUTPUT
         "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -70,6 +71,7 @@ add_custom_command(
         "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
         "${SHADER_INT_DIR}/post_tonemap_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.vert" -o "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -113,6 +115,7 @@ add_custom_command(
 add_custom_target(compile_shaders
     DEPENDS
         "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
@@ -194,6 +197,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/shadow_pass.cpp
     src/renderer/skeleton.cpp
     src/renderer/skin_buffer_pool.cpp
+    src/renderer/instance_buffer_pool.cpp
     src/renderer/water_mesh.cpp
     src/renderer/water_pass.cpp
     src/renderer/water_pipeline.cpp
@@ -235,6 +239,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_INT_DIR}/triangle_vert.spv"
+        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
         "${SHADER_INT_DIR}/triangle_frag.spv"
         "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
         "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
