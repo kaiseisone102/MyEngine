@@ -28,6 +28,8 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
     createMaterialDescriptorPool();
     createDefaultTexture();
     createDefaultMaterial();
+    // Phase 1K-2: unified PBR material registry (SSBO + BDA)
+    materialRegistry_.init(ctx, resources);
 
     // ─── Phase 3 段階: ステージ用テクスチャ/マテリアルを初期登録 ───
     // パスに拡張子を含めない: registerTexture が .png / .jpg / .jpeg / .bmp / .tga を
@@ -372,6 +374,8 @@ const Model* AssetRegistry::activeModel() const {
 
 void AssetRegistry::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
+
+    materialRegistry_.shutdown();  // Phase 1K-2
 
     for (auto& [k, mptr] : models_) {
         if (mptr) mptr->destroy();

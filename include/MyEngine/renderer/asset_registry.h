@@ -26,6 +26,7 @@
 
 #include "renderer/animation.h"
 #include "renderer/material.h"
+#include "renderer/material_registry.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/texture.h"
@@ -76,6 +77,9 @@ class AssetRegistry {
     const Texture& grassTexture() const { return grassTexture_; }
     VkDescriptorPool materialPool() const { return materialPool_; }
     VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
+    // Phase 1K-2: unified PBR material storage (SSBO + BDA)
+    MaterialRegistry& materialRegistry() { return materialRegistry_; }
+    const MaterialRegistry& materialRegistry() const { return materialRegistry_; }
 
    private:
     VulkanContext* ctx_ = nullptr;
@@ -100,6 +104,9 @@ class AssetRegistry {
     // map のリハッシュで本体がコピー/ムーブされないようにする。
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
     std::unordered_map<std::string, std::unique_ptr<Material>> materials_;
+
+    // Phase 1K-2: unified PBR material registry (SSBO + BDA, bindless)
+    MaterialRegistry materialRegistry_;
 
     // 互換性: 最初にloadModelFromFileされたモデルの名前
     std::string activeModelName_;
