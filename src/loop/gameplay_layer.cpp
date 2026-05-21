@@ -743,6 +743,16 @@ void GameplayLayer::buildScene(SceneData& scene) {
             drawEnemyAttackHitboxDebug(dl, et, ai, isSkeleton);
         });
         drawPlayerHurtboxDebug(dl, wd.player, debugElapsedTime_);
+
+        // Static obstacle collision (trees / graves / chests / rocks)
+        const glm::vec4 obstacleColor{0.3f, 0.75f, 1.0f, 1.0f};  // cyan
+        wd.world.each([&](flecs::entity e, const CObstacle&) {
+            if (!e.has<CTransform>()) return;
+            const AABB box = physics::obstacleWorldAABB(e);
+            const glm::vec3 c = (box.min + box.max) * 0.5f;
+            const glm::vec3 h = (box.max - box.min) * 0.5f;
+            drawAABBEdges(dl, c, h, obstacleColor);
+        });
     }
 
     // ─── 6. HUD (既存ロジック) ──
