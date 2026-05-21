@@ -4,6 +4,7 @@
 #include "renderer/pass_chain.h"
 
 #include <stdexcept>
+#include <iostream>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -320,25 +321,38 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.screenW = info.screenW;
         mi.screenH = info.screenH;
 
-        // === Phase 1E TEST: 100 instanced cubes in a 10x10 grid ===
+        // === Phase 1F: frustum-culled instanced cubes ===
         instancePool_.beginFrame(info.frameIndex);
         static std::vector<InstancedMeshDrawItem> testInstanced;
         testInstanced.clear();
+
+        Frustum fr;
+        fr.extract(info.normalLighting.proj * info.normalLighting.view);
+
+        int total = 0, visible = 0;
         {
             InstancedMeshDrawItem item;
             item.mesh = mesh;  // defaultMesh (cube)
             item.alpha = 1.0f;
-            for (int z = 0; z < 10; ++z) {
-                for (int x = 0; x < 10; ++x) {
+            for (int z = 0; z < 50; ++z) {
+                for (int x = 0; x < 50; ++x) {
+                    ++total;
+                    glm::vec3 pos(float(x) * 4.0f - 100.0f, 5.0f, float(z) * 4.0f - 100.0f);
+                    if (!fr.sphereVisible(pos, 1.74f)) continue;  // frustum cull
+                    ++visible;
                     glm::mat4 m(1.f);
-                    m[3][0] = float(x) * 2.0f - 10.0f;  // X
-                    m[3][1] = 5.0f;                     // Y (above ground)
-                    m[3][2] = float(z) * 2.0f - 10.0f;  // Z
+                    m[3][0] = pos.x; m[3][1] = pos.y; m[3][2] = pos.z;
                     item.instances.push_back(m);
                 }
             }
-            item.instanceOffset = instancePool_.push(info.frameIndex, item.instances);
-            testInstanced.push_back(std::move(item));
+            if (!item.instances.empty()) {
+                item.instanceOffset = instancePool_.push(info.frameIndex, item.instances);
+                testInstanced.push_back(std::move(item));
+            }
+        }
+        static int s_cullFrame = 0;
+        if ((s_cullFrame++ % 120) == 0) {
+            std::cout << "[Culling] " << visible << " / " << total << " cubes visible\n";
         }
         mi.instancedMeshDrawListOpaque = &testInstanced;
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);

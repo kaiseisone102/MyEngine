@@ -17,6 +17,7 @@
 #include "imgui_layer.h"
 #include "main_pass.h"
 #include "instance_buffer_pool.h"
+#include "frustum.h"
 #include "post_pass.h"
 #include "particle_pass.h"
 #include "reflection_pass.h"
