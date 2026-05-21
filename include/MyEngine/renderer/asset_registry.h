@@ -71,6 +71,9 @@ class AssetRegistry {
     const Mesh& defaultMesh() const { return defaultMesh_; }
     const Texture& defaultTexture() const { return defaultTexture_; }
     const Material& defaultMaterial() const { return defaultMaterial_; }
+    // Phase 1F: grass
+    const Mesh& grassMesh() const { return grassMesh_; }
+    const Texture& grassTexture() const { return grassTexture_; }
     VkDescriptorPool materialPool() const { return materialPool_; }
     VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
 
@@ -85,6 +88,8 @@ class AssetRegistry {
     VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     Material defaultMaterial_;
+    Mesh grassMesh_;          // Phase 1F
+    Texture grassTexture_;
 
     // ─── 段階G-1 ────────────────────────────────────────────
     std::unordered_map<std::string, std::unique_ptr<Model>> models_;
@@ -100,6 +105,7 @@ class AssetRegistry {
     std::string activeModelName_;
 
     void createDefaultMesh();
+    void createGrass();  // Phase 1F: procedural grass texture + cross-quad mesh
     void createDefaultTexture();
     void createMaterialDescriptorPool();
     void createMaterialSetLayout();

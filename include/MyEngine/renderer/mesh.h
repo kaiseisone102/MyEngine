@@ -66,6 +66,8 @@ class Mesh {
     // 頂点座標: X[-0.5, +0.5], Y[0, 1], Z[-0.5, +0.5]
     // scale 適用後の AABB は AABB::fromBottomCenter と完全に一致する。
     void createCube(const VulkanContext* ctx, const ResourceFactory* resources);
+    // Phase 1F: cross-quad for grass (2 vertical quads crossed at 90 deg)
+    void createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources);
 
     void destroy();
     void bind(VkCommandBuffer cmd) const;

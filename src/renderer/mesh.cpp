@@ -156,6 +156,46 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
 }
 
+// =============================================================================
+// createCrossQuad - Phase 1F: 2 vertical quads crossed at 90 deg, for grass
+// =============================================================================
+void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources) {
+    ctx_ = ctx;
+    const float h = 0.5f;  // half-width in X/Z
+    struct Quad { glm::vec3 normal; glm::vec3 corners[4]; };
+    const Quad quads[2] = {
+        {{0.f, 0.f, 1.f}, {{-h, 0.f, 0.f}, {-h, 1.f, 0.f}, {+h, 1.f, 0.f}, {+h, 0.f, 0.f}}},
+        {{1.f, 0.f, 0.f}, {{0.f, 0.f, -h}, {0.f, 1.f, -h}, {0.f, 1.f, +h}, {0.f, 0.f, +h}}},
+    };
+    const glm::vec2 uvs[4] = {{0.f, 1.f}, {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}};
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(8);
+    indices.reserve(12);
+    for (const Quad& q : quads) {
+        const uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
+        for (int i = 0; i < 4; ++i) {
+            Vertex v{};
+            v.pos = q.corners[i];
+            v.color = {1.f, 1.f, 1.f};
+            v.texCoord = uvs[i];
+            v.normal = q.normal;
+            vertices.push_back(v);
+        }
+        indices.push_back(baseIdx + 0);
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx + 0);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx + 3);
+    }
+    indexCount_ = static_cast<uint32_t>(indices.size());
+    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+}
+
 void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
                         VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory) const {
     // staging(HOST_VISIBLE)→ device-local (高速)

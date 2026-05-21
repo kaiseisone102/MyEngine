@@ -23,6 +23,7 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
     assetDir_ = assetDir;
 
     createDefaultMesh();
+    createGrass();  // Phase 1F
     createMaterialSetLayout();
     createMaterialDescriptorPool();
     createDefaultTexture();
@@ -50,6 +51,42 @@ void AssetRegistry::createDefaultMesh() {
     // cube.obj ファイル不要。 物理 AABB (足元基準) と完全に一致する。
     defaultMesh_.createCube(ctx_, resources_);
 }
+
+void AssetRegistry::createGrass() {
+    grassMesh_.createCrossQuad(ctx_, resources_);
+    const int W = 64, H = 64;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto blade = [&](float cx, float halfW, float lean) {
+        for (int y = 0; y < H; ++y) {
+            const float t = 1.0f - float(y) / float(H - 1);
+            const float w = halfW * (0.3f + 0.7f * t);
+            const float center = cx + lean * (1.0f - t);
+            for (int x = 0; x < W; ++x) {
+                const float fx = float(x) / float(W - 1);
+                if (std::fabs(fx - center) <= w) {
+                    const size_t i = (static_cast<size_t>(y) * W + x) * 4;
+                    px[i + 0] = static_cast<uint8_t>((0.10f + 0.25f * t) * 255.f);
+                    px[i + 1] = static_cast<uint8_t>((0.30f + 0.45f * t) * 255.f);
+                    px[i + 2] = static_cast<uint8_t>((0.05f + 0.10f * t) * 255.f);
+                    px[i + 3] = 255;
+                }
+            }
+        }
+    };
+    blade(0.30f, 0.05f, 0.06f);
+    blade(0.45f, 0.06f, -0.04f);
+    blade(0.55f, 0.05f, 0.03f);
+    blade(0.70f, 0.05f, -0.05f);
+    grassTexture_.loadFromRawRGBA(ctx_, resources_, px.data(), W, H);
+    if (bindless_) {
+        const uint32_t idx = bindless_->registerTexture(grassTexture_.view(), grassTexture_.sampler());
+        if (idx != UINT32_MAX) {
+            grassTexture_.setBindlessIndex(idx);
+        std::cout << "grass texture bindless idx = " << idx << "\n";
+        }
+    }
+}
+
 
 void AssetRegistry::createMaterialSetLayout() {
     VkDescriptorSetLayoutBinding bind{};
