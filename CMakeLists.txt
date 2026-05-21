@@ -73,6 +73,8 @@ add_custom_command(
         "${SHADER_INT_DIR}/water_reflect_frag.spv"
         "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
         "${SHADER_INT_DIR}/post_tonemap_frag.spv"
+        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
+        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.vert" -o "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.frag" -o "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
@@ -95,7 +97,9 @@ add_custom_command(
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"
     COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_fullscreen.vert"  -o "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_tonemap.frag"     -o "${SHADER_INT_DIR}/post_tonemap_frag.spv"  
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_tonemap.frag"     -o "${SHADER_INT_DIR}/post_tonemap_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/bloom_bright.frag"     -o "${SHADER_INT_DIR}/bloom_bright_frag.spv"
+    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/bloom_blur.frag"       -o "${SHADER_INT_DIR}/bloom_blur_frag.spv"  
     DEPENDS
         "${SHADER_SRC_DIR}/triangle.vert"
         "${SHADER_SRC_DIR}/triangle.frag"
@@ -116,6 +120,8 @@ add_custom_command(
         "${SHADER_SRC_DIR}/water_reflect.frag"
         "${SHADER_SRC_DIR}/post_fullscreen.vert"
         "${SHADER_SRC_DIR}/post_tonemap.frag"
+        "${SHADER_SRC_DIR}/bloom_bright.frag"
+        "${SHADER_SRC_DIR}/bloom_blur.frag"
     COMMENT "Compiling GLSL shaders to SPIR-V"
     VERBATIM
 )
@@ -145,6 +151,8 @@ add_custom_target(compile_shaders
         "${SHADER_INT_DIR}/water_reflect_frag.spv"
         "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
         "${SHADER_INT_DIR}/post_tonemap_frag.spv"
+        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
+        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
 )
 
 add_executable(${PROJECT_NAME}
@@ -200,6 +208,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/model_scale_registry.cpp
     src/renderer/pass_chain.cpp
     src/renderer/post_pass.cpp
+    src/renderer/bloom_pass.cpp
     src/renderer/reflection_pass.cpp
     src/renderer/reflection_target.cpp
     src/renderer/render_target.cpp
@@ -272,6 +281,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${SHADER_INT_DIR}/water_reflect_frag.spv"
         "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
         "${SHADER_INT_DIR}/post_tonemap_frag.spv"
+        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
+        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/"
     COMMAND ${CMAKE_COMMAND} -E rm -f "$<TARGET_FILE_DIR:${PROJECT_NAME}>/vulkan-1.dll"
     COMMENT "Copy SPIR-V shaders; remove duplicate Vulkan loader next to exe"

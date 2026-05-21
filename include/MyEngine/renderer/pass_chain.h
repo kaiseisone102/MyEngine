@@ -19,6 +19,7 @@
 #include "instance_buffer_pool.h"
 #include "frustum.h"
 #include "post_pass.h"
+#include "bloom_pass.h"
 #include "particle_pass.h"
 #include "reflection_pass.h"
 #include "shadow_pass.h"
@@ -49,6 +50,14 @@ class PassChain {
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         VkSampler hdrColorSampler = VK_NULL_HANDLE;  // Phase 1H-3
+    // Phase 1I: bloom ping-pong targets (owned by VulkanRenderer)
+    VkImageView bloomViewA = VK_NULL_HANDLE;
+    VkSampler bloomSamplerA = VK_NULL_HANDLE;
+    VkImageView bloomViewB = VK_NULL_HANDLE;
+    VkSampler bloomSamplerB = VK_NULL_HANDLE;
+    VkFormat bloomFormat = VK_FORMAT_UNDEFINED;
+    uint32_t bloomWidth = 0;
+    uint32_t bloomHeight = 0;
         std::string shaderDir;
         ReflectionQuality reflectionQuality = ReflectionQuality::Half;
         bool reflectShadows = true;
@@ -93,6 +102,7 @@ class PassChain {
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }
+    void setBloomEnabled(bool b) { bloomEnabled_ = b; }
     void setGrassColorVariation(bool on) { grassColorVariation_ = on; }
     bool grassColorVariation() const { return grassColorVariation_; }
     void setGrassWind(bool on) { windEnabled_ = on; }
@@ -109,6 +119,8 @@ class PassChain {
     int lastInstancedVisible_ = 0;  // Phase 1F
     int lastInstancedTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3
+    BloomPass bloomPass_;  // Phase 1I
+    bool bloomEnabled_ = true;
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;
     HudPass hudPass_;

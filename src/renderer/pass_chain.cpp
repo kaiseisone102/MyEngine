@@ -72,6 +72,22 @@ void PassChain::init(const InitInfo& info) {
     // Phase 1E: instance matrix pool
     instancePool_.init(info.ctx, info.resources);
     {
+        // Phase 1I: bloom pass (HDR -> bright -> blur -> bloom texture)
+        BloomPass::InitInfo bi{};
+        bi.ctx = info.ctx;
+        bi.hdrColorView = info.hdrColorView;
+        bi.hdrColorSampler = info.hdrColorSampler;
+        bi.targetAView = info.bloomViewA;
+        bi.targetASampler = info.bloomSamplerA;
+        bi.targetBView = info.bloomViewB;
+        bi.targetBSampler = info.bloomSamplerB;
+        bi.bloomFormat = info.bloomFormat;
+        bi.width = info.bloomWidth;
+        bi.height = info.bloomHeight;
+        bi.shaderDir = info.shaderDir;
+        bloomPass_.init(bi);
+    }
+    {
         PostPass::InitInfo poi{};
         poi.ctx = info.ctx;
         poi.swapchain = info.swapchain;
@@ -401,6 +417,13 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
 
         mainPass_.execute(mi);
+    }
+
+    // Phase 1I: generate bloom texture from HDR (before tonemap composites it)
+    if (bloomEnabled_) {
+        BloomPass::ExecuteInfo be{};
+        be.cmd = info.cmd;
+        bloomPass_.execute(be);
     }
 
     // Phase 1H-3: tonemap HDR target -> swapchain

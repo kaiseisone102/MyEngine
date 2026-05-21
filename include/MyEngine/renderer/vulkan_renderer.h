@@ -72,6 +72,9 @@ class VulkanRenderer {
     const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
     RenderTarget& hdrTarget() { return hdrTarget_; }
     const RenderTarget& hdrTarget() const { return hdrTarget_; }
+    RenderTarget& bloomTargetA() { return bloomTargetA_; }
+    void setBloomEnabled(bool b) { bloomEnabled_ = b; }
+    bool bloomEnabled() const { return bloomEnabled_; }
 
     DebugLineRenderer& debugLines() { return debugLines_; }
     const DebugLineRenderer& debugLines() const { return debugLines_; }
@@ -113,7 +116,11 @@ class VulkanRenderer {
     // === Phase 1D: bindless texture system ===
     BindlessTextureRegistry bindlessTextures_;
     void createHdrTarget();  // Phase 1H-1
+    void createBloomTargets();  // Phase 1I
     RenderTarget hdrTarget_;  // Phase 1H
+    RenderTarget bloomTargetA_;  // Phase 1I (half-res ping-pong)
+    RenderTarget bloomTargetB_;
+    bool bloomEnabled_ = true;
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;
