@@ -746,6 +746,7 @@ void GameplayLayer::buildScene(SceneData& scene) {
     }
 
     // ─── 6. HUD (既存ロジック) ──
+    wd.vulkan.hud().clear();  // reset HUD shapes each frame (was leaking -> FPS decay)
     if (wd.player && wd.player.is_alive()) {
         const float gripMargin = 12.f;
         const float gripRadius = hud_system::gripGaugeRadius();
