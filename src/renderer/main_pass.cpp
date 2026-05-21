@@ -186,6 +186,13 @@ void MainPass::init(const InitInfo& info) {
                                   "triangle_bindless_frag.spv", false};
         bindlessPipelineOpaque_ = buildPipeline(argsBl, info.shaderDir);
         std::cout << "[MainPass] bindless pipeline created\n";
+        // Phase 1F: grass pipeline (alpha-tested, bindless texture, no cull)
+        createGrassLayout(info.frameSetLayout, info.bindlessSetLayout);
+        PipelineBuildArgs argsGrass{grassLayout_, "grass_instanced_vert.spv",
+                                   "grass_instanced_frag.spv", false};
+        argsGrass.noCull = true;
+        grassPipeline_ = buildPipeline(argsGrass, info.shaderDir);
+        std::cout << "[MainPass] grass pipeline created\n";
     }
 
     createFramebuffers();
@@ -279,6 +286,25 @@ void MainPass::createInstancedLayout(VkDescriptorSetLayout frameSetLayout) {
     }
 }
 
+void MainPass::createGrassLayout(VkDescriptorSetLayout frameSetLayout,
+                                 VkDescriptorSetLayout bindlessSetLayout) {
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(InstancedPushConstants);
+
+    // set=0 frame UBO, set=1 bindless texture array (for grass texture).
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 2;
+    lci.pSetLayouts = setLayouts;
+    lci.pushConstantRangeCount = 1;
+    lci.pPushConstantRanges = &pc;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &grassLayout_) != VK_SUCCESS) {
+        throw std::runtime_error("MainPass: grass layout failed");
+    }
+}
+
 void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
                                        VkDescriptorSetLayout materialSetLayout) {
     VkPushConstantRange pc{};
@@ -342,7 +368,7 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = VK_POLYGON_MODE_FILL;
     rs.lineWidth = 1.f;
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
+    rs.cullMode = args.noCull ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
     VkPipelineMultisampleStateCreateInfo ms{
@@ -513,6 +539,31 @@ void MainPass::execute(const ExecuteInfo& info) {
         }
     }
 
+    // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===
+    if (info.grassDrawList && !info.grassDrawList->empty()
+        && info.instanceBufferAddress != 0 && grassPipeline_ != VK_NULL_HANDLE
+        && info.bindlessSet != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassPipeline_);
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_, 0, 1,
+                                &info.frameSet, 0, nullptr);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_, 1, 1,
+                                &info.bindlessSet, 0, nullptr);
+        for (const InstancedMeshDrawItem& item : *info.grassDrawList) {
+            if (!item.mesh || item.instances.empty()) continue;
+            item.mesh->bind(info.cmd);
+            InstancedPushConstants pc{};
+            pc.instanceBuffer = info.instanceBufferAddress;
+            pc.albedoIdx = item.material ? 0 : 0;  // grass texture bindless idx (0)
+            pc.alpha = item.alpha;
+            vkCmdPushConstants(info.cmd, grassLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(InstancedPushConstants), &pc);
+            const uint32_t count = static_cast<uint32_t>(item.instances.size());
+            vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, 0, 0, item.instanceOffset);
+        }
+    }
+
     if (modelOp && !modelOp->empty()) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_);
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
@@ -661,6 +712,14 @@ void MainPass::execute(const ExecuteInfo& info) {
 }
 
 void MainPass::shutdown() {
+    if (grassPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_->device(), grassPipeline_, nullptr);
+        grassPipeline_ = VK_NULL_HANDLE;
+    }
+    if (grassLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_->device(), grassLayout_, nullptr);
+        grassLayout_ = VK_NULL_HANDLE;
+    }
     if (instancedPipelineOpaque_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(ctx_->device(), instancedPipelineOpaque_, nullptr);
         instancedPipelineOpaque_ = VK_NULL_HANDLE;

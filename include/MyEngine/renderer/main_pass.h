@@ -66,6 +66,7 @@ class MainPass {
         const std::vector<MeshDrawItem>* meshDrawListOpaque = nullptr;
         const std::vector<InstancedMeshDrawItem>* instancedMeshDrawListOpaque = nullptr;
         VkDeviceAddress instanceBufferAddress = 0;
+        const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;
         const std::vector<TerrainDrawItem>* terrainDrawListOpaque = nullptr;
@@ -109,6 +110,7 @@ class MainPass {
         std::string fragSpv;
         bool transparent;
         bool isSkinned = false;  // Phase 1B-6: 6 attrs if true, 4 attrs if false
+        bool noCull = false;     // Phase 1F: grass needs both faces
     };
 
     VulkanContext* ctx_ = nullptr;
@@ -134,6 +136,9 @@ class MainPass {
     // === Phase 1E: instanced pipeline (opaque) ===
     VkPipelineLayout instancedLayout_ = VK_NULL_HANDLE;
     VkPipeline instancedPipelineOpaque_ = VK_NULL_HANDLE;
+    // === Phase 1F: grass pipeline (alpha-tested, bindless, no cull) ===
+    VkPipelineLayout grassLayout_ = VK_NULL_HANDLE;
+    VkPipeline grassPipeline_ = VK_NULL_HANDLE;
 
     void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
@@ -143,6 +148,7 @@ class MainPass {
     void createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
                               VkDescriptorSetLayout bindlessSetLayout);
     void createInstancedLayout(VkDescriptorSetLayout frameSetLayout);
+    void createGrassLayout(VkDescriptorSetLayout frameSetLayout, VkDescriptorSetLayout bindlessSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
     void createFramebuffers();
     void destroyFramebuffers();
