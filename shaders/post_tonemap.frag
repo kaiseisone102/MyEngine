@@ -18,6 +18,7 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D hdrColor;
+layout(set = 0, binding = 1) uniform sampler2D bloomColor;  // Phase 1I
 
 layout(push_constant) uniform PushConstants {
     int   tonemapMode;  // 0=ACES, 1=AgX, 2=Khronos PBR Neutral
@@ -111,6 +112,9 @@ vec3 tonemapPBRNeutral(vec3 color) {
 
 void main() {
     vec3 hdr = texture(hdrColor, fragUV).rgb;
+    // Phase 1I: add bloom (energy-conserving-ish additive blend)
+    vec3 bloom = texture(bloomColor, fragUV).rgb;
+    hdr += bloom * 0.5;  // bloom intensity
 
     // Apply exposure (default 1.0 when push constant is zero-initialized -> guard)
     float exposure = (pc.exposure > 0.0) ? pc.exposure : 1.0;

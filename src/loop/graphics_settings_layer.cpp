@@ -39,6 +39,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Tonemapper", tonemapModeName(s.tonemapMode)),
         MenuItem("Grass Wind", s.grassWind ? "On" : "Off"),
         MenuItem("Shadow Quality", shadowQualityName(s.shadowQuality)),
+        MenuItem("Bloom", s.bloom ? "On" : "Off"),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -69,6 +70,13 @@ void GraphicsSettingsLayer::handleConfirm(int selectedIndex, LayerCommands& cmds
             auto& s = state_.settings;
             s.shadowQuality = (s.shadowQuality + 1) % 3;  // Off->Soft->High cycle
             vulkan().setShadowQuality(s.shadowQuality);
+            hasUnsavedChanges_ = true;
+            break;
+        }
+        case kIdxBloom: {
+            auto& s = state_.settings;
+            s.bloom = !s.bloom;
+            vulkan().setBloomEnabled(s.bloom);
             hasUnsavedChanges_ = true;
             break;
         }
@@ -141,6 +149,13 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
                 vulkan().setShadowQuality(q);
                 changed = true;
             }
+            break;
+        }
+        case kIdxBloom: {
+            (void)direction;
+            s.bloom = !s.bloom;
+            vulkan().setBloomEnabled(s.bloom);
+            changed = true;
             break;
         }
         default:

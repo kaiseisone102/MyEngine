@@ -29,6 +29,8 @@ class PostPass {
         Swapchain* swapchain = nullptr;
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkSampler hdrColorSampler = VK_NULL_HANDLE;
+        VkImageView bloomColorView = VK_NULL_HANDLE;   // Phase 1I
+        VkSampler bloomColorSampler = VK_NULL_HANDLE;
         std::string shaderDir;
     };
 
@@ -41,7 +43,8 @@ class PostPass {
     void shutdown();
 
     // Called when swapchain is recreated. Pass the new HDR view + sampler.
-    void onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler);
+    void onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
+                            VkImageView bloomColorView, VkSampler bloomColorSampler);
 
     void execute(const ExecuteInfo& info);
 
@@ -68,6 +71,8 @@ class PostPass {
     Swapchain* swapchain_ = nullptr;
     VkImageView hdrColorView_ = VK_NULL_HANDLE;
     VkSampler hdrColorSampler_ = VK_NULL_HANDLE;
+    VkImageView bloomColorView_ = VK_NULL_HANDLE;   // Phase 1I
+    VkSampler bloomColorSampler_ = VK_NULL_HANDLE;
 
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout descSetLayout_ = VK_NULL_HANDLE;

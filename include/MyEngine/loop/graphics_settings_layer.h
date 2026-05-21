@@ -52,8 +52,9 @@ class GraphicsSettingsLayer : public MenuLayerBase {
     static constexpr int kIdxTonemap          = 3;
     static constexpr int kIdxGrassWind        = 4;
     static constexpr int kIdxShadowQuality    = 5;
-    static constexpr int kIdxSave             = 6;
-    static constexpr int kIdxBack             = 7;
+    static constexpr int kIdxBloom            = 6;
+    static constexpr int kIdxSave             = 7;
+    static constexpr int kIdxBack             = 8;
 
     std::string formatDistance(float v) const;
 

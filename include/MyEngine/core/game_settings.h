@@ -67,6 +67,7 @@ struct GameSettings {
     bool reflectShadows = false;  // 反射描画でも影を計算するか (重い)
     bool grassWind = true;        // Phase 1F: grass wind sway (toggle)
     int shadowQuality = 1;        // Phase 1G: 0=hard, 1=PCF3x3, 2=PCF5x5
+    bool bloom = true;            // Phase 1I: HDR bloom on/off
     TonemapMode tonemapMode = TonemapMode::ACES;
 
     KeyMapping keyMapping;

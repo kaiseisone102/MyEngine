@@ -98,7 +98,10 @@ class PassChain {
     // Phase 1F: instanced culling stats (for debug HUD)
     int lastInstancedVisible() const { return lastInstancedVisible_; }
     int lastInstancedTotal() const { return lastInstancedTotal_; }
-    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE);  // Phase 1H-2/3
+    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE,
+                            VkImageView bloomViewA = VK_NULL_HANDLE, VkSampler bloomSamplerA = VK_NULL_HANDLE,
+                            VkImageView bloomViewB = VK_NULL_HANDLE, VkSampler bloomSamplerB = VK_NULL_HANDLE,
+                            uint32_t bloomW = 0, uint32_t bloomH = 0);  // Phase 1H-2/3 + 1I
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }

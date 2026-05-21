@@ -93,6 +93,8 @@ void PassChain::init(const InitInfo& info) {
         poi.swapchain = info.swapchain;
         poi.hdrColorView = info.hdrColorView;
         poi.hdrColorSampler = info.hdrColorSampler;
+        poi.bloomColorView = info.bloomViewA;   // Phase 1I: final bloom = targetA
+        poi.bloomColorSampler = info.bloomSamplerA;
         poi.shaderDir = info.shaderDir;
         postPass_.init(poi);
     }
@@ -200,7 +202,10 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
     }
 }
 
-void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler) {
+void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
+                                   VkImageView bloomViewA, VkSampler bloomSamplerA,
+                                   VkImageView bloomViewB, VkSampler bloomSamplerB,
+                                   uint32_t bloomW, uint32_t bloomH) {
     // Phase 1H-2: forward new HDR view to MainPass before re-creating framebuffer
     if (hdrColorView != VK_NULL_HANDLE) {
         mainPass_.setHdrColorView(hdrColorView);
@@ -208,7 +213,21 @@ void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorS
     mainPass_.onSwapchainResized();
     // Phase 1H-3: forward new HDR view + sampler to PostPass
     if (hdrColorView != VK_NULL_HANDLE) {
-        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler);
+        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler, bloomViewA, bloomSamplerA);
+    }
+    // Phase 1I: rebuild bloom pass with new HDR + bloom views + extent
+    if (bloomViewA != VK_NULL_HANDLE) {
+        BloomPass::InitInfo bi{};
+        bi.ctx = nullptr;  // unused by onSwapchainResized
+        bi.hdrColorView = hdrColorView;
+        bi.hdrColorSampler = hdrColorSampler;
+        bi.targetAView = bloomViewA;
+        bi.targetASampler = bloomSamplerA;
+        bi.targetBView = bloomViewB;
+        bi.targetBSampler = bloomSamplerB;
+        bi.width = bloomW;
+        bi.height = bloomH;
+        bloomPass_.onSwapchainResized(bi);
     }
     // swapchain サイズ変更時、 反射 texture も新サイズに合わせて再作成。
     // quality は ReflectionPass が保持してる現在値を維持。

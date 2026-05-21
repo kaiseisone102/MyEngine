@@ -73,8 +73,7 @@ class VulkanRenderer {
     RenderTarget& hdrTarget() { return hdrTarget_; }
     const RenderTarget& hdrTarget() const { return hdrTarget_; }
     RenderTarget& bloomTargetA() { return bloomTargetA_; }
-    void setBloomEnabled(bool b) { bloomEnabled_ = b; }
-    bool bloomEnabled() const { return bloomEnabled_; }
+    void setBloomEnabled(bool b) { passChain_.setBloomEnabled(b); }
 
     DebugLineRenderer& debugLines() { return debugLines_; }
     const DebugLineRenderer& debugLines() const { return debugLines_; }
@@ -120,7 +119,6 @@ class VulkanRenderer {
     RenderTarget hdrTarget_;  // Phase 1H
     RenderTarget bloomTargetA_;  // Phase 1I (half-res ping-pong)
     RenderTarget bloomTargetB_;
-    bool bloomEnabled_ = true;
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;

@@ -21,6 +21,8 @@ void PostPass::init(const InitInfo& info) {
     swapchain_ = info.swapchain;
     hdrColorView_ = info.hdrColorView;
     hdrColorSampler_ = info.hdrColorSampler;
+    bloomColorView_ = info.bloomColorView;
+    bloomColorSampler_ = info.bloomColorSampler;
     shaderDir_ = info.shaderDir;
 
     createRenderPass();
@@ -62,12 +64,15 @@ void PostPass::shutdown() {
     hdrColorSampler_ = VK_NULL_HANDLE;
 }
 
-void PostPass::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler) {
+void PostPass::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
+                                  VkImageView bloomColorView, VkSampler bloomColorSampler) {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
     // Update cached HDR resources (may have new view after HDR target recreate)
     if (hdrColorView != VK_NULL_HANDLE) hdrColorView_ = hdrColorView;
     if (hdrColorSampler != VK_NULL_HANDLE) hdrColorSampler_ = hdrColorSampler;
+    if (bloomColorView != VK_NULL_HANDLE) bloomColorView_ = bloomColorView;
+    if (bloomColorSampler != VK_NULL_HANDLE) bloomColorSampler_ = bloomColorSampler;
 
     // Re-record descriptor set with new HDR view
     allocateAndUpdateDescriptorSet();
@@ -121,15 +126,19 @@ void PostPass::createRenderPass() {
 }
 
 void PostPass::createDescriptorSetLayout() {
-    VkDescriptorSetLayoutBinding b{};
-    b.binding = 0;
-    b.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    b.descriptorCount = 1;
-    b.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutBinding b[2]{};
+    b[0].binding = 0;  // hdrColor
+    b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[0].descriptorCount = 1;
+    b[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    b[1].binding = 1;  // bloomColor (Phase 1I)
+    b[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[1].descriptorCount = 1;
+    b[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    ci.bindingCount = 1;
-    ci.pBindings = &b;
+    ci.bindingCount = 2;
+    ci.pBindings = b;
 
     if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &descSetLayout_) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreateDescriptorSetLayout failed");
@@ -138,7 +147,7 @@ void PostPass::createDescriptorSetLayout() {
 void PostPass::createDescriptorPool() {
     VkDescriptorPoolSize sz{};
     sz.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sz.descriptorCount = 1;
+    sz.descriptorCount = 2;  // hdr + bloom
 
     VkDescriptorPoolCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     ci.poolSizeCount = 1;
@@ -165,19 +174,30 @@ void PostPass::allocateAndUpdateDescriptorSet() {
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, &descSet_) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkAllocateDescriptorSets failed");
 
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = hdrColorView_;
-    imageInfo.sampler = hdrColorSampler_;
+    VkDescriptorImageInfo hdrInfo{};
+    hdrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    hdrInfo.imageView = hdrColorView_;
+    hdrInfo.sampler = hdrColorSampler_;
+    VkDescriptorImageInfo bloomInfo{};
+    bloomInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bloomInfo.imageView = bloomColorView_;
+    bloomInfo.sampler = bloomColorSampler_;
 
-    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = descSet_;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &imageInfo;
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = descSet_;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = &hdrInfo;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = descSet_;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].pImageInfo = &bloomInfo;
 
-    vkUpdateDescriptorSets(ctx_->device(), 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(ctx_->device(), 2, writes, 0, nullptr);
 }
 
 void PostPass::createPipelineLayout() {

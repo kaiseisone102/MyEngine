@@ -66,7 +66,14 @@ void VulkanRenderer::recreateSwapchain() {
     // Phase 1H-2: HDR target must be recreated BEFORE MainPass framebuffers (which use its view)
     hdrTarget_.shutdown();
     createHdrTarget();
-    passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler());
+    // Phase 1I: bloom targets follow swapchain size too
+    bloomTargetA_.shutdown();
+    bloomTargetB_.shutdown();
+    createBloomTargets();
+    passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler(),
+                                  bloomTargetA_.view(), bloomTargetA_.sampler(),
+                                  bloomTargetB_.view(), bloomTargetB_.sampler(),
+                                  bloomTargetA_.extent().width, bloomTargetA_.extent().height);
 }
 
 void VulkanRenderer::onResize() {
