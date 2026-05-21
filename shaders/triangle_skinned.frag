@@ -45,9 +45,16 @@ void main() {
     float shadow = 0.0;
     if (proj.x >= 0.0 && proj.x <= 1.0 && proj.y >= 0.0 && proj.y <= 1.0 &&
         proj.z >= 0.0 && proj.z <= 1.0) {
-        float closestDepth = texture(shadowMap, proj.xy).r;
         float currentDepth = proj.z;
-        shadow = (currentDepth - kShadowBias > closestDepth) ? 1.0 : 0.0;
+        // PCF 3x3: average 9 neighboring depth comparisons for soft edges
+        vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+        for (int sx = -1; sx <= 1; ++sx) {
+            for (int sy = -1; sy <= 1; ++sy) {
+                float d = texture(shadowMap, proj.xy + vec2(sx, sy) * texelSize).r;
+                shadow += (currentDepth - kShadowBias > d) ? 1.0 : 0.0;
+            }
+        }
+        shadow /= 9.0;
     }
 
     float litFactor = 1.0 - shadow * ubo.frame.shadowParams.x;
