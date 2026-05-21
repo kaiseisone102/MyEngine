@@ -162,32 +162,44 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
 void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources) {
     ctx_ = ctx;
     const float h = 0.5f;  // half-width in X/Z
-    struct Quad { glm::vec3 normal; glm::vec3 corners[4]; };
-    const Quad quads[2] = {
-        {{0.f, 0.f, 1.f}, {{-h, 0.f, 0.f}, {-h, 1.f, 0.f}, {+h, 1.f, 0.f}, {+h, 0.f, 0.f}}},
-        {{1.f, 0.f, 0.f}, {{0.f, 0.f, -h}, {0.f, 1.f, -h}, {0.f, 1.f, +h}, {0.f, 0.f, +h}}},
+
+    // Two flat quads crossed at 90 deg. Each quad is split into 2 vertical
+    // segments (3 rows) so a future wind shader can bend only the upper part.
+    // The blade SHAPE (multiple thin leaves) comes from the texture, not the mesh.
+    const float rowY[3] = {0.0f, 0.5f, 1.0f};
+    struct Plane { int axis; glm::vec3 normal; };
+    const Plane planes[2] = {
+        {0, {0.f, 0.f, 1.f}},  // width along X
+        {1, {1.f, 0.f, 0.f}},  // width along Z
     };
-    const glm::vec2 uvs[4] = {{0.f, 1.f}, {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}};
+
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
-    vertices.reserve(8);
-    indices.reserve(12);
-    for (const Quad& q : quads) {
-        const uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
-        for (int i = 0; i < 4; ++i) {
-            Vertex v{};
-            v.pos = q.corners[i];
-            v.color = {1.f, 1.f, 1.f};
-            v.texCoord = uvs[i];
-            v.normal = q.normal;
-            vertices.push_back(v);
+    vertices.reserve(2 * 3 * 2);
+    indices.reserve(2 * 2 * 6);
+
+    for (const Plane& pl : planes) {
+        const uint32_t base = static_cast<uint32_t>(vertices.size());
+        for (int r = 0; r < 3; ++r) {
+            for (int s = 0; s < 2; ++s) {
+                const float sign = (s == 0) ? -1.f : +1.f;
+                Vertex v{};
+                if (pl.axis == 0) v.pos = {sign * h, rowY[r], 0.f};
+                else              v.pos = {0.f, rowY[r], sign * h};
+                v.color = {1.f, 1.f, 1.f};
+                v.texCoord = {(s == 0) ? 0.f : 1.f, 1.f - rowY[r]};
+                v.normal = pl.normal;
+                vertices.push_back(v);
+            }
         }
-        indices.push_back(baseIdx + 0);
-        indices.push_back(baseIdx + 1);
-        indices.push_back(baseIdx + 2);
-        indices.push_back(baseIdx + 0);
-        indices.push_back(baseIdx + 2);
-        indices.push_back(baseIdx + 3);
+        for (int r = 0; r < 2; ++r) {
+            const uint32_t a = base + r * 2;
+            const uint32_t b = base + r * 2 + 1;
+            const uint32_t c = base + (r + 1) * 2;
+            const uint32_t d = base + (r + 1) * 2 + 1;
+            indices.push_back(a); indices.push_back(c); indices.push_back(d);
+            indices.push_back(a); indices.push_back(d); indices.push_back(b);
+        }
     }
     indexCount_ = static_cast<uint32_t>(indices.size());
     uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),

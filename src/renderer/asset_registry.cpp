@@ -54,29 +54,62 @@ void AssetRegistry::createDefaultMesh() {
 
 void AssetRegistry::createGrass() {
     grassMesh_.createCrossQuad(ctx_, resources_);
-    const int W = 64, H = 64;
+    const int W = 128, H = 128;
     std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
-    auto blade = [&](float cx, float halfW, float lean) {
-        for (int y = 0; y < H; ++y) {
-            const float t = 1.0f - float(y) / float(H - 1);
-            const float w = halfW * (0.3f + 0.7f * t);
-            const float center = cx + lean * (1.0f - t);
-            for (int x = 0; x < W; ++x) {
-                const float fx = float(x) / float(W - 1);
-                if (std::fabs(fx - center) <= w) {
-                    const size_t i = (static_cast<size_t>(y) * W + x) * 4;
-                    px[i + 0] = static_cast<uint8_t>((0.10f + 0.25f * t) * 255.f);
-                    px[i + 1] = static_cast<uint8_t>((0.30f + 0.45f * t) * 255.f);
-                    px[i + 2] = static_cast<uint8_t>((0.05f + 0.10f * t) * 255.f);
-                    px[i + 3] = 255;
-                }
+
+    auto plot = [&](int x, int y, float r, float g, float b, float a) {
+        if (x < 0 || x >= W || y < 0 || y >= H) return;
+        const size_t i = (static_cast<size_t>(y) * W + x) * 4;
+        if (a * 255.f > px[i + 3]) {
+            px[i + 0] = static_cast<uint8_t>(r * 255.f);
+            px[i + 1] = static_cast<uint8_t>(g * 255.f);
+            px[i + 2] = static_cast<uint8_t>(b * 255.f);
+            px[i + 3] = static_cast<uint8_t>(a * 255.f);
+        }
+    };
+
+    // One curved, tapered leaf. baseX/tipSpread in 0..1 of width; hgt in 0..1.
+    auto leaf = [&](float baseX, float tipSpread, float hgt, float baseW, float hueShift) {
+        const int yTop = static_cast<int>((1.0f - hgt) * H);
+        for (int y = H - 1; y >= yTop; --y) {
+            const float raw = (H - 1 - y) / float(H - 1);
+            const float t = raw / (hgt > 0.01f ? hgt : 1.f);  // 0 root .. 1 tip
+            const float tt = (t < 0.f) ? 0.f : (t > 1.f ? 1.f : t);
+            const float curveX = baseX + tipSpread * (tt * tt);
+            const float w = baseW * (1.0f - tt * 0.92f);
+            const float cxPix = curveX * W;
+            const float wPix = w * W;
+            const float r = (0.10f + 0.28f * tt) + hueShift * 0.10f;
+            const float g = (0.32f + 0.40f * tt);
+            const float b = (0.04f + 0.10f * tt);
+            const int x0 = static_cast<int>(cxPix - wPix);
+            const int x1 = static_cast<int>(cxPix + wPix);
+            for (int x = x0; x <= x1; ++x) {
+                const float d = std::fabs((x + 0.5f) - cxPix) / (wPix + 0.0001f);
+                const float a = (d >= 1.f) ? 0.f : 1.0f;
+                if (a > 0.f) plot(x, y, r, g, b, a);
             }
         }
     };
-    blade(0.30f, 0.05f, 0.06f);
-    blade(0.45f, 0.06f, -0.04f);
-    blade(0.55f, 0.05f, 0.03f);
-    blade(0.70f, 0.05f, -0.05f);
+
+    // A clump of thin leaves fanning out from the base, like a real grass tuft.
+    const float defs[][5] = {
+        {0.50f,  0.00f, 1.00f, 0.018f,  0.0f},
+        {0.49f, -0.12f, 0.95f, 0.016f, -0.3f},
+        {0.51f,  0.12f, 0.96f, 0.016f,  0.2f},
+        {0.48f, -0.24f, 0.86f, 0.015f,  0.4f},
+        {0.52f,  0.24f, 0.88f, 0.015f, -0.2f},
+        {0.47f, -0.34f, 0.74f, 0.014f,  0.1f},
+        {0.53f,  0.34f, 0.76f, 0.014f,  0.3f},
+        {0.50f, -0.06f, 0.90f, 0.015f,  0.5f},
+        {0.50f,  0.06f, 0.92f, 0.015f, -0.4f},
+        {0.46f, -0.42f, 0.62f, 0.013f,  0.0f},
+        {0.54f,  0.42f, 0.64f, 0.013f,  0.2f},
+        {0.49f, -0.18f, 0.82f, 0.014f, -0.1f},
+        {0.51f,  0.18f, 0.84f, 0.014f,  0.4f},
+        {0.50f,  0.00f, 0.70f, 0.012f,  0.3f},
+    };
+    for (const auto& d : defs) leaf(d[0], d[1], d[2], d[3], d[4]);
     grassTexture_.loadFromRawRGBA(ctx_, resources_, px.data(), W, H);
     if (bindless_) {
         const uint32_t idx = bindless_->registerTexture(grassTexture_.view(), grassTexture_.sampler());
