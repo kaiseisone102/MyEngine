@@ -88,6 +88,22 @@ void Texture::buildFromRgbaPixels(const ResourceFactory* resources, const uint8_
     createSampler();
 }
 
+void Texture::loadFromRawRGBA(const VulkanContext* ctx, const ResourceFactory* resources,
+                              const uint8_t* rgba, int width, int height) {
+    ctx_ = ctx;
+    if (!rgba || width <= 0 || height <= 0) {
+        std::cerr << "[Texture] loadFromRawRGBA: invalid args, using checkerboard\n";
+        int texW = 64, texH = 64;
+        std::vector<uint8_t> owned(static_cast<size_t>(texW) * texH * 4);
+        generateCheckerboard(owned.data(), texW, texH);
+        createImageAndView(resources, owned.data(), texW, texH);
+        createSampler();
+        return;
+    }
+    createImageAndView(resources, rgba, width, height);
+    createSampler();
+}
+
 void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
                                  int height) {
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * 4);

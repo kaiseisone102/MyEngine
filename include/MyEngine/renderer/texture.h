@@ -30,6 +30,11 @@ class Texture {
     void loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
                         const uint8_t* encodedData, size_t size);
 
+    // Phase 1F: build a texture directly from raw RGBA8 pixels (procedural).
+    // rgba = width*height*4 bytes, no decoding. Used for generated grass etc.
+    void loadFromRawRGBA(const VulkanContext* ctx, const ResourceFactory* resources,
+                         const uint8_t* rgba, int width, int height);
+
     void destroy();
 
     VkImageView view() const { return view_; }
