@@ -321,42 +321,49 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.screenW = info.screenW;
         mi.screenH = info.screenH;
 
-        // === Phase 1F: frustum-culled instanced cubes ===
+        // === Phase 1F: instanced grass scattered on the ground, frustum-culled ===
         instancePool_.beginFrame(info.frameIndex);
-        static std::vector<InstancedMeshDrawItem> testInstanced;
-        testInstanced.clear();
+        static std::vector<InstancedMeshDrawItem> grassDraw;
+        grassDraw.clear();
 
         Frustum fr;
         fr.extract(info.normalLighting.proj * info.normalLighting.view);
 
+        const Mesh* grassMesh = const_cast<Mesh*>(&info.assets->grassMesh());
         int total = 0, visible = 0;
         {
             InstancedMeshDrawItem item;
-            item.mesh = mesh;  // defaultMesh (cube)
+            item.mesh = grassMesh;
             item.alpha = 1.0f;
-            for (int z = 0; z < 50; ++z) {
-                for (int x = 0; x < 50; ++x) {
+            const int N = 70;          // 70x70 grid
+            const float spacing = 2.0f;
+            const float origin = -(N * spacing) * 0.5f;
+            for (int z = 0; z < N; ++z) {
+                for (int x = 0; x < N; ++x) {
                     ++total;
-                    glm::vec3 pos(float(x) * 4.0f - 100.0f, 5.0f, float(z) * 4.0f - 100.0f);
-                    if (!fr.sphereVisible(pos, 1.74f)) continue;  // frustum cull
+                    // deterministic pseudo-random offset per cell
+                    const uint32_t h = static_cast<uint32_t>(x * 73856093) ^
+                                       static_cast<uint32_t>(z * 19349663);
+                    const float rx = ((h & 0xFF) / 255.0f - 0.5f) * spacing;
+                    const float rz = (((h >> 8) & 0xFF) / 255.0f - 0.5f) * spacing;
+                    const float sc = 0.8f + ((h >> 16) & 0xFF) / 255.0f * 0.8f;  // 0.8..1.6
+                    glm::vec3 pos(origin + x * spacing + rx, 0.0f, origin + z * spacing + rz);
+                    if (!fr.sphereVisible(pos + glm::vec3(0, sc * 0.5f, 0), sc)) continue;
                     ++visible;
                     glm::mat4 m(1.f);
+                    m[0][0] = sc; m[1][1] = sc; m[2][2] = sc;
                     m[3][0] = pos.x; m[3][1] = pos.y; m[3][2] = pos.z;
                     item.instances.push_back(m);
                 }
             }
             if (!item.instances.empty()) {
                 item.instanceOffset = instancePool_.push(info.frameIndex, item.instances);
-                testInstanced.push_back(std::move(item));
+                grassDraw.push_back(std::move(item));
             }
         }
         lastInstancedVisible_ = visible;
         lastInstancedTotal_ = total;
-        static int s_cullFrame = 0;
-        if ((s_cullFrame++ % 120) == 0) {
-            std::cout << "[Culling] " << visible << " / " << total << " cubes visible\n";
-        }
-        mi.instancedMeshDrawListOpaque = &testInstanced;
+        mi.grassDrawList = &grassDraw;
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);
 
 
