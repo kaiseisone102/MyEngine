@@ -8,6 +8,7 @@
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
+#include "shaders/shared/types.h"
 
 #include "core/water.h"  // WaterDrawParams
 
@@ -27,7 +28,7 @@ struct MeshDrawItem {
 struct InstancedMeshDrawItem {
     const Mesh* mesh = nullptr;
     const Material* material = nullptr;
-    std::vector<glm::mat4> instances;
+    std::vector<myengine::shared::InstanceData> instances;
     float alpha = 1.f;
     uint32_t instanceOffset = 0;
 };

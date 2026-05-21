@@ -187,6 +187,21 @@ struct ShadowSkinnedPushConstants {
 #endif
 
 // -----------------------------------------------------------------------------
+// InstanceData: Phase 1F - unified per-instance data for ALL instanced draws
+//   (grass, and future clouds / trees / flowers). Stored in an SSBO indexed by
+//   gl_InstanceIndex. model is always used; color/params are optional per use:
+//     color : rgb tint (multiplied with albedo) + a spare
+//     params: x=kind, y=windInfluence, z=ao, w=reserved
+//   mat4(64) + vec4(16) + vec4(16) = 96 bytes, std430 16-byte aligned.
+//   No BDA inside, so one definition serves both C++ and GLSL.
+// -----------------------------------------------------------------------------
+struct InstanceData {
+    mat4 model;
+    vec4 color;
+    vec4 params;
+};
+
+// -----------------------------------------------------------------------------
 // InstancedPushConstants: Phase 1E - instanced static mesh draw
 //   instanceBuffer (BDA) points to an array of mat4 model matrices.
 //   gl_InstanceIndex selects the row. albedoIdx = bindless texture slot.

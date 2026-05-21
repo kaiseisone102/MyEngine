@@ -93,6 +93,8 @@ class PassChain {
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }
+    void setGrassColorVariation(bool on) { grassColorVariation_ = on; }
+    bool grassColorVariation() const { return grassColorVariation_; }
 
     void processEvent(const SDL_Event& e) { ImGuiLayer::processEvent(e); }
 
@@ -100,6 +102,7 @@ class PassChain {
     ShadowPass shadowPass_;
     MainPass mainPass_;
     InstanceBufferPool instancePool_;  // Phase 1E
+    bool grassColorVariation_ = true;  // Phase 1F: grass color variation toggle
     int lastInstancedVisible_ = 0;  // Phase 1F
     int lastInstancedTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3

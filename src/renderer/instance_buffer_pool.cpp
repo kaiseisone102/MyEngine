@@ -14,7 +14,7 @@
 void InstanceBufferPool::init(VulkanContext* ctx, ResourceFactory* resources) {
     if (!ctx || !resources) throw std::runtime_error("InstanceBufferPool::init: invalid args");
     ctx_ = ctx;
-    bufferSize_ = static_cast<VkDeviceSize>(MAX_INSTANCES) * sizeof(glm::mat4);
+    bufferSize_ = static_cast<VkDeviceSize>(MAX_INSTANCES) * sizeof(myengine::shared::InstanceData);
     createBuffers(resources);
 
     std::cout << "[InstanceBufferPool] init: " << MAX_INSTANCES << " instances, "
@@ -61,11 +61,11 @@ void InstanceBufferPool::beginFrame(uint32_t frameIndex) {
 }
 
 uint32_t InstanceBufferPool::push(uint32_t frameIndex,
-                                  const std::vector<glm::mat4>& matrices) {
+                                  const std::vector<myengine::shared::InstanceData>& data) {
     if (frameIndex >= MAX_FRAMES_IN_FLIGHT) return UINT32_MAX;
-    if (matrices.empty()) return UINT32_MAX;
+    if (data.empty()) return UINT32_MAX;
 
-    const uint32_t count = static_cast<uint32_t>(matrices.size());
+    const uint32_t count = static_cast<uint32_t>(data.size());
     const uint32_t offset = cursor_[frameIndex];
 
     if (offset + count > MAX_INSTANCES) {
@@ -75,8 +75,8 @@ uint32_t InstanceBufferPool::push(uint32_t frameIndex,
     }
 
     uint8_t* dst = static_cast<uint8_t*>(mapped_[frameIndex]) +
-                   static_cast<size_t>(offset) * sizeof(glm::mat4);
-    std::memcpy(dst, matrices.data(), static_cast<size_t>(count) * sizeof(glm::mat4));
+                   static_cast<size_t>(offset) * sizeof(myengine::shared::InstanceData);
+    std::memcpy(dst, data.data(), static_cast<size_t>(count) * sizeof(myengine::shared::InstanceData));
 
     cursor_[frameIndex] = offset + count;
     return offset;

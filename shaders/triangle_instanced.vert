@@ -35,8 +35,8 @@ layout(set = 0, binding = 0) uniform UBO {
 } ubo;
 
 // Per-instance model matrices, accessed via BDA (same style as SkinMatrices).
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InstanceMatrices {
-    mat4 models[];
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InstanceBuffer {
+    InstanceData data[];
 };
 
 // InstancedPushConstants is defined in shared/types.h
@@ -46,8 +46,8 @@ layout(push_constant) uniform PC {
 
 void main() {
     // Cast the 64-bit address to a typed pointer, then index by instance.
-    InstanceMatrices inst = InstanceMatrices(push.instanceBuffer);
-    mat4 model = inst.models[gl_InstanceIndex];
+    InstanceBuffer ib = InstanceBuffer(push.instanceBuffer);
+    mat4 model = ib.data[gl_InstanceIndex].model;
 
     vec4 worldPos = model * vec4(inPosition, 1.0);
     gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;

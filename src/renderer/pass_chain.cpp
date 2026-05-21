@@ -371,7 +371,20 @@ void PassChain::recordFrame(const RecordInfo& info) {
                     m[2][0] = sn * sc;  m[2][2] = cs * sc;
                     m[1][1] = sc;
                     m[3][0] = pos.x; m[3][1] = pos.y; m[3][2] = pos.z;
-                    item.instances.push_back(m);
+
+                    myengine::shared::InstanceData inst{};
+                    inst.model = m;
+                    // green tint variation from hash (toggle wired in G6)
+                    const float cv = ((h >> 12) & 0xFF) / 255.0f;
+                    if (grassColorVariation_) {
+                        inst.color = glm::vec4(0.75f + cv * 0.35f,
+                                               0.90f + cv * 0.20f,
+                                               0.65f + cv * 0.25f, 1.0f);
+                    } else {
+                        inst.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                    }
+                    inst.params = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+                    item.instances.push_back(inst);
                 }
             }
             if (!item.instances.empty()) {

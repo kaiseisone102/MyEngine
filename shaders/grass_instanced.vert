@@ -26,13 +26,15 @@ layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
 layout(location = 6) flat out int fragAlbedoIdx;
+layout(location = 7) out vec4 fragInstColor;
+layout(location = 8) out vec4 fragInstParams;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
 } ubo;
 
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InstanceMatrices {
-    mat4 models[];
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer InstanceBuffer {
+    InstanceData data[];
 };
 
 layout(push_constant) uniform PC {
@@ -40,8 +42,10 @@ layout(push_constant) uniform PC {
 };
 
 void main() {
-    InstanceMatrices inst = InstanceMatrices(push.instanceBuffer);
-    mat4 model = inst.models[gl_InstanceIndex];
+    InstanceBuffer ib = InstanceBuffer(push.instanceBuffer);
+    mat4 model = ib.data[gl_InstanceIndex].model;
+    vec4 instColor = ib.data[gl_InstanceIndex].color;
+    vec4 instParams = ib.data[gl_InstanceIndex].params;
 
     vec4 worldPos = model * vec4(inPosition, 1.0);
     gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
@@ -53,4 +57,6 @@ void main() {
     fragTexCoord = inTexCoord;
     fragAlpha = push.alpha;
     fragAlbedoIdx = push.albedoIdx;
+    fragInstColor = instColor;
+    fragInstParams = instParams;
 }

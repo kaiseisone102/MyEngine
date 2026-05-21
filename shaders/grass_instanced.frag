@@ -19,6 +19,8 @@ layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
 layout(location = 6) flat in int fragAlbedoIdx;
+layout(location = 7) in vec4 fragInstColor;
+layout(location = 8) in vec4 fragInstParams;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -49,5 +51,6 @@ void main() {
     vec3 diffuse = ubo.frame.lightColor.rgb * wrapped;
     vec3 lighting = ambient + diffuse;
 
-    outColor = vec4(albedo.rgb * lighting, 1.0);
+    // Per-instance tint (white = no change; varied = color variation)
+    outColor = vec4(albedo.rgb * lighting * fragInstColor.rgb, 1.0);
 }

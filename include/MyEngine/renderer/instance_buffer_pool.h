@@ -23,6 +23,7 @@ VK_DEFINE_HANDLE(VmaAllocation)
 #include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include "shaders/shared/types.h"
 #include <vector>
 
 #include "frame_sync.h"
@@ -45,7 +46,7 @@ class InstanceBufferPool {
     // Append a block of matrices to the current frame's buffer.
     // Returns the starting instance offset (use as base for gl_InstanceIndex),
     // or UINT32_MAX if the pool is full.
-    uint32_t push(uint32_t frameIndex, const std::vector<glm::mat4>& matrices);
+    uint32_t push(uint32_t frameIndex, const std::vector<myengine::shared::InstanceData>& data);
 
     // BDA: shaders cast this address to a typed pointer.
     VkDeviceAddress bufferAddress(uint32_t frameIndex) const {
