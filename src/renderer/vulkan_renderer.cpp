@@ -110,6 +110,13 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     lighting.jitter = glm::vec4(0.f);
     lighting.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
 
+    // === Phase 1K-2: material SSBO address (BDA) into the frame UBO ===
+    const VkDeviceAddress matAddr = assets_.materialRegistry().bufferAddress();
+    lighting.materialBuffer = glm::uvec4(
+        static_cast<uint32_t>(matAddr & 0xFFFFFFFFu),
+        static_cast<uint32_t>((matAddr >> 32) & 0xFFFFFFFFu),
+        0u, 0u);
+
     frameUniforms_.update(acq.frameIndex, lighting);
 
     passChain_.beginUI();
