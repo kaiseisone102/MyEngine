@@ -70,6 +70,14 @@ void RenderDebugSystem::draw(const DebugOverlayData& d, Corner corner) const {
         if (ratio > 0.85f) col = {1.f, 0.4f, 0.3f, 1.f};
         ImGui::TextColored(col, "Skin : %d / %d", d.skinnedAllocated, d.skinnedCapacity);
     }
+    {
+        // Phase 1F: instanced culling stats
+        const float iratio = d.instancedTotal > 0 ? static_cast<float>(d.instancedVisible) /
+                                                         static_cast<float>(d.instancedTotal)
+                                                  : 0.f;
+        ImVec4 icol = {0.4f, 1.f, 0.6f, 1.f};
+        ImGui::TextColored(icol, "Inst : %d / %d  (%.0f%%)", d.instancedVisible, d.instancedTotal, iratio * 100.f);
+    }
     ImGui::Separator();
 
     ImGui::Text("Pos  : (%.2f, %.2f, %.2f)", d.playerPos.x, d.playerPos.y, d.playerPos.z);

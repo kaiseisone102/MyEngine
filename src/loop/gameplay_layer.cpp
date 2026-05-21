@@ -82,6 +82,8 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
     d.shieldDurability = sh.durability;
     d.skinnedAllocated = static_cast<int>(pool.allocatedCount());
     d.skinnedCapacity = static_cast<int>(SkinBufferPool::MAX_ENTITIES);
+    d.instancedVisible = s.worldState.data.vulkan.instancedVisible();
+    d.instancedTotal = s.worldState.data.vulkan.instancedTotal();
 
     if (s.worldState.data.player.has<CGrip>()) {
         const CGrip& g = s.worldState.data.player.get<CGrip>();

@@ -64,6 +64,10 @@ class VulkanRenderer {
 
     SkinBufferPool& skinBufferPool() { return skinBufferPool_; }
     const SkinBufferPool& skinBufferPool() const { return skinBufferPool_; }
+
+    // Phase 1F: instanced culling stats (relayed from PassChain)
+    int instancedVisible() const { return passChain_.lastInstancedVisible(); }
+    int instancedTotal() const { return passChain_.lastInstancedTotal(); }
     BindlessTextureRegistry& bindlessTextures() { return bindlessTextures_; }
     const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
     RenderTarget& hdrTarget() { return hdrTarget_; }

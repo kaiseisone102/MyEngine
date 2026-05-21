@@ -36,6 +36,9 @@ struct DebugOverlayData {
     // SkinBufferPool
     int skinnedAllocated = 0;
     int skinnedCapacity = 128;
+    // Phase 1F: instanced culling stats
+    int instancedVisible = 0;
+    int instancedTotal = 0;
 
     // ─── キーバインド ───────────────────────────────────────
     std::string moveKeysLabel        = "W/A/S/D";

@@ -85,6 +85,10 @@ class PassChain {
     void beginUI();
     void endUI();
     void recordFrame(const RecordInfo& info);
+
+    // Phase 1F: instanced culling stats (for debug HUD)
+    int lastInstancedVisible() const { return lastInstancedVisible_; }
+    int lastInstancedTotal() const { return lastInstancedTotal_; }
     void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE);  // Phase 1H-2/3
 
     void onReflectionQualityChanged(ReflectionQuality quality);
@@ -96,6 +100,8 @@ class PassChain {
     ShadowPass shadowPass_;
     MainPass mainPass_;
     InstanceBufferPool instancePool_;  // Phase 1E
+    int lastInstancedVisible_ = 0;  // Phase 1F
+    int lastInstancedTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;

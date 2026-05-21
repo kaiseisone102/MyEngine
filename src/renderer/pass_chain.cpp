@@ -350,6 +350,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
                 testInstanced.push_back(std::move(item));
             }
         }
+        lastInstancedVisible_ = visible;
+        lastInstancedTotal_ = total;
         static int s_cullFrame = 0;
         if ((s_cullFrame++ % 120) == 0) {
             std::cout << "[Culling] " << visible << " / " << total << " cubes visible\n";
