@@ -57,6 +57,7 @@ struct GameSettings {
     float drawDistance     = 100.0f;  // m
     ReflectionQuality reflectionQuality = ReflectionQuality::Half;
     bool reflectShadows = false;  // 反射描画でも影を計算するか (重い)
+    bool grassWind = true;        // Phase 1F: grass wind sway (toggle)
     TonemapMode tonemapMode = TonemapMode::ACES;
 
     KeyMapping keyMapping;

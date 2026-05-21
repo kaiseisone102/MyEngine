@@ -37,6 +37,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Reflection Quality", reflectionQualityName(s.reflectionQuality)),
         MenuItem("Reflection: Shadows", s.reflectShadows ? "On" : "Off"),
         MenuItem("Tonemapper", tonemapModeName(s.tonemapMode)),
+        MenuItem("Grass Wind", s.grassWind ? "On" : "Off"),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -53,6 +54,13 @@ void GraphicsSettingsLayer::handleConfirm(int selectedIndex, LayerCommands& cmds
             // Enter でもトグル可能 (左右と同じ動佁E
             auto& s = state_.settings;
             s.reflectShadows = !s.reflectShadows;
+            hasUnsavedChanges_ = true;
+            break;
+        }
+        case kIdxGrassWind: {
+            auto& s = state_.settings;
+            s.grassWind = !s.grassWind;
+            vulkan().setGrassWind(s.grassWind);
             hasUnsavedChanges_ = true;
             break;
         }
@@ -106,6 +114,13 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
             // 左右どちらでもトグル
             (void)direction;
             s.reflectShadows = !s.reflectShadows;
+            changed = true;
+            break;
+        }
+        case kIdxGrassWind: {
+            (void)direction;
+            s.grassWind = !s.grassWind;
+            vulkan().setGrassWind(s.grassWind);
             changed = true;
             break;
         }

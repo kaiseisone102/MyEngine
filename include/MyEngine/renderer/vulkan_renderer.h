@@ -90,6 +90,7 @@ class VulkanRenderer {
 
     // 反射に影を含めるか (反射 shader 内で shadowStrength を 0 にするだけの軽量フラグ)。
     void setReflectShadows(bool b) { reflectShadows_ = b; }
+    void setGrassWind(bool b) { passChain_.setGrassWind(b); }
 
     // パーティクル参照を設定する (Layer の buildScene 内で呼ぶ想定、 nullptr 可)。
     void setCurrentParticles(const std::vector<particle::Particle>* particles) {

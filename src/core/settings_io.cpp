@@ -135,6 +135,7 @@ GameSettings load(const std::string& path) {
             settings.reflectionQuality = static_cast<ReflectionQuality>(qi);
         }
         readBool(doc, "reflectShadows", settings.reflectShadows);
+        readBool(doc, "grassWind", settings.grassWind);
         {
             int ti = static_cast<int>(settings.tonemapMode);
             if (readInt(doc, "tonemapMode", ti)) {
@@ -209,6 +210,8 @@ bool save(const GameSettings& settings, const std::string& path) {
         w.Bool(settings.reflectShadows);
         w.Key("tonemapMode");
         w.Int(static_cast<int>(settings.tonemapMode));
+        w.Key("grassWind");
+        w.Bool(settings.grassWind);
 
         w.Key("keyMapping");
         w.StartObject();

@@ -8,6 +8,7 @@
 // =============================================================================
 #define NOMINMAX
 #include "loop/game_loop_orchestrator.h"
+#include "core/settings_io.h"
 
 #include <SDL3/SDL.h>
 
@@ -58,6 +59,12 @@ void GameLoopOrchestrator::run(GameState& s, ILayerFactory& layerFactory,
                 kb->setMapping(s.settings.keyMapping);
             }
             s.settings.keyMappingDirty = false;
+        }
+
+        // Persist settings to disk when a layer marked them dirty (e.g. Save).
+        if (s.settings.persistDirty) {
+            settings_io::save(s.settings, settings_io::defaultSettingsPath());
+            s.settings.persistDirty = false;
         }
 
         // ─── 3. Apply top layer's MouseCapturePolicy ──
