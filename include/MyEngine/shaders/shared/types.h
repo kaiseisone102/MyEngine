@@ -74,7 +74,7 @@ struct FrameUBO {
 struct StaticPushConstants {
     mat4 model;
     float alpha;
-    float _pad0;
+    uint materialId;  // Phase 1K-2 S4: index into the material SSBO
     float _pad1;
     float _pad2;
 };

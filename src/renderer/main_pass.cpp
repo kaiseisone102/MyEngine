@@ -44,6 +44,7 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
+    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
@@ -67,6 +68,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
+    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
 
@@ -103,6 +105,7 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
+    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         item.terrain->bind(cmd);
