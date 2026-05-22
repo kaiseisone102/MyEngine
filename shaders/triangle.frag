@@ -27,6 +27,11 @@ layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Ma
     GpuMaterial materials[];
 };
 
+// Phase 1K-2 S4-b: same push constant block as triangle.vert (VERTEX|FRAGMENT)
+layout(push_constant) uniform PC {
+    StaticPushConstants push;
+};
+
 layout(location = 0) out vec4 outColor;
 
 const float kShadowBias = 0.0015;

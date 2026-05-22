@@ -45,7 +45,7 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
         pc.model = item.model;
         pc.alpha = item.alpha;
     pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
     }
@@ -69,7 +69,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
         pc.model = item.model;
         pc.alpha = item.alpha;
     pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
 
         for (const SubMesh& sm : curModel->subMeshes()) {
@@ -106,7 +106,7 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         pc.model = item.model;
         pc.alpha = item.alpha;
     pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         item.terrain->bind(cmd);
         vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1, 0, 0, 0);
@@ -257,7 +257,7 @@ void MainPass::createRenderPass() {
 void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                                      VkDescriptorSetLayout materialSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S4-b: frag reads materialId
     pc.offset = 0;
     pc.size = sizeof(StaticPushConstants);
 
