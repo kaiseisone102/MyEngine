@@ -136,7 +136,7 @@ struct SkinnedPushConstants {
     VkDeviceAddress skinBuffer;  // 8  (uint64_t)
     int32_t skinOffset;    // 4
     float alpha;           // 4
-    int32_t _pad0;         // 4
+    uint32_t materialId;   // 4  Phase 1K-2 S5: material SSBO index
     int32_t _pad1;         // 4
     int32_t _pad2;         // 4
     int32_t _pad3;         // 4
@@ -149,7 +149,7 @@ struct SkinnedPushConstants {
     uvec2 skinBuffer;  // 64-bit GPU address as uvec2 (use buffer_reference cast)
     int skinOffset;
     float alpha;
-    int _pad0;
+    uint materialId;   // Phase 1K-2 S5
     int _pad1;
     int _pad2;
     int _pad3;

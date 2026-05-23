@@ -31,8 +31,8 @@ void ReflectionPass::init(const InitInfo& info) {
     quality_ = info.quality;
 
     createRenderPass();
-    createStaticLayout(info.frameSetLayout, info.materialSetLayout);
-    createSkinnedLayout(info.frameSetLayout, info.materialSetLayout);
+    createStaticLayout(info.frameSetLayout, info.bindlessSetLayout);  // S4-c: static uses bindless
+    createSkinnedLayout(info.frameSetLayout, info.bindlessSetLayout);  // S5: set=1 bindless
 
     {
         const std::string vert = "triangle_vert.spv";
@@ -114,13 +114,13 @@ void ReflectionPass::createRenderPass() {
 }
 
 void ReflectionPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
-                                          VkDescriptorSetLayout materialSetLayout) {
+                                          VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S4-c: frag reads materialId
     pc.offset = 0;
     pc.size = sizeof(MainPass::StaticPushConstants);
 
-    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     lci.setLayoutCount = 2;
     lci.pSetLayouts = setLayouts;
@@ -132,13 +132,13 @@ void ReflectionPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
 }
 
 void ReflectionPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                                              VkDescriptorSetLayout materialSetLayout) {
+                                              VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S5: frag reads materialId
     pc.offset = 0;
     pc.size = sizeof(MainPass::SkinnedPushConstants);
 
-    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     lci.setLayoutCount = 2;
     lci.pSetLayouts = setLayouts;
@@ -301,21 +301,13 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
                   const Mesh* mesh, const std::vector<MeshDrawItem>& list) {
     if (!mesh || list.empty()) return;
     mesh->bind(cmd);
-    VkDescriptorSet lastMatSet = VK_NULL_HANDLE;
     for (const MeshDrawItem& item : list) {
-        VkDescriptorSet matSet = defaultMatSet;
-        if (item.material && item.material->descriptorSet() != VK_NULL_HANDLE) {
-            matSet = item.material->descriptorSet();
-        }
-        if (matSet != lastMatSet) {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
-                                     0, nullptr);
-            lastMatSet = matSet;
-        }
+        // S4-c: set=1 is the bindless array (bound in execute); no per-material bind
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        pc.materialId = 0;  // reflection uses default for now
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(MainPass::StaticPushConstants), &pc);
         vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
     }
@@ -337,18 +329,13 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescrip
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        pc.materialId = 0;  // reflection uses default for now
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(MainPass::StaticPushConstants), &pc);
 
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
-            VkDescriptorSet matSet = defaultMatSet;
-            if (curMaterials && sm.materialIndex < curMaterials->size()) {
-                VkDescriptorSet ms = (*curMaterials)[sm.materialIndex].descriptorSet();
-                if (ms != VK_NULL_HANDLE) matSet = ms;
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
-                                     0, nullptr);
+            // S4-c: no per-material bind; set=1 is the bindless array
             sm.bind(cmd);
             vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
         }
@@ -358,22 +345,14 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescrip
 void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
                       const std::vector<TerrainDrawItem>& list) {
     if (list.empty()) return;
-    VkDescriptorSet lastMatSet = VK_NULL_HANDLE;
     for (const TerrainDrawItem& item : list) {
         if (!item.terrain) continue;
-        VkDescriptorSet matSet = defaultMatSet;
-        if (item.material && item.material->descriptorSet() != VK_NULL_HANDLE) {
-            matSet = item.material->descriptorSet();
-        }
-        if (matSet != lastMatSet) {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
-                                     0, nullptr);
-            lastMatSet = matSet;
-        }
+        // S4-c: no per-material bind; set=1 is the bindless array
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        pc.materialId = 0;  // reflection uses default for now
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(MainPass::StaticPushConstants), &pc);
         item.terrain->bind(cmd);
         vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1, 0, 0, 0);
@@ -399,18 +378,13 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         pc.skinOffset = item.skinOffset;
         pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        pc.materialId = 0;  // S5: default for now
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(MainPass::SkinnedPushConstants), &pc);
 
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
-            VkDescriptorSet matSet = defaultMatSet;
-            if (sm.materialIndex < curMaterials->size()) {
-                VkDescriptorSet ms = (*curMaterials)[sm.materialIndex].descriptorSet();
-                if (ms != VK_NULL_HANDLE) matSet = ms;
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &matSet,
-                                     0, nullptr);
+            // S5: no per-material bind; set=1 is the bindless array
             sm.bind(cmd);
             vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
         }
@@ -457,6 +431,9 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
                                 &info.frameSet, 0, nullptr);
+        // S4-c: set=1 bindless texture array
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 1, 1,
+                                &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && info.meshDrawListOpaque) {
             drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh,
@@ -479,6 +456,9 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
                                 &info.frameSet, 0, nullptr);
+        // S5: set=1 bindless texture array
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
+                                &info.bindlessSet, 0, nullptr);
         drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *info.modelDrawListOpaque);
     }
 

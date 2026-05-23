@@ -3,6 +3,10 @@
 // =============================================================================
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
 
 layout(location = 0) in vec3 fragColor;
@@ -17,7 +21,17 @@ layout(set = 0, binding = 0) uniform UBO {
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2D shadowMap;
-layout(set = 1, binding = 0) uniform sampler2D texSampler;
+layout(set = 1, binding = 0) uniform sampler2D bindlessTextures[];
+
+// Phase 1K-2 S5: unified material SSBO (BDA), read-only
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
+
+// same push constant block as triangle_skinned.vert (VERTEX|FRAGMENT)
+layout(push_constant) uniform PC {
+    SkinnedPushConstants push;
+};
 
 layout(location = 0) out vec4 outColor;
 
@@ -47,15 +61,21 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 void main() {
-    vec4 baseColor = texture(texSampler, fragTexCoord) * vec4(fragColor, 1.0);
+    // Phase 1K-2 S5: fetch material from the SSBO by id
+    MaterialBuffer matBuf = MaterialBuffer(ubo.frame.materialBuffer.xy);
+    GpuMaterial m = matBuf.materials[push.materialId];
+    vec4 texel = (m.albedoIdx >= 0)
+        ? texture(bindlessTextures[nonuniformEXT(m.albedoIdx)], fragTexCoord)
+        : m.baseColorFactor;
+    vec4 baseColor = texel * vec4(fragColor, 1.0);
 
     vec3 N = normalize(fragNormal);
     vec3 V = normalize(ubo.frame.viewPos.xyz - fragWorldPos);
     vec3 L = normalize(-ubo.frame.lightDir.xyz);
     vec3 H = normalize(V + L);
 
-    float metallic = 0.0;
-    float roughness = 0.5;
+    float metallic = m.metallic;
+    float roughness = m.roughness;
     vec3 albedo = baseColor.rgb;
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);

@@ -157,6 +157,7 @@ void PassChain::init(const InitInfo& info) {
         ri.quality = info.reflectionQuality;
         ri.frameSetLayout = info.frameUniforms->layout();
         ri.materialSetLayout = info.assets->materialSetLayout();
+        ri.bindlessSetLayout = info.bindlessSetLayout;  // S4-c
         ri.shaderDir = info.shaderDir;
         reflectionPass_.init(ri);
     }
@@ -306,6 +307,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ri.cmd = info.cmd;
         ri.frameSet = reflFrameSet;
         ri.defaultMaterialSet = defaultMaterialSet;
+        ri.bindlessSet = info.bindlessSet;  // S4-c: bindless texture array
         ri.skinAddress = info.skinAddress;
         ri.mesh = mesh;
         ri.meshDrawListOpaque = &meshOpaque;
