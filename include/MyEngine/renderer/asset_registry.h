@@ -79,6 +79,7 @@ class AssetRegistry {
     // that don't build a full world. Owned here like defaultMesh/grassMesh.
     const TerrainMesh& sharedFlatTerrain() const { return sharedFlatTerrain_; }
     const Texture& grassTexture() const { return grassTexture_; }
+    const Material& grassMaterial() const { return grassMaterial_; }  // S6-b
     VkDescriptorPool materialPool() const { return materialPool_; }
     VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
     // Phase 1K-2: unified PBR material storage (SSBO + BDA)
@@ -100,6 +101,7 @@ class AssetRegistry {
     Mesh grassMesh_;          // Phase 1F
     TerrainMesh sharedFlatTerrain_;  // shared flat ground for menu-like scenes
     Texture grassTexture_;
+    Material grassMaterial_;  // S6-b: grass blade GpuMaterial (bindless albedo)
 
     // ─── 段階G-1 ────────────────────────────────────────────
     std::unordered_map<std::string, std::unique_ptr<Model>> models_;
@@ -119,6 +121,7 @@ class AssetRegistry {
 
     void createDefaultMesh();
     void createGrass();  // Phase 1F: procedural grass texture + cross-quad mesh
+    void createGrassMaterial();  // S6-b: register grass blade GpuMaterial in the SSBO
     void createSharedFlatTerrain();  // flat grass terrain for lightweight scenes
     void createDefaultTexture();
     void createMaterialDescriptorPool();

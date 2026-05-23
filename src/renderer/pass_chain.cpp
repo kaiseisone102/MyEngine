@@ -383,6 +383,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         {
             InstancedMeshDrawItem item;
             item.mesh = grassMesh;
+            item.material = &info.assets->grassMaterial();  // S6-b: unified material path
             item.alpha = 1.0f;
             const int N = 110;         // denser, wider
             const float spacing = 1.2f;

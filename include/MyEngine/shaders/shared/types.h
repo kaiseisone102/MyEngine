@@ -232,23 +232,23 @@ struct GpuMaterial {
 // -----------------------------------------------------------------------------
 // InstancedPushConstants: Phase 1E - instanced static mesh draw
 //   instanceBuffer (BDA) points to an array of mat4 model matrices.
-//   gl_InstanceIndex selects the row. albedoIdx = bindless texture slot.
+//   gl_InstanceIndex selects the row. materialId = slot in the material SSBO.
 //
 //   offset  0 : uint64 instanceBuffer (GPU ptr)  ( 8 bytes)
-//   offset  8 : int    albedoIdx                 ( 4 bytes)
+//   offset  8 : uint   materialId                ( 4 bytes)
 //   offset 12 : float  alpha                     ( 4 bytes)
 //   total = 16 bytes
 // -----------------------------------------------------------------------------
 #ifdef __cplusplus
 struct InstancedPushConstants {
     VkDeviceAddress instanceBuffer;  // 8
-    int32_t albedoIdx;               // 4
+    uint32_t materialId;             // 4
     float alpha;                     // 4
 };
 #else
 struct InstancedPushConstants {
     uvec2 instanceBuffer;  // 64-bit GPU address (buffer_reference cast)
-    int albedoIdx;
+    uint materialId;
     float alpha;
 };
 #endif

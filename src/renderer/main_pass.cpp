@@ -242,7 +242,7 @@ void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
 void MainPass::createGrassLayout(VkDescriptorSetLayout frameSetLayout,
                                  VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pc.offset = 0;
     pc.size = sizeof(InstancedPushConstants);
 
@@ -488,9 +488,10 @@ void MainPass::execute(const ExecuteInfo& info) {
             item.mesh->bind(info.cmd);
             InstancedPushConstants pc{};
             pc.instanceBuffer = info.instanceBufferAddress;
-            pc.albedoIdx = item.material ? 0 : 0;  // grass texture bindless idx (0)
+            pc.materialId = item.material ? item.material->materialId() : 0u;  // S6-b: unified material path
             pc.alpha = item.alpha;
-            vkCmdPushConstants(info.cmd, grassLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            vkCmdPushConstants(info.cmd, grassLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(InstancedPushConstants), &pc);
             const uint32_t count = static_cast<uint32_t>(item.instances.size());
             vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, 0, 0, item.instanceOffset);

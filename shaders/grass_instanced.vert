@@ -1,17 +1,16 @@
 // =============================================================================
-// grass_instanced.vert - Phase 1F: instanced grass (cross-quad) via BDA SSBO
+// grass_instanced.vert - Phase 1F / S6-b: instanced grass (cross-quad) via BDA
 // =============================================================================
-// Same as triangle_instanced.vert (per-instance model matrix from a buffer_
-// reference SSBO indexed by gl_InstanceIndex), but also forwards the bindless
-// albedo texture index to the fragment shader so the grass texture can be
-// sampled from the bindless array.
+// Per-instance model matrix from a buffer_reference SSBO indexed by
+// gl_InstanceIndex. S6-b: the bindless albedo index is no longer forwarded;
+// the fragment shader resolves the texture itself via push.materialId through
+// the material SSBO, like every other draw path.
 // =============================================================================
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference_uvec2 : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-
 #include "shared/types.h"
 
 layout(location = 0) in vec3 inPosition;
@@ -25,7 +24,6 @@ layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
-layout(location = 6) flat out int fragAlbedoIdx;
 layout(location = 7) out vec4 fragInstColor;
 layout(location = 8) out vec4 fragInstParams;
 
@@ -48,7 +46,6 @@ void main() {
     vec4 instParams = ib.data[gl_InstanceIndex].params;
 
     vec4 worldPos = model * vec4(inPosition, 1.0);
-
     // Wind sway: tip bends more than the root, phase varies by world pos.
     // instParams.y = wind enable (0 = off, skips the whole calc).
     if (instParams.y > 0.5) {
@@ -60,14 +57,12 @@ void main() {
     }
 
     gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
-
     fragWorldPos = vec3(worldPos);
     fragLightPos = ubo.frame.lightVP * worldPos;
     fragNormal = normalize(mat3(model) * inNormal);
     fragColor = inColor;
     fragTexCoord = inTexCoord;
     fragAlpha = push.alpha;
-    fragAlbedoIdx = push.albedoIdx;
     fragInstColor = instColor;
     fragInstParams = instParams;
 }

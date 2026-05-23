@@ -30,6 +30,7 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
     createDefaultMaterial();
     // Phase 1K-2: unified PBR material registry (SSBO + BDA)
     materialRegistry_.init(ctx, resources);
+    createGrassMaterial();  // S6-b: needs registry init + grass bindless idx (createGrass ran above)
 
     // ─── Phase 3 段階: ステージ用テクスチャ/マテリアルを初期登録 ───
     // パスに拡張子を含めない: registerTexture が .png / .jpg / .jpeg / .bmp / .tga を
@@ -137,6 +138,28 @@ void AssetRegistry::createGrass() {
         std::cout << "grass texture bindless idx = " << idx << "\n";
         }
     }
+}
+
+void AssetRegistry::createGrassMaterial() {
+    // S6-b: grass joins the unified materialId+bindless path. The grass blade
+    // texture is already in the bindless array (createGrass), so register a
+    // GpuMaterial whose albedoIdx points at it and keep the returned id on
+    // grassMaterial_. No Material::init / descriptor set: grass draws via the
+    // bindless set (set=1), like static/skinned. MaterialRegistry::upload()
+    // (already wired per-frame) pushes it to the GPU.
+    myengine::shared::GpuMaterial gm{};
+    gm.baseColorFactor = glm::vec4(1.0f);
+    gm.metallic = 0.0f;
+    gm.roughness = 0.8f;
+    gm.emissiveStrength = 0.0f;
+    gm.albedoIdx = (grassTexture_.bindlessIndex() != UINT32_MAX)
+        ? static_cast<int>(grassTexture_.bindlessIndex()) : -1;
+    gm.normalIdx = -1; gm.mrIdx = -1; gm.aoIdx = -1; gm.emissiveIdx = -1;
+    const uint32_t matId = materialRegistry_.add("grass_blade", gm);
+    grassMaterial_.setBindlessIndex(grassTexture_.bindlessIndex());
+    grassMaterial_.setMaterialId(matId);
+    std::cout << "[AssetRegistry] grass_blade material id = " << matId
+              << " (albedoIdx=" << gm.albedoIdx << ")\n";
 }
 
 
