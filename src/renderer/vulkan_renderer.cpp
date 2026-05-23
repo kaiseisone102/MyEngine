@@ -25,7 +25,7 @@ void VulkanRenderer::init(SDL_Window* window) {
     resources_.init(&ctx_);
     swapchain_.init(&ctx_, &resources_, window, ctx_.findDepthFormat());
 
-    frameSync_.init(&ctx_);
+    frameSync_.init(&ctx_, swapchain_.imageCount());
 
     // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
     bindlessTextures_.init(&ctx_);

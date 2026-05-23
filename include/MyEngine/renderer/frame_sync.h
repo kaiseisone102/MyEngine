@@ -12,6 +12,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <vector>
 #include <cstdint>
 
 class VulkanContext;
@@ -30,7 +31,7 @@ class FrameSync {
         uint32_t frameIndex;      // 0..MAX_FRAMES_IN_FLIGHT-1
     };
 
-    void init(VulkanContext* ctx);
+    void init(VulkanContext* ctx, uint32_t swapchainImageCount);
     void shutdown();
 
     // fence 待ち -> vkAcquireNextImageKHR -> fence reset -> vkResetCommandBuffer。
@@ -58,11 +59,14 @@ class FrameSync {
 
     std::array<VkCommandBuffer, MAX_FRAMES_IN_FLIGHT> commandBuffers_{};
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> imageAvailableSemaphores_{};
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores_{};
+    // Per-SWAPCHAIN-IMAGE (not per-frame): a present-wait semaphore signaled by
+    // submit must not be reused until that image is re-acquired. Indexed by the
+    // acquired image index. See Vulkan-Guide swapchain_semaphore_reuse.
+    std::vector<VkSemaphore> renderFinishedSemaphores_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> inFlightFences_{};
     uint32_t currentFrame_ = 0;
 
     void createCommandPool();
     void createCommandBuffers();
-    void createSyncObjects();
+    void createSyncObjects(uint32_t swapchainImageCount);
 };

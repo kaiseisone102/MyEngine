@@ -28,11 +28,11 @@
 // init / shutdown
 // =============================================================================
 
-void FrameSync::init(VulkanContext* ctx) {
+void FrameSync::init(VulkanContext* ctx, uint32_t swapchainImageCount) {
     ctx_ = ctx;
     createCommandPool();
     createCommandBuffers();
-    createSyncObjects();
+    createSyncObjects(swapchainImageCount);
 }
 
 void FrameSync::shutdown() {
@@ -43,15 +43,19 @@ void FrameSync::shutdown() {
             vkDestroyFence(ctx_->device(), inFlightFences_[i], nullptr);
             inFlightFences_[i] = VK_NULL_HANDLE;
         }
-        if (renderFinishedSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx_->device(), renderFinishedSemaphores_[i], nullptr);
-            renderFinishedSemaphores_[i] = VK_NULL_HANDLE;
-        }
         if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
             vkDestroySemaphore(ctx_->device(), imageAvailableSemaphores_[i], nullptr);
             imageAvailableSemaphores_[i] = VK_NULL_HANDLE;
         }
     }
+    // Per-image present-wait semaphores (sized to swapchain image count).
+    for (VkSemaphore& s : renderFinishedSemaphores_) {
+        if (s != VK_NULL_HANDLE) {
+            vkDestroySemaphore(ctx_->device(), s, nullptr);
+            s = VK_NULL_HANDLE;
+        }
+    }
+    renderFinishedSemaphores_.clear();
 
     if (commandPool_ != VK_NULL_HANDLE) {
         // commandBuffers はプール破棄で一緒に解放される
@@ -96,18 +100,27 @@ void FrameSync::createCommandBuffers() {
 // createSyncObjects
 // =============================================================================
 
-void FrameSync::createSyncObjects() {
+void FrameSync::createSyncObjects(uint32_t swapchainImageCount) {
     VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;  // 最初の fence wait が即通過するように
 
+    // image-available semaphore and the in-flight fence are per-frame.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &imageAvailableSemaphores_[i]) !=
                 VK_SUCCESS ||
-            vkCreateSemaphore(ctx_->device(), &si, nullptr, &renderFinishedSemaphores_[i]) !=
-                VK_SUCCESS ||
             vkCreateFence(ctx_->device(), &fi, nullptr, &inFlightFences_[i]) != VK_SUCCESS) {
             throw std::runtime_error("FrameSync: sync object creation failed");
+        }
+    }
+
+    // render-finished (present-wait) semaphore is PER SWAPCHAIN IMAGE: it must not
+    // be reused until its image is re-acquired (Vulkan-Guide swapchain_semaphore_reuse).
+    renderFinishedSemaphores_.resize(swapchainImageCount, VK_NULL_HANDLE);
+    for (uint32_t i = 0; i < swapchainImageCount; ++i) {
+        if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &renderFinishedSemaphores_[i]) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("FrameSync: render-finished semaphore creation failed");
         }
     }
 }
@@ -157,7 +170,10 @@ bool FrameSync::submitAndPresent(VkSwapchainKHR swapchain, uint32_t imageIndex) 
     // ─── Submit: imageAvailable を待ち、 renderFinished を signal、 fence で完了通知 ───
     VkSemaphore waitSems[] = {imageAvailableSemaphores_[currentFrame_]};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    VkSemaphore signalSems[] = {renderFinishedSemaphores_[currentFrame_]};
+    // Index by the ACQUIRED IMAGE, not the in-flight frame, so a present-wait
+    // semaphore is never reused while a previous present of the same image
+    // is still pending.
+    VkSemaphore signalSems[] = {renderFinishedSemaphores_[imageIndex]};
 
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.waitSemaphoreCount = 1;
