@@ -165,6 +165,10 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     // Layer が遷移したり Title 画面のように setter を呼ばない場合に
     // 古い (もう無効な) ポインタを使わないための安全策。
     currentParticles_ = nullptr;
+    // Clear the HUD at the frame boundary so each layer only has to ADD its own
+    // shapes (a layer that draws no HUD, like the title, then shows nothing
+    // instead of leaking the previous layer's bars).
+    hud_.clear();
 
     if (frameSync_.submitAndPresent(swapchain_.handle(), acq.imageIndex)) {
         recreateSwapchain();

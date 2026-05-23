@@ -3,7 +3,7 @@
 // + Phase 1C: buildScene populates SceneData directly
 //   - LightingUBO is built here and passed to vulkan().setLighting()
 //   - knight model -> modelDrawListOpaque (SkinnedDrawItem)
-//   - floor cube   -> meshDrawListOpaque  (MeshDrawItem)
+//   - ground       -> terrainDrawListOpaque (shared flat grass terrain)
 // =============================================================================
 #define NOMINMAX
 #include "loop/title_layer.h"
