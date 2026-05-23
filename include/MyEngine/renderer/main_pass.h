@@ -39,7 +39,6 @@ class MainPass {
         VulkanContext* ctx = nullptr;
         Swapchain* swapchain = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
         // === Phase 1H-2: HDR render target attachment ===
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;

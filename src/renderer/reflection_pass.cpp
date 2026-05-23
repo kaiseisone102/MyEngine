@@ -21,7 +21,7 @@ void ReflectionPass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources) {
         throw std::runtime_error("ReflectionPass::init: invalid info");
     }
-    if (info.frameSetLayout == VK_NULL_HANDLE || info.materialSetLayout == VK_NULL_HANDLE) {
+    if (info.frameSetLayout == VK_NULL_HANDLE || info.bindlessSetLayout == VK_NULL_HANDLE) {
         throw std::runtime_error("ReflectionPass::init: layouts missing");
     }
     ctx_ = info.ctx;

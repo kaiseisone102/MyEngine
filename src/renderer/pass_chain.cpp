@@ -61,7 +61,6 @@ void PassChain::init(const InitInfo& info) {
         mi.ctx = info.ctx;
         mi.swapchain = info.swapchain;
         mi.frameSetLayout = info.frameUniforms->layout();
-        mi.materialSetLayout = info.assets->materialSetLayout();
         mi.bindlessSetLayout = info.bindlessSetLayout;
         mi.hdrColorView = info.hdrColorView;  // Phase 1H-2
         mi.hdrColorFormat = info.hdrColorFormat;
@@ -156,7 +155,6 @@ void PassChain::init(const InitInfo& info) {
         ri.depthFormat = info.swapchain->depthFormat();
         ri.quality = info.reflectionQuality;
         ri.frameSetLayout = info.frameUniforms->layout();
-        ri.materialSetLayout = info.assets->materialSetLayout();
         ri.bindlessSetLayout = info.bindlessSetLayout;  // S4-c
         ri.shaderDir = info.shaderDir;
         reflectionPass_.init(ri);

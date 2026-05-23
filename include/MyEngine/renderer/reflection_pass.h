@@ -23,7 +23,6 @@ class ReflectionPass {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;  // S4-c: for static bindless
         uint32_t baseWidth = 1280;
         uint32_t baseHeight = 720;
