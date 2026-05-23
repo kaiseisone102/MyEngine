@@ -139,9 +139,9 @@ class MainPass {
 
     void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
-                             VkDescriptorSetLayout materialSetLayout);
+                             VkDescriptorSetLayout bindlessSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
-                              VkDescriptorSetLayout materialSetLayout);
+                              VkDescriptorSetLayout bindlessSetLayout);
     void createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
                               VkDescriptorSetLayout bindlessSetLayout);
     void createGrassLayout(VkDescriptorSetLayout frameSetLayout, VkDescriptorSetLayout bindlessSetLayout);

@@ -222,13 +222,14 @@ void MainPass::createRenderPass() {
 }
 
 void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
-                                     VkDescriptorSetLayout materialSetLayout) {
+                                     VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S4-b: frag reads materialId
     pc.offset = 0;
     pc.size = sizeof(StaticPushConstants);
 
-    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, materialSetLayout};
+    // S6-c: set=1 is the bindless texture array (call site already passes bindlessSetLayout)
+    VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     lci.setLayoutCount = 2;
     lci.pSetLayouts = setLayouts;
