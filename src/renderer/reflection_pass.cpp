@@ -297,7 +297,7 @@ void ReflectionPass::destroyTargetAndFramebuffer() {
 
 namespace {
 
-void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout,
                   const Mesh* mesh, const std::vector<MeshDrawItem>& list) {
     if (!mesh || list.empty()) return;
     mesh->bind(cmd);
@@ -313,7 +313,7 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
     }
 }
 
-void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
                           const std::vector<StaticModelDrawItem>& list) {
     if (list.empty()) return;
     const Model* curModel = nullptr;
@@ -342,7 +342,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescrip
     }
 }
 
-void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout,
                       const std::vector<TerrainDrawItem>& list) {
     if (list.empty()) return;
     for (const TerrainDrawItem& item : list) {
@@ -359,7 +359,7 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
     }
 }
 
-void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
                          VkDeviceAddress skinAddress,
                          const std::vector<SkinnedDrawItem>& list) {
     if (list.empty()) return;
@@ -399,7 +399,6 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
     if (quality_ == ReflectionQuality::Off) return;
     if (framebuffer_ == VK_NULL_HANDLE) return;
     if (info.cmd == VK_NULL_HANDLE || info.frameSet == VK_NULL_HANDLE) return;
-    if (info.defaultMaterialSet == VK_NULL_HANDLE) return;
 
     const VkExtent2D extent = target_.extent();
 
@@ -438,15 +437,15 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
                                 &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && info.meshDrawListOpaque) {
-            drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh,
+            drawMeshList(info.cmd, staticLayout_, info.mesh,
                          *info.meshDrawListOpaque);
         }
         if (info.staticModelDrawListOpaque) {
-            drawStaticModelList(info.cmd, staticLayout_, info.defaultMaterialSet,
+            drawStaticModelList(info.cmd, staticLayout_,
                                  *info.staticModelDrawListOpaque);
         }
         if (info.terrainDrawListOpaque) {
-            drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet,
+            drawTerrainList(info.cmd, staticLayout_,
                             *info.terrainDrawListOpaque);
         }
     }
@@ -461,7 +460,7 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
                                 &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *info.modelDrawListOpaque);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.skinAddress, *info.modelDrawListOpaque);
     }
 
     vkCmdEndRenderPass(info.cmd);

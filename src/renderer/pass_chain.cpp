@@ -257,7 +257,6 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
     const VkDescriptorSet frameSet = info.frameUniforms->descriptorSet(info.frameIndex);
     Mesh* mesh = const_cast<Mesh*>(&info.assets->defaultMesh());
-    const VkDescriptorSet defaultMaterialSet = info.assets->defaultMaterial().descriptorSet();
 
     const auto& meshOpaque         = info.scene->meshDrawListOpaque();
     const auto& modelOpaque        = info.scene->modelDrawListOpaque();
@@ -307,7 +306,6 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ReflectionPass::ExecuteInfo ri{};
         ri.cmd = info.cmd;
         ri.frameSet = reflFrameSet;
-        ri.defaultMaterialSet = defaultMaterialSet;
         ri.bindlessSet = info.bindlessSet;  // S4-c: bindless texture array
         ri.skinAddress = info.skinAddress;
         ri.mesh = mesh;
@@ -328,7 +326,6 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.imageIndex = info.imageIndex;
         mi.frameIndex = info.frameIndex;
         mi.frameSet = frameSet;
-        mi.defaultMaterialSet = defaultMaterialSet;
         mi.skinAddress = info.skinAddress;
         mi.bindlessSet = info.bindlessSet;
         mi.mesh = mesh;

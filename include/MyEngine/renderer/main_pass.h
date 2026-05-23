@@ -53,7 +53,6 @@ class MainPass {
         uint32_t imageIndex = 0;
         uint32_t frameIndex = 0;
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
-        VkDescriptorSet defaultMaterialSet = VK_NULL_HANDLE;
         // Phase 1D: bindless texture array descriptor set
         VkDescriptorSet bindlessSet = VK_NULL_HANDLE;
         bool drawBindlessTestCube = false;  // Step 1D-2c: test cube switch

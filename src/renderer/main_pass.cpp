@@ -26,7 +26,7 @@
 
 namespace {
 
-void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout,
                     const Mesh* mesh, const std::vector<MeshDrawItem>& list) {
     if (!mesh || list.empty()) return;
     mesh->bind(cmd);
@@ -43,7 +43,6 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
 }
 
 void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                            VkDescriptorSet defaultMatSet,
                             const std::vector<StaticModelDrawItem>& list) {
     if (list.empty()) return;
     const Model* curModel = nullptr;
@@ -74,7 +73,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
     }
 }
 
-void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout,
                        const std::vector<TerrainDrawItem>& list) {
     if (list.empty()) return;
     for (const TerrainDrawItem& item : list) {
@@ -91,7 +90,7 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
     }
 }
 
-void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet defaultMatSet,
+void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
                           VkDeviceAddress skinAddress,
                           const std::vector<SkinnedDrawItem>& list) {
     if (list.empty()) return;
@@ -420,8 +419,6 @@ void MainPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("MainPass::execute: invalid cmd");
     if (framebuffers_.empty())
         throw std::runtime_error("MainPass::execute: framebuffers not created");
-    if (info.defaultMaterialSet == VK_NULL_HANDLE)
-        throw std::runtime_error("MainPass::execute: defaultMaterialSet missing");
 
     const VkExtent2D extent = swapchain_->extent();
 
@@ -466,11 +463,11 @@ void MainPass::execute(const ExecuteInfo& info) {
                                   &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && meshOp)
-            drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh, *meshOp);
+            drawMeshList(info.cmd, staticLayout_, info.mesh, *meshOp);
         if (staticOp)
-            drawStaticModelList(info.cmd, staticLayout_, info.defaultMaterialSet, *staticOp);
+            drawStaticModelList(info.cmd, staticLayout_, *staticOp);
         if (terrainOp)
-            drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet, *terrainOp);
+            drawTerrainList(info.cmd, staticLayout_, *terrainOp);
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===
@@ -508,7 +505,7 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *modelOp);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.skinAddress, *modelOp);
     }
 
     // ============================================================
@@ -553,11 +550,11 @@ void MainPass::execute(const ExecuteInfo& info) {
                                   &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && meshTr)
-            drawMeshList(info.cmd, staticLayout_, info.defaultMaterialSet, info.mesh, *meshTr);
+            drawMeshList(info.cmd, staticLayout_, info.mesh, *meshTr);
         if (staticTr)
-            drawStaticModelList(info.cmd, staticLayout_, info.defaultMaterialSet, *staticTr);
+            drawStaticModelList(info.cmd, staticLayout_, *staticTr);
         if (terrainTr)
-            drawTerrainList(info.cmd, staticLayout_, info.defaultMaterialSet, *terrainTr);
+            drawTerrainList(info.cmd, staticLayout_, *terrainTr);
     }
 
     if (modelTr && !modelTr->empty()) {
@@ -569,7 +566,7 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_, info.defaultMaterialSet, info.skinAddress, *modelTr);
+        drawSkinnedList(info.cmd, skinnedLayout_, info.skinAddress, *modelTr);
     }
 
     // ============================================================

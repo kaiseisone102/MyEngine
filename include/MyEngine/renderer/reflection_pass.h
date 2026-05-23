@@ -37,7 +37,6 @@ class ReflectionPass {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         // 反射用 frameSet (= 反射 view matrix の UBO)
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
-        VkDescriptorSet defaultMaterialSet = VK_NULL_HANDLE;
         VkDescriptorSet bindlessSet = VK_NULL_HANDLE;  // S4-c: bindless texture array for static
         // Phase 1B-4b: BDA address for skin matrices
         VkDeviceAddress skinAddress = 0;
