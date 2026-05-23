@@ -124,7 +124,11 @@ class VulkanRenderer {
     // === Phase 1D: bindless texture system ===
     BindlessTextureRegistry bindlessTextures_;
     void createHdrTarget();  // Phase 1H-1
-    void createBloomTargets();  // Phase 1I
+    void createBloomTargets();
+    // Destroy all swapchain-sized render targets (HDR + bloom) in one place, so
+    // recreateSwapchain() and shutdown() can't drift out of sync (a target added
+    // here is freed by both paths).
+    void destroyRenderTargets();  // Phase 1I
     RenderTarget hdrTarget_;  // Phase 1H
     RenderTarget bloomTargetA_;  // Phase 1I (half-res ping-pong)
     RenderTarget bloomTargetB_;

@@ -188,6 +188,7 @@ void PassChain::shutdown() {
     particlePass_.shutdown();
     debugLinePass_.shutdown();
     postPass_.shutdown();  // Phase 1H-3
+    bloomPass_.shutdown();  // was leaking: init'd but never shut down
     instancePool_.shutdown();  // Phase 1E
     mainPass_.shutdown();
     shadowPass_.shutdown();

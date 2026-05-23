@@ -148,6 +148,13 @@ void EngineApp::cleanup() {
     state_.worldState.systems.sound.shutdown();
     layerFactory_.reset();
     sceneRenderer_.reset();
+    // APPLICATION-LEVEL teardown of world GPU resources before the device dies.
+    // NOTE: this is a stopgap. Once TerrainMesh/WaterMesh are RAII (see
+    // MyEngine_OpenWorld_Resource_Lifecycle.md, stage 1), these clears go away
+    // and WorldData's member destruction order frees them automatically.
+    vkDeviceWaitIdle(state_.worldState.data.vulkan.context().device());
+    state_.worldState.data.terrains.clear();
+    state_.worldState.data.waters.clear();
     state_.worldState.data.vulkan.shutdown();
     if (state_.runtime.window) {
         SDL_DestroyWindow(state_.runtime.window);

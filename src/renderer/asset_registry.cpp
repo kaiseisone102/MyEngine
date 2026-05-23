@@ -440,6 +440,8 @@ void AssetRegistry::shutdown() {
     }
 
     defaultMesh_.destroy();
+    grassMesh_.destroy();        // Phase 1F: was leaking (init'd in createGrass, never freed)
+    grassTexture_.destroy();     // Phase 1F: was leaking
     sharedFlatTerrain_.destroy();
     ctx_ = nullptr;
     resources_ = nullptr;

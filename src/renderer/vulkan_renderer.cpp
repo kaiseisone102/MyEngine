@@ -61,14 +61,19 @@ void VulkanRenderer::init(SDL_Window* window) {
     }
 }
 
-void VulkanRenderer::recreateSwapchain() {
-    swapchain_.recreate();
-    // Phase 1H-2: HDR target must be recreated BEFORE MainPass framebuffers (which use its view)
+void VulkanRenderer::destroyRenderTargets() {
+    // Single source of truth for tearing down swapchain-sized targets.
     hdrTarget_.shutdown();
-    createHdrTarget();
-    // Phase 1I: bloom targets follow swapchain size too
     bloomTargetA_.shutdown();
     bloomTargetB_.shutdown();
+}
+
+void VulkanRenderer::recreateSwapchain() {
+    swapchain_.recreate();
+    // HDR target must be recreated BEFORE MainPass framebuffers (which use its view).
+    // bloom targets follow swapchain size too. Destroy them all in one place.
+    destroyRenderTargets();
+    createHdrTarget();
     createBloomTargets();
     passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler(),
                                   bloomTargetA_.view(), bloomTargetA_.sampler(),
@@ -180,7 +185,7 @@ void VulkanRenderer::shutdown() {
     vkDeviceWaitIdle(ctx_.device());
 
     passChain_.shutdown();
-    hdrTarget_.shutdown();
+    destroyRenderTargets();  // HDR + bloom A/B (was leaking bloom targets)
     bindlessTextures_.shutdown();
     skinBufferPool_.shutdown();
     frameUniforms_.shutdown();
