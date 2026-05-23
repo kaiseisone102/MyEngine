@@ -382,8 +382,6 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
         extractEmbeddedTextures(ctx, resources, scene, outModel.textures_);
     }
 
-    const VkDescriptorPool pool = assets.materialPool();
-    const VkDescriptorSetLayout layout = assets.materialSetLayout();
     const Texture& fallbackTex = assets.defaultTexture();
 
     const unsigned matCount = (scene->mNumMaterials > 0) ? scene->mNumMaterials : 1;
@@ -397,8 +395,7 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
                 useTex = &outModel.textures_[texIdx];
             }
         }
-        outModel.materials_[i].init(ctx, pool, layout, useTex);
-
+        // S6-c: model materials go through materialId+bindless only (no descriptor set)
         // Phase 1K-2 S4-d: register this material in the bindless + SSBO system
         Material& mat = outModel.materials_[i];
         int albedoIdx = -1;

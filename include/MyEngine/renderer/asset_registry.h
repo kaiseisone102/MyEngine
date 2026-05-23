@@ -80,8 +80,6 @@ class AssetRegistry {
     const TerrainMesh& sharedFlatTerrain() const { return sharedFlatTerrain_; }
     const Texture& grassTexture() const { return grassTexture_; }
     const Material& grassMaterial() const { return grassMaterial_; }  // S6-b
-    VkDescriptorPool materialPool() const { return materialPool_; }
-    VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
     // Phase 1K-2: unified PBR material storage (SSBO + BDA)
     BindlessTextureRegistry* bindless() { return bindless_; }  // S4-d
     MaterialRegistry& materialRegistry() { return materialRegistry_; }
@@ -95,8 +93,6 @@ class AssetRegistry {
 
     Mesh defaultMesh_;
     Texture defaultTexture_;
-    VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
-    VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     Material defaultMaterial_;
     Mesh grassMesh_;          // Phase 1F
     TerrainMesh sharedFlatTerrain_;  // shared flat ground for menu-like scenes
@@ -124,7 +120,5 @@ class AssetRegistry {
     void createGrassMaterial();  // S6-b: register grass blade GpuMaterial in the SSBO
     void createSharedFlatTerrain();  // flat grass terrain for lightweight scenes
     void createDefaultTexture();
-    void createMaterialDescriptorPool();
-    void createMaterialSetLayout();
     void createDefaultMaterial();
 };

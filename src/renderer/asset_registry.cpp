@@ -11,7 +11,6 @@
 #include "renderer/vulkan_context.h"
 
 namespace {
-constexpr uint32_t kMaxMaterialSets = 256;
 }  // namespace
 
 void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
@@ -24,8 +23,6 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
 
     createDefaultMesh();
     createGrass();  // Phase 1F
-    createMaterialSetLayout();
-    createMaterialDescriptorPool();
     createDefaultTexture();
     createDefaultMaterial();
     // Phase 1K-2: unified PBR material registry (SSBO + BDA)
@@ -163,36 +160,6 @@ void AssetRegistry::createGrassMaterial() {
 }
 
 
-void AssetRegistry::createMaterialSetLayout() {
-    VkDescriptorSetLayoutBinding bind{};
-    bind.binding = 0;
-    bind.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bind.descriptorCount = 1;
-    bind.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    ci.bindingCount = 1;
-    ci.pBindings = &bind;
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &materialSetLayout_) !=
-        VK_SUCCESS) {
-        throw std::runtime_error("AssetRegistry: vkCreateDescriptorSetLayout failed");
-    }
-}
-
-void AssetRegistry::createMaterialDescriptorPool() {
-    VkDescriptorPoolSize sz{};
-    sz.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sz.descriptorCount = kMaxMaterialSets;
-
-    VkDescriptorPoolCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    ci.poolSizeCount = 1;
-    ci.pPoolSizes = &sz;
-    ci.maxSets = kMaxMaterialSets;
-    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &materialPool_) != VK_SUCCESS) {
-        throw std::runtime_error("AssetRegistry: vkCreateDescriptorPool (material) failed");
-    }
-}
-
 void AssetRegistry::createDefaultTexture() {
     defaultTexture_.loadFromFileOrCheckerboard(ctx_, resources_, assetDir_ + "texture.png");
     // Phase 1D: also register the default texture in the bindless array.
@@ -207,7 +174,7 @@ void AssetRegistry::createDefaultTexture() {
 }
 
 void AssetRegistry::createDefaultMaterial() {
-    defaultMaterial_.init(ctx_, materialPool_, materialSetLayout_, &defaultTexture_);
+    // S6-c: no descriptor set; default material carries only bindlessIndex/materialId
     defaultMaterial_.setBindlessIndex(defaultTexture_.bindlessIndex());
 }
 
@@ -370,7 +337,6 @@ bool AssetRegistry::registerMaterial(const std::string& name, const std::string&
         return false;
     }
     auto mat = std::make_unique<Material>();
-        mat->init(ctx_, materialPool_, materialSetLayout_, tex);
     // Phase 1D: copy the bindless index from the texture to the material
     // so the renderer can pick the right slot in the bindless array.
     mat->setBindlessIndex(tex->bindlessIndex());
@@ -452,15 +418,6 @@ void AssetRegistry::shutdown() {
 
     defaultMaterial_.destroy();
     defaultTexture_.destroy();
-
-    if (materialPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(ctx_->device(), materialPool_, nullptr);
-        materialPool_ = VK_NULL_HANDLE;
-    }
-    if (materialSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(ctx_->device(), materialSetLayout_, nullptr);
-        materialSetLayout_ = VK_NULL_HANDLE;
-    }
 
     defaultMesh_.destroy();
     grassMesh_.destroy();        // Phase 1F: was leaking (init'd in createGrass, never freed)
