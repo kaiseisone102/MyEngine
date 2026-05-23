@@ -29,8 +29,12 @@ class Material {
     // === Phase 1D: bindless texture index ===
     uint32_t bindlessIndex() const { return bindlessIndex_; }
     void setBindlessIndex(uint32_t idx) { bindlessIndex_ = idx; }
+    // Phase 1K-2 S4-d: slot in the global MaterialRegistry SSBO
+    uint32_t materialId() const { return materialId_; }
+    void setMaterialId(uint32_t id) { materialId_ = id; }
 
    private:
     VkDescriptorSet set_ = VK_NULL_HANDLE;
     uint32_t bindlessIndex_ = UINT32_MAX;
+    uint32_t materialId_ = 0;  // 0 = default material until registered
 };

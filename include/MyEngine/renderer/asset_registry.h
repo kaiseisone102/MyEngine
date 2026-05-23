@@ -78,6 +78,7 @@ class AssetRegistry {
     VkDescriptorPool materialPool() const { return materialPool_; }
     VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
     // Phase 1K-2: unified PBR material storage (SSBO + BDA)
+    BindlessTextureRegistry* bindless() { return bindless_; }  // S4-d
     MaterialRegistry& materialRegistry() { return materialRegistry_; }
     const MaterialRegistry& materialRegistry() const { return materialRegistry_; }
 

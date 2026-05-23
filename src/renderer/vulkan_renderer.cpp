@@ -111,6 +111,10 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     lighting.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
 
     // === Phase 1K-2: material SSBO address (BDA) into the frame UBO ===
+    // Flush any pending material edits to the GPU. upload() is a no-op unless
+    // dirty, so calling it per frame is cheap; this is also the natural hook
+    // for a future loading screen to drive asset->GPU transfer explicitly.
+    assets_.materialRegistry().upload();
     const VkDeviceAddress matAddr = assets_.materialRegistry().bufferAddress();
     lighting.materialBuffer = glm::uvec4(
         static_cast<uint32_t>(matAddr & 0xFFFFFFFFu),

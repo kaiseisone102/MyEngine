@@ -22,6 +22,18 @@ class ResourceFactory;
 
 class Texture {
    public:
+    Texture() = default;
+    ~Texture() { destroy(); }
+
+    // GPU resources are owned; copying would double-free. Move transfers ownership.
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
+    Texture(Texture&& other) noexcept { moveFrom(other); }
+    Texture& operator=(Texture&& other) noexcept {
+        if (this != &other) { destroy(); moveFrom(other); }
+        return *this;
+    }
+
     void loadFromFileOrCheckerboard(const VulkanContext* ctx, const ResourceFactory* resources,
                                     const std::string& path);
 
@@ -45,6 +57,24 @@ class Texture {
     void setBindlessIndex(uint32_t idx) { bindlessIndex_ = idx; }
 
    private:
+    // Transfer GPU handles from other, leaving it null so its destructor is a no-op.
+    // NOTE: if you add a member to Texture, add it here too (manual move is a known
+    //       pitfall; see MyEngine_VulkanHandle_Wrapper_Refactor.md for the Rule-of-Zero plan).
+    void moveFrom(Texture& other) noexcept {
+        ctx_ = other.ctx_;
+        image_ = other.image_;
+        memory_ = other.memory_;
+        view_ = other.view_;
+        sampler_ = other.sampler_;
+        bindlessIndex_ = other.bindlessIndex_;
+        other.ctx_ = nullptr;
+        other.image_ = VK_NULL_HANDLE;
+        other.memory_ = VK_NULL_HANDLE;
+        other.view_ = VK_NULL_HANDLE;
+        other.sampler_ = VK_NULL_HANDLE;
+        other.bindlessIndex_ = UINT32_MAX;
+    }
+
     const VulkanContext* ctx_ = nullptr;
 
     VkImage image_ = VK_NULL_HANDLE;

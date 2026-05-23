@@ -20,6 +20,8 @@
 #include <stdexcept>
 
 #include "renderer/asset_registry.h"
+#include "renderer/bindless_texture_registry.h"
+#include "renderer/material_registry.h"
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
 
@@ -396,6 +398,30 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
             }
         }
         outModel.materials_[i].init(ctx, pool, layout, useTex);
+
+        // Phase 1K-2 S4-d: register this material in the bindless + SSBO system
+        Material& mat = outModel.materials_[i];
+        int albedoIdx = -1;
+        if (assets.bindless() && useTex && useTex->view() != VK_NULL_HANDLE) {
+            uint32_t bidx = assets.bindless()->registerTexture(useTex->view(), useTex->sampler());
+            if (bidx != UINT32_MAX) {
+                mat.setBindlessIndex(bidx);
+                albedoIdx = static_cast<int>(bidx);
+            }
+        }
+        myengine::shared::GpuMaterial gm{};
+        gm.baseColorFactor = glm::vec4(1.0f);
+        gm.metallic = 0.0f;
+        gm.roughness = 0.5f;
+        gm.emissiveStrength = 0.0f;
+        gm.albedoIdx = albedoIdx;
+        gm.normalIdx = -1;
+        gm.mrIdx = -1;
+        gm.aoIdx = -1;
+        gm.emissiveIdx = -1;
+        const std::string matName = path + "#mat" + std::to_string(i);
+        uint32_t matId = assets.materialRegistry().add(matName, gm);
+        mat.setMaterialId(matId);
     }
 
     outModel.skeleton_.build(scene);

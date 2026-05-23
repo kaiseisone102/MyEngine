@@ -59,13 +59,15 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                            sizeof(MainPass::StaticPushConstants), &pc);
 
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
-            // S4-c: per-material descriptor bind removed; set=1 is the bindless array
+            // S4-d: per-submesh material id into the SSBO
+            pc.materialId = (curMaterials && sm.materialIndex < curMaterials->size())
+                ? (*curMaterials)[sm.materialIndex].materialId()
+                : 0u;
+            vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                sizeof(MainPass::StaticPushConstants), &pc);
             sm.bind(cmd);
             vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
         }
