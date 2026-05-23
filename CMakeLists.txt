@@ -129,7 +129,6 @@ add_executable(${PROJECT_NAME}
     src/renderer/swapchain.cpp
     src/renderer/texture.cpp
     src/renderer/main_pass.cpp
-    src/renderer/material.cpp
     src/renderer/mesh.cpp
     src/renderer/model.cpp
     src/renderer/model_loader.cpp
