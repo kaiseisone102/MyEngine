@@ -95,6 +95,15 @@ class VulkanRenderer {
     void setGrassWind(bool b) { passChain_.setGrassWind(b); }
     void setShadowQuality(int q) { shadowQuality_ = q; }
 
+   private:
+    // Build the single, fully-populated frame UBO from currentLighting_ plus
+    // the per-frame values (time, screen, camera) and the material SSBO address.
+    // Both the main pass and the reflection pass must use this one result so the
+    // UBO is never half-filled or assembled in two places.
+    FrameUniforms::LightingUBO buildCompleteFrameUBO() const;
+
+   public:
+
     // パーティクル参照を設定する (Layer の buildScene 内で呼ぶ想定、 nullptr 可)。
     void setCurrentParticles(const std::vector<particle::Particle>* particles) {
         currentParticles_ = particles;
@@ -139,6 +148,7 @@ class VulkanRenderer {
     float waterTime_ = 0.f;
     bool reflectShadows_ = true;
     int shadowQuality_ = 1;  // 0=hard(1tap), 1=PCF3x3, 2=PCF5x5
+    float lastDt_ = 0.f;     // last frame delta-time, for the frame UBO time field
 
     void recreateSwapchain();
 };

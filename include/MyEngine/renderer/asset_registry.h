@@ -29,6 +29,7 @@
 #include "renderer/material_registry.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
+#include "renderer/terrain_mesh.h"
 #include "renderer/texture.h"
 
 class VulkanContext;
@@ -74,6 +75,9 @@ class AssetRegistry {
     const Material& defaultMaterial() const { return defaultMaterial_; }
     // Phase 1F: grass
     const Mesh& grassMesh() const { return grassMesh_; }
+    // Shared flat grass terrain for lightweight scenes (title/menu/game-over)
+    // that don't build a full world. Owned here like defaultMesh/grassMesh.
+    const TerrainMesh& sharedFlatTerrain() const { return sharedFlatTerrain_; }
     const Texture& grassTexture() const { return grassTexture_; }
     VkDescriptorPool materialPool() const { return materialPool_; }
     VkDescriptorSetLayout materialSetLayout() const { return materialSetLayout_; }
@@ -94,6 +98,7 @@ class AssetRegistry {
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     Material defaultMaterial_;
     Mesh grassMesh_;          // Phase 1F
+    TerrainMesh sharedFlatTerrain_;  // shared flat ground for menu-like scenes
     Texture grassTexture_;
 
     // ─── 段階G-1 ────────────────────────────────────────────
@@ -114,6 +119,7 @@ class AssetRegistry {
 
     void createDefaultMesh();
     void createGrass();  // Phase 1F: procedural grass texture + cross-quad mesh
+    void createSharedFlatTerrain();  // flat grass terrain for lightweight scenes
     void createDefaultTexture();
     void createMaterialDescriptorPool();
     void createMaterialSetLayout();

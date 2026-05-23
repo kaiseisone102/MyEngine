@@ -378,13 +378,15 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         pc.skinOffset = item.skinOffset;
         pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
-        pc.materialId = 0;  // S5: default for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(MainPass::SkinnedPushConstants), &pc);
 
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
-            // S5: no per-material bind; set=1 is the bindless array
+            // S4-d: per-submesh material id into the SSBO
+            pc.materialId = (curMaterials && sm.materialIndex < curMaterials->size())
+                ? (*curMaterials)[sm.materialIndex].materialId()
+                : 0u;
+            vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(MainPass::SkinnedPushConstants), &pc);
             sm.bind(cmd);
             vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
         }

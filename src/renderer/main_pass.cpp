@@ -31,11 +31,11 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet 
     if (!mesh || list.empty()) return;
     mesh->bind(cmd);
     for (const MeshDrawItem& item : list) {
-        // S4-c: per-material descriptor bind removed; set=1 is the bindless array
+        // S4-c: set=1 is the bindless array
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
+        pc.materialId = item.material ? item.material->materialId() : 0u;  // S4-d
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
@@ -83,7 +83,7 @@ void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         MainPass::StaticPushConstants pc{};
         pc.model = item.model;
         pc.alpha = item.alpha;
-    pc.materialId = 0;  // Phase 1K-2 S4-a: default material for now
+        pc.materialId = item.material ? item.material->materialId() : 0u;  // S4-d
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
         item.terrain->bind(cmd);
@@ -108,12 +108,14 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorS
         pc.skinOffset = item.skinOffset;
         pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
-        pc.materialId = 0;  // S5: default for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                            sizeof(MainPass::SkinnedPushConstants), &pc);
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
-            // S4-c: per-material descriptor bind removed; set=1 is the bindless array
+            // S4-d: per-submesh material id into the SSBO
+            pc.materialId = (curMaterials && sm.materialIndex < curMaterials->size())
+                ? (*curMaterials)[sm.materialIndex].materialId()
+                : 0u;
+            vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                sizeof(MainPass::SkinnedPushConstants), &pc);
             sm.bind(cmd);
             vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
         }

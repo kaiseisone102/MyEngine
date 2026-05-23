@@ -49,6 +49,11 @@ class MaterialRegistry {
 
     // BDA: shaders cast this address to a typed pointer (GpuMaterial[]).
     VkDeviceAddress bufferAddress() const { return address_; }
+    // Same address packed as (lo, hi, 0, 0) for the FrameUBO uvec4 field.
+    glm::uvec4 bufferAddressPacked() const {
+        return glm::uvec4(static_cast<uint32_t>(address_ & 0xFFFFFFFFu),
+                          static_cast<uint32_t>((address_ >> 32) & 0xFFFFFFFFu), 0u, 0u);
+    }
 
     uint32_t count() const { return static_cast<uint32_t>(cpuMaterials_.size()); }
 

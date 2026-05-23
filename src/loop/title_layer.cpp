@@ -139,17 +139,14 @@ void TitleLayer::buildScene(SceneData& scene) {
         scene.modelDrawListOpaque().push_back(item);
     }
 
-    // ----- 5. Floor cube -----
+    // ----- 5. Ground: shared flat grass terrain (same look as in-game) -----
     {
-        glm::mat4 m(1.f);
-        m = glm::translate(m, glm::vec3(0.f, -0.2f, 0.f));
-        m = glm::scale(m, glm::vec3(20.f, 0.2f, 20.f));
-
-        MeshDrawItem item;
-        item.model = m;
-        item.material = nullptr;
+        TerrainDrawItem item;
+        item.model = glm::mat4(1.f);
+        item.terrain = &assets_.sharedFlatTerrain();
+        item.material = assets_.sharedFlatTerrain().material();
         item.alpha = 1.f;
-        scene.meshDrawListOpaque().push_back(item);
+        scene.terrainDrawListOpaque().push_back(item);
     }
 
     skinFrameIndex_ = (skinFrameIndex_ + 1) % FrameSync::MAX_FRAMES_IN_FLIGHT;

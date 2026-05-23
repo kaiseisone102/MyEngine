@@ -46,12 +46,29 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
         registerTexture(name, path);
         registerMaterial(name, name);  // texture 名と同じ名前で material を登録
     }
+
+    // grass_field is registered above, so the shared terrain can reference it.
+    createSharedFlatTerrain();
 }
 
 void AssetRegistry::createDefaultMesh() {
     // 既定 cube mesh: 足元基準 [-0.5,+0.5] x [0,1] x [-0.5,+0.5] のコード生成。
     // cube.obj ファイル不要。 物理 AABB (足元基準) と完全に一致する。
     defaultMesh_.createCube(ctx_, resources_);
+}
+
+void AssetRegistry::createSharedFlatTerrain() {
+    // A flat grass ground for lightweight scenes (title/menu) that don't build a
+    // full world. We hand-write the rectangle + a flat height function here so
+    // this renderer-layer code does NOT depend on the world-layer polygon/profile
+    // helpers (that dependency would point the wrong way).
+    const float half = 50.f;
+    const std::vector<glm::vec2> rect = {
+        {-half, -half}, {half, -half}, {half, half}, {-half, half}};
+    const TerrainMesh::HeightFunc flat = [](float, float) { return 0.f; };
+    const Material* grassMat = getMaterial("grass_field");
+    sharedFlatTerrain_.init(ctx_, resources_, rect, 0.f, flat,
+                            /*cellSize=*/2.0f, /*uvScale=*/3.0f, grassMat);
 }
 
 void AssetRegistry::createGrass() {
@@ -334,6 +351,20 @@ bool AssetRegistry::registerMaterial(const std::string& name, const std::string&
     // Phase 1D: copy the bindless index from the texture to the material
     // so the renderer can pick the right slot in the bindless array.
     mat->setBindlessIndex(tex->bindlessIndex());
+    // Phase 1K-2 S4-d: register this named material in the SSBO too, so terrain
+    // and anything using a named material can sample via materialId.
+    {
+        myengine::shared::GpuMaterial gm{};
+        gm.baseColorFactor = glm::vec4(1.0f);
+        gm.metallic = 0.0f;
+        gm.roughness = 0.5f;
+        gm.emissiveStrength = 0.0f;
+        gm.albedoIdx = (tex->bindlessIndex() != UINT32_MAX)
+            ? static_cast<int>(tex->bindlessIndex()) : -1;
+        gm.normalIdx = -1; gm.mrIdx = -1; gm.aoIdx = -1; gm.emissiveIdx = -1;
+        uint32_t matId = materialRegistry_.add("named:" + name, gm);
+        mat->setMaterialId(matId);
+    }
     materials_[name] = std::move(mat);
     std::cout << "[AssetRegistry] registered material '" << name << "' (texture='" << textureName
               << "')\n";
@@ -409,6 +440,7 @@ void AssetRegistry::shutdown() {
     }
 
     defaultMesh_.destroy();
+    sharedFlatTerrain_.destroy();
     ctx_ = nullptr;
     resources_ = nullptr;
 }

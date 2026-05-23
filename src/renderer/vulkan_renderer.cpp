@@ -80,6 +80,28 @@ void VulkanRenderer::onResize() {
     if (ctx_.device() != VK_NULL_HANDLE) recreateSwapchain();
 }
 
+FrameUniforms::LightingUBO VulkanRenderer::buildCompleteFrameUBO() const {
+    // Start from what the camera/lighting system gave us via setLighting(),
+    // then fill every per-frame field here so the result is complete in one place.
+    FrameUniforms::LightingUBO ubo = currentLighting_;
+    ubo.shadowParams.y = float(shadowQuality_);  // PCF quality
+
+    const VkExtent2D ext = swapchain_.extent();
+    const float fw = static_cast<float>(ext.width);
+    const float fh = static_cast<float>(ext.height);
+    const float invW = (fw > 0.f) ? 1.f / fw : 0.f;
+    const float invH = (fh > 0.f) ? 1.f / fh : 0.f;
+    ubo.time = glm::vec4(elapsedTime_, lastDt_, static_cast<float>(frameNumber_),
+                         std::sin(elapsedTime_));
+    ubo.screenSize = glm::vec4(fw, fh, invW, invH);
+    ubo.jitter = glm::vec4(0.f);
+    ubo.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
+
+    // Material SSBO address (BDA) for the shaders' buffer_reference.
+    ubo.materialBuffer = assets_.materialRegistry().bufferAddressPacked();
+    return ubo;
+}
+
 void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     auto acq = frameSync_.acquireNextImage(swapchain_.handle());
     if (acq.needsRecreate) {
@@ -93,34 +115,18 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     const uint64_t nowTicks = SDL_GetTicks();
     if (startTickMs_ == 0) startTickMs_ = nowTicks;
     const float dt = (lastTickMs_ > 0) ? static_cast<float>(nowTicks - lastTickMs_) / 1000.f : 0.f;
+    lastDt_ = dt;
     lastTickMs_ = nowTicks;
     elapsedTime_ = static_cast<float>(nowTicks - startTickMs_) / 1000.f;
     ++frameNumber_;
 
-    // === Phase 1C: extend LightingUBO with time / screenSize / cameraParams ===
-    auto lighting = currentLighting_;
-    lighting.shadowParams.y = float(shadowQuality_);  // PCF quality
-    const VkExtent2D extP1C = swapchain_.extent();
-    const float fw = static_cast<float>(extP1C.width);
-    const float fh = static_cast<float>(extP1C.height);
-    const float invW = (fw > 0.f) ? 1.f / fw : 0.f;
-    const float invH = (fh > 0.f) ? 1.f / fh : 0.f;
-    lighting.time = glm::vec4(elapsedTime_, dt, static_cast<float>(frameNumber_), std::sin(elapsedTime_));
-    lighting.screenSize = glm::vec4(fw, fh, invW, invH);
-    lighting.jitter = glm::vec4(0.f);
-    lighting.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
-
-    // === Phase 1K-2: material SSBO address (BDA) into the frame UBO ===
-    // Flush any pending material edits to the GPU. upload() is a no-op unless
-    // dirty, so calling it per frame is cheap; this is also the natural hook
-    // for a future loading screen to drive asset->GPU transfer explicitly.
+    // Flush pending material edits to the GPU (no-op unless dirty). This is the
+    // asset->GPU transfer step, kept separate from UBO assembly; it is the
+    // natural hook for a future loading screen.
     assets_.materialRegistry().upload();
-    const VkDeviceAddress matAddr = assets_.materialRegistry().bufferAddress();
-    lighting.materialBuffer = glm::uvec4(
-        static_cast<uint32_t>(matAddr & 0xFFFFFFFFu),
-        static_cast<uint32_t>((matAddr >> 32) & 0xFFFFFFFFu),
-        0u, 0u);
 
+    // One fully-populated UBO, used by both the main and reflection passes.
+    const auto lighting = buildCompleteFrameUBO();
     frameUniforms_.update(acq.frameIndex, lighting);
 
     passChain_.beginUI();
@@ -144,9 +150,10 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         info.screenW = static_cast<float>(ext.width);
         info.screenH = static_cast<float>(ext.height);
 
-        // Phase 1C: 反射 VP の生成と shadowStrength 調整に必要な追加情報。
-        info.normalLighting = currentLighting_;
-        info.normalLighting.shadowParams.y = float(shadowQuality_);
+        // Reflection uses the same fully-populated UBO as the main pass, so it
+        // also gets time / screenSize / cameraParams / materialBuffer (previously
+        // this copied the half-filled currentLighting_ and silently dropped them).
+        info.normalLighting = lighting;
         info.waterTime = waterTime_;
         info.reflectShadows = reflectShadows_;
 
