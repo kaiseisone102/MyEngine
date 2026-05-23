@@ -35,6 +35,7 @@ find_path(MINIAUDIO_INCLUDE_DIR NAMES miniaudio.h REQUIRED)
 
 set(SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(SHADER_INT_DIR "${CMAKE_BINARY_DIR}/shaders")
+set(SHADER_INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders")
 file(MAKE_DIRECTORY "${SHADER_INT_DIR}")
 
 if(NOT DEFINED VCPKG_TARGET_TRIPLET)
@@ -48,112 +49,39 @@ find_program(GLSLANG_VALIDATOR NAMES glslangValidator glslangValidator.exe
     DOC "SPIR-V compiler from glslang[tools] (vcpkg)"
 )
 
-add_custom_command(
-    OUTPUT
-        "${SHADER_INT_DIR}/triangle_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
-        "${SHADER_INT_DIR}/grass_instanced_vert.spv"
-        "${SHADER_INT_DIR}/grass_instanced_frag.spv"
-        "${SHADER_INT_DIR}/triangle_frag.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
-        "${SHADER_INT_DIR}/shadow_vert.spv"
-        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_frag.spv"
-        "${SHADER_INT_DIR}/hud_vert.spv"
-        "${SHADER_INT_DIR}/hud_frag.spv"
-        "${SHADER_INT_DIR}/particle_vert.spv"
-        "${SHADER_INT_DIR}/particle_frag.spv"
-        "${SHADER_INT_DIR}/water_vert.spv"
-        "${SHADER_INT_DIR}/water_frag.spv"
-        "${SHADER_INT_DIR}/water_reflect_frag.spv"
-        "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
-        "${SHADER_INT_DIR}/post_tonemap_frag.spv"
-        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
-        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.vert"          -o "${SHADER_INT_DIR}/triangle_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.vert" -o "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_instanced.frag" -o "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/grass_instanced.vert" -o "${SHADER_INT_DIR}/grass_instanced_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/grass_instanced.frag" -o "${SHADER_INT_DIR}/grass_instanced_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle.frag"          -o "${SHADER_INT_DIR}/triangle_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.vert"  -o "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_skinned.frag"  -o "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_bindless.vert" -o "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/triangle_bindless.frag" -o "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow.vert"            -o "${SHADER_INT_DIR}/shadow_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/shadow_skinned.vert"    -o "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/debug_line.vert"        -o "${SHADER_INT_DIR}/debug_line_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/debug_line.frag"        -o "${SHADER_INT_DIR}/debug_line_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/hud.vert"               -o "${SHADER_INT_DIR}/hud_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/hud.frag"               -o "${SHADER_INT_DIR}/hud_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/particle.vert"          -o "${SHADER_INT_DIR}/particle_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/particle.frag"          -o "${SHADER_INT_DIR}/particle_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.vert"             -o "${SHADER_INT_DIR}/water_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water.frag"             -o "${SHADER_INT_DIR}/water_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/water_reflect.frag"     -o "${SHADER_INT_DIR}/water_reflect_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_fullscreen.vert"  -o "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/post_tonemap.frag"     -o "${SHADER_INT_DIR}/post_tonemap_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/bloom_bright.frag"     -o "${SHADER_INT_DIR}/bloom_bright_frag.spv"
-    COMMAND "${GLSLANG_VALIDATOR}" -V "-I${CMAKE_CURRENT_SOURCE_DIR}/include/MyEngine/shaders" "${SHADER_SRC_DIR}/bloom_blur.frag"       -o "${SHADER_INT_DIR}/bloom_blur_frag.spv"  
-    DEPENDS
-        "${SHADER_SRC_DIR}/triangle.vert"
-        "${SHADER_SRC_DIR}/triangle.frag"
-        "${SHADER_SRC_DIR}/triangle_skinned.vert"
-        "${SHADER_SRC_DIR}/triangle_skinned.frag"
-        "${SHADER_SRC_DIR}/triangle_bindless.vert"
-        "${SHADER_SRC_DIR}/triangle_bindless.frag"
-        "${SHADER_SRC_DIR}/shadow.vert"
-        "${SHADER_SRC_DIR}/shadow_skinned.vert"
-        "${SHADER_SRC_DIR}/debug_line.vert"
-        "${SHADER_SRC_DIR}/debug_line.frag"
-        "${SHADER_SRC_DIR}/hud.vert"
-        "${SHADER_SRC_DIR}/hud.frag"
-        "${SHADER_SRC_DIR}/particle.vert"
-        "${SHADER_SRC_DIR}/particle.frag"
-        "${SHADER_SRC_DIR}/water.vert"
-        "${SHADER_SRC_DIR}/water.frag"
-        "${SHADER_SRC_DIR}/water_reflect.frag"
-        "${SHADER_SRC_DIR}/post_fullscreen.vert"
-        "${SHADER_SRC_DIR}/post_tonemap.frag"
-        "${SHADER_SRC_DIR}/bloom_bright.frag"
-        "${SHADER_SRC_DIR}/bloom_blur.frag"
-    COMMENT "Compiling GLSL shaders to SPIR-V"
-    VERBATIM
-)
+# -----------------------------------------------------------------------------
+# Shader compilation (auto-discovered).
+#   Every *.vert/*.frag/*.comp under shaders/ is compiled to
+#   ${SHADER_INT_DIR}/<name>_<stage>.spv (e.g. grass_instanced.vert ->
+#   grass_instanced_vert.spv), preserving the existing naming the C++ loaders
+#   expect. Each shader DEPENDS on its source AND on every shared header
+#   (shared/*.h), so editing shared/types.h recompiles all shaders that include
+#   it. CONFIGURE_DEPENDS re-globs when files are added/removed, so adding a
+#   shader needs no CMake edit. No hand-maintained OUTPUT/COMMAND/DEPENDS lists.
+# -----------------------------------------------------------------------------
+file(GLOB SHADER_SOURCES CONFIGURE_DEPENDS
+    "${SHADER_SRC_DIR}/*.vert"
+    "${SHADER_SRC_DIR}/*.frag"
+    "${SHADER_SRC_DIR}/*.comp")
+file(GLOB SHADER_SHARED_HEADERS CONFIGURE_DEPENDS
+    "${SHADER_INC_DIR}/shared/*.h"
+    "${SHADER_INC_DIR}/shared/*.glsl")
 
-add_custom_target(compile_shaders
-    DEPENDS
-        "${SHADER_INT_DIR}/triangle_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
-        "${SHADER_INT_DIR}/grass_instanced_vert.spv"
-        "${SHADER_INT_DIR}/grass_instanced_frag.spv"
-        "${SHADER_INT_DIR}/triangle_frag.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
-        "${SHADER_INT_DIR}/shadow_vert.spv"
-        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_frag.spv"
-        "${SHADER_INT_DIR}/hud_vert.spv"
-        "${SHADER_INT_DIR}/hud_frag.spv"
-        "${SHADER_INT_DIR}/particle_vert.spv"
-        "${SHADER_INT_DIR}/particle_frag.spv"
-        "${SHADER_INT_DIR}/water_vert.spv"
-        "${SHADER_INT_DIR}/water_frag.spv"
-        "${SHADER_INT_DIR}/water_reflect_frag.spv"
-        "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
-        "${SHADER_INT_DIR}/post_tonemap_frag.spv"
-        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
-        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
-)
+set(SPIRV_OUTPUTS "")
+foreach(_shader ${SHADER_SOURCES})
+    get_filename_component(_name ${_shader} NAME)        # grass_instanced.vert
+    string(REPLACE "." "_" _stem ${_name})               # grass_instanced_vert
+    set(_spv "${SHADER_INT_DIR}/${_stem}.spv")
+    add_custom_command(
+        OUTPUT  "${_spv}"
+        COMMAND "${GLSLANG_VALIDATOR}" -V "-I${SHADER_INC_DIR}" "${_shader}" -o "${_spv}"
+        DEPENDS "${_shader}" ${SHADER_SHARED_HEADERS}
+        COMMENT "SPIR-V ${_name}"
+        VERBATIM)
+    list(APPEND SPIRV_OUTPUTS "${_spv}")
+endforeach()
+
+add_custom_target(compile_shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
@@ -258,33 +186,9 @@ add_dependencies(${PROJECT_NAME} compile_shaders)
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${SHADER_INT_DIR}/triangle_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_vert.spv"
-        "${SHADER_INT_DIR}/triangle_instanced_frag.spv"
-        "${SHADER_INT_DIR}/grass_instanced_vert.spv"
-        "${SHADER_INT_DIR}/grass_instanced_frag.spv"
-        "${SHADER_INT_DIR}/triangle_frag.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_vert.spv"
-        "${SHADER_INT_DIR}/triangle_skinned_frag.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_vert.spv"
-        "${SHADER_INT_DIR}/triangle_bindless_frag.spv"
-        "${SHADER_INT_DIR}/shadow_vert.spv"
-        "${SHADER_INT_DIR}/shadow_skinned_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_vert.spv"
-        "${SHADER_INT_DIR}/debug_line_frag.spv"
-        "${SHADER_INT_DIR}/hud_vert.spv"
-        "${SHADER_INT_DIR}/hud_frag.spv"
-        "${SHADER_INT_DIR}/particle_vert.spv"
-        "${SHADER_INT_DIR}/particle_frag.spv"
-        "${SHADER_INT_DIR}/water_vert.spv"
-        "${SHADER_INT_DIR}/water_frag.spv"
-        "${SHADER_INT_DIR}/water_reflect_frag.spv"
-        "${SHADER_INT_DIR}/post_fullscreen_vert.spv"
-        "${SHADER_INT_DIR}/post_tonemap_frag.spv"
-        "${SHADER_INT_DIR}/bloom_bright_frag.spv"
-        "${SHADER_INT_DIR}/bloom_blur_frag.spv"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${SHADER_INT_DIR}"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
     COMMAND ${CMAKE_COMMAND} -E rm -f "$<TARGET_FILE_DIR:${PROJECT_NAME}>/vulkan-1.dll"
     COMMENT "Copy SPIR-V shaders; remove duplicate Vulkan loader next to exe"
 )
