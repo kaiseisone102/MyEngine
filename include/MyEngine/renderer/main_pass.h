@@ -64,7 +64,6 @@ class MainPass {
         glm::vec4 clearColor{0.4f, 0.6f, 0.9f, 1.0f};
 
         const std::vector<MeshDrawItem>* meshDrawListOpaque = nullptr;
-        const std::vector<InstancedMeshDrawItem>* instancedMeshDrawListOpaque = nullptr;
         VkDeviceAddress instanceBufferAddress = 0;
         const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
@@ -134,8 +133,6 @@ class MainPass {
     VkPipelineLayout bindlessLayout_ = VK_NULL_HANDLE;
     VkPipeline bindlessPipelineOpaque_ = VK_NULL_HANDLE;
     // === Phase 1E: instanced pipeline (opaque) ===
-    VkPipelineLayout instancedLayout_ = VK_NULL_HANDLE;
-    VkPipeline instancedPipelineOpaque_ = VK_NULL_HANDLE;
     // === Phase 1F: grass pipeline (alpha-tested, bindless, no cull) ===
     VkPipelineLayout grassLayout_ = VK_NULL_HANDLE;
     VkPipeline grassPipeline_ = VK_NULL_HANDLE;
@@ -147,7 +144,6 @@ class MainPass {
                               VkDescriptorSetLayout materialSetLayout);
     void createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
                               VkDescriptorSetLayout bindlessSetLayout);
-    void createInstancedLayout(VkDescriptorSetLayout frameSetLayout);
     void createGrassLayout(VkDescriptorSetLayout frameSetLayout, VkDescriptorSetLayout bindlessSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
     void createFramebuffers();

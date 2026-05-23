@@ -65,8 +65,6 @@ class SceneData {
     // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ opaque (ÃÂ¤ÃÂ¸ÃÂÃÂ©ÃÂÃÂÃÂ¦ÃÂÃÂ) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     const std::vector<MeshDrawItem>& meshDrawListOpaque() const { return meshOpaque_; }
     std::vector<MeshDrawItem>& meshDrawListOpaque() { return meshOpaque_; }
-    const std::vector<InstancedMeshDrawItem>& instancedMeshDrawListOpaque() const { return instancedOpaque_; }
-    std::vector<InstancedMeshDrawItem>& instancedMeshDrawListOpaque() { return instancedOpaque_; }
     const std::vector<StaticModelDrawItem>& staticModelDrawListOpaque() const { return staticOpaque_; }
     std::vector<StaticModelDrawItem>& staticModelDrawListOpaque() { return staticOpaque_; }
     const std::vector<SkinnedDrawItem>& modelDrawListOpaque() const { return modelOpaque_; }
@@ -100,7 +98,6 @@ class SceneData {
 
     void clear() {
         meshOpaque_.clear();
-        instancedOpaque_.clear();
         staticOpaque_.clear();
         modelOpaque_.clear();
         terrainOpaque_.clear();
@@ -113,7 +110,6 @@ class SceneData {
 
    private:
     std::vector<MeshDrawItem> meshOpaque_;
-    std::vector<InstancedMeshDrawItem> instancedOpaque_;
     std::vector<StaticModelDrawItem> staticOpaque_;
     std::vector<SkinnedDrawItem> modelOpaque_;
     std::vector<TerrainDrawItem> terrainOpaque_;
