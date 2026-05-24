@@ -17,8 +17,7 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
-// VMA forward declarations
-VK_DEFINE_HANDLE(VmaAllocation)
+#include "renderer/vma_buffer.h"
 
 #include <array>
 #include <cstdint>
@@ -53,7 +52,7 @@ class SkinBufferPool {
 
     // BDA: shaders cast this address to a typed pointer.
     VkDeviceAddress bufferAddress(uint32_t frameIndex) const {
-        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? addresses_[frameIndex] : 0;
+        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? buffers_[frameIndex].deviceAddress() : 0;
     }
 
     uint32_t allocatedCount() const { return allocatedCount_; }
@@ -63,10 +62,7 @@ class SkinBufferPool {
     VkDeviceSize bufferSize_ = 0;
 
     // VMA-managed buffers with BDA support
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
-    std::array<VmaAllocation, MAX_FRAMES_IN_FLIGHT> allocations_{};
-    std::array<VkDeviceAddress, MAX_FRAMES_IN_FLIGHT> addresses_{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> mapped_{};
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
 
     std::vector<uint32_t> freeSlots_;
     uint32_t allocatedCount_ = 0;

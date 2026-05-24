@@ -37,26 +37,7 @@ void MaterialRegistry::init(VulkanContext* ctx, ResourceFactory* resources) {
 }
 
 void MaterialRegistry::createBuffer(ResourceFactory* resources) {
-    resources->createBufferVMA(
-        bufferSize_,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        buffer_, allocation_);
-
-    VmaAllocationInfo allocInfo{};
-    vmaGetAllocationInfo(ctx_->allocator(), allocation_, &allocInfo);
-    mapped_ = allocInfo.pMappedData;
-    if (!mapped_) {
-        throw std::runtime_error("MaterialRegistry: VMA allocation is not persistently mapped");
-    }
-
-    VkBufferDeviceAddressInfo bai{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    bai.buffer = buffer_;
-    address_ = vkGetBufferDeviceAddress(ctx_->device(), &bai);
-    if (address_ == 0) {
-        throw std::runtime_error("MaterialRegistry: vkGetBufferDeviceAddress returned 0");
-    }
+    buffer_ = VmaBuffer::createMappedStorageBDA(ctx_, bufferSize_);
 }
 
 uint32_t MaterialRegistry::add(const std::string& name, const GpuMaterial& m) {
@@ -85,18 +66,12 @@ uint32_t MaterialRegistry::getId(const std::string& name) const {
 
 void MaterialRegistry::upload() {
     if (!dirty_ || cpuMaterials_.empty()) return;
-    std::memcpy(mapped_, cpuMaterials_.data(), cpuMaterials_.size() * sizeof(GpuMaterial));
+    std::memcpy(buffer_.mapped(), cpuMaterials_.data(), cpuMaterials_.size() * sizeof(GpuMaterial));
     dirty_ = false;
 }
 
 void MaterialRegistry::shutdown() {
-    if (ctx_ && buffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(ctx_->allocator(), buffer_, allocation_);
-        buffer_ = VK_NULL_HANDLE;
-        allocation_ = nullptr;
-    }
-    mapped_ = nullptr;
-    address_ = 0;
+    buffer_.reset();
     cpuMaterials_.clear();
     nameToId_.clear();
 }

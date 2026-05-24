@@ -16,8 +16,7 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
-// VMA forward declaration
-VK_DEFINE_HANDLE(VmaAllocation)
+#include "renderer/vma_buffer.h"
 
 #include <cstdint>
 #include <string>
@@ -48,11 +47,12 @@ class MaterialRegistry {
     void upload();
 
     // BDA: shaders cast this address to a typed pointer (GpuMaterial[]).
-    VkDeviceAddress bufferAddress() const { return address_; }
+    VkDeviceAddress bufferAddress() const { return buffer_.deviceAddress(); }
     // Same address packed as (lo, hi, 0, 0) for the FrameUBO uvec4 field.
     glm::uvec4 bufferAddressPacked() const {
-        return glm::uvec4(static_cast<uint32_t>(address_ & 0xFFFFFFFFu),
-                          static_cast<uint32_t>((address_ >> 32) & 0xFFFFFFFFu), 0u, 0u);
+        const VkDeviceAddress a = buffer_.deviceAddress();
+        return glm::uvec4(static_cast<uint32_t>(a & 0xFFFFFFFFu),
+                          static_cast<uint32_t>((a >> 32) & 0xFFFFFFFFu), 0u, 0u);
     }
 
     uint32_t count() const { return static_cast<uint32_t>(cpuMaterials_.size()); }
@@ -65,10 +65,7 @@ class MaterialRegistry {
     std::unordered_map<std::string, uint32_t> nameToId_;
     bool dirty_ = false;
 
-    VkBuffer buffer_ = VK_NULL_HANDLE;
-    VmaAllocation allocation_ = nullptr;
-    VkDeviceAddress address_ = 0;
-    void* mapped_ = nullptr;
+    VmaBuffer buffer_;
 
     void createBuffer(ResourceFactory* resources);
 };

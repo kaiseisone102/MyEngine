@@ -146,6 +146,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/skin_buffer_pool.cpp
     src/renderer/instance_buffer_pool.cpp
     src/renderer/material_registry.cpp
+    src/renderer/vma_buffer.cpp
     src/renderer/water_mesh.cpp
     src/renderer/water_pass.cpp
     src/renderer/water_pipeline.cpp

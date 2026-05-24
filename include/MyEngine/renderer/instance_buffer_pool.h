@@ -17,8 +17,7 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
-// VMA forward declarations
-VK_DEFINE_HANDLE(VmaAllocation)
+#include "renderer/vma_buffer.h"
 
 #include <array>
 #include <cstdint>
@@ -50,7 +49,7 @@ class InstanceBufferPool {
 
     // BDA: shaders cast this address to a typed pointer.
     VkDeviceAddress bufferAddress(uint32_t frameIndex) const {
-        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? addresses_[frameIndex] : 0;
+        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? buffers_[frameIndex].deviceAddress() : 0;
     }
 
     uint32_t usedThisFrame(uint32_t frameIndex) const {
@@ -61,10 +60,7 @@ class InstanceBufferPool {
     VulkanContext* ctx_ = nullptr;
     VkDeviceSize bufferSize_ = 0;
 
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
-    std::array<VmaAllocation, MAX_FRAMES_IN_FLIGHT> allocations_{};
-    std::array<VkDeviceAddress, MAX_FRAMES_IN_FLIGHT> addresses_{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> mapped_{};
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
     // Linear write cursor (in matrix units), reset each frame.
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> cursor_{};
 

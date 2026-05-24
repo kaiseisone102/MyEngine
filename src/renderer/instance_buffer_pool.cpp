@@ -21,36 +21,13 @@ void InstanceBufferPool::init(VulkanContext* ctx, ResourceFactory* resources) {
               << (bufferSize_ / 1024) << " KB / frame (BDA-only, no descriptors)\n";
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         std::cout << "  frame[" << i << "] buffer address = 0x" << std::hex
-                  << addresses_[i] << std::dec << "\n";
+                  << buffers_[i].deviceAddress() << std::dec << "\n";
     }
 }
 
 void InstanceBufferPool::createBuffers(ResourceFactory* resources) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        resources->createBufferVMA(
-            bufferSize_,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            buffers_[i], allocations_[i]);
-
-        VmaAllocationInfo allocInfo{};
-        vmaGetAllocationInfo(ctx_->allocator(), allocations_[i], &allocInfo);
-        mapped_[i] = allocInfo.pMappedData;
-        if (!mapped_[i]) {
-            throw std::runtime_error(
-                "InstanceBufferPool: VMA allocation is not persistently mapped");
-        }
-
-        VkBufferDeviceAddressInfo bai{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-        bai.buffer = buffers_[i];
-        addresses_[i] = vkGetBufferDeviceAddress(ctx_->device(), &bai);
-        if (addresses_[i] == 0) {
-            throw std::runtime_error(
-                "InstanceBufferPool: vkGetBufferDeviceAddress returned 0");
-        }
-
+        buffers_[i] = VmaBuffer::createMappedStorageBDA(ctx_, bufferSize_);
         cursor_[i] = 0;
     }
 }
@@ -74,7 +51,7 @@ uint32_t InstanceBufferPool::push(uint32_t frameIndex,
         return UINT32_MAX;
     }
 
-    uint8_t* dst = static_cast<uint8_t*>(mapped_[frameIndex]) +
+    uint8_t* dst = static_cast<uint8_t*>(buffers_[frameIndex].mapped()) +
                    static_cast<size_t>(offset) * sizeof(myengine::shared::InstanceData);
     std::memcpy(dst, data.data(), static_cast<size_t>(count) * sizeof(myengine::shared::InstanceData));
 
@@ -85,14 +62,8 @@ uint32_t InstanceBufferPool::push(uint32_t frameIndex,
 void InstanceBufferPool::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (buffers_[i] != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(ctx_->allocator(), buffers_[i], allocations_[i]);
-            buffers_[i] = VK_NULL_HANDLE;
-            allocations_[i] = VK_NULL_HANDLE;
-            mapped_[i] = nullptr;
-            addresses_[i] = 0;
-            cursor_[i] = 0;
-        }
+        buffers_[i].reset();
+        cursor_[i] = 0;
     }
     ctx_ = nullptr;
 }
