@@ -5,6 +5,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <string>
 
 #define GLM_FORCE_RADIANS
@@ -47,13 +49,13 @@ class HudPipeline {
     void init(VulkanContext* ctx, VkRenderPass renderPass, const std::string& shaderDir);
     void shutdown();
 
-    VkPipeline pipeline() const { return pipeline_; }
-    VkPipelineLayout layout() const { return layout_; }
+    VkPipeline pipeline() const { return pipeline_.get(); }
+    VkPipelineLayout layout() const { return layout_.get(); }
 
    private:
     VulkanContext* ctx_ = nullptr;
-    VkPipelineLayout layout_ = VK_NULL_HANDLE;
-    VkPipeline pipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> layout_;
+    VkUnique<VkPipeline> pipeline_;
 
     void createLayout();
     void createPipeline(VkRenderPass renderPass, const std::string& shaderDir);

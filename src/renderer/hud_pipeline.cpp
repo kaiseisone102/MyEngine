@@ -16,15 +16,9 @@ void HudPipeline::init(VulkanContext* ctx, VkRenderPass renderPass,
 }
 
 void HudPipeline::shutdown() {
-    if (!ctx_) return;
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). pipeline before layout.
+    pipeline_.reset();
+    layout_.reset();
     ctx_ = nullptr;
 }
 
@@ -41,9 +35,11 @@ void HudPipeline::createLayout() {
     ci.pushConstantRangeCount = 1;
     ci.pPushConstantRanges = &pcRange;
 
-    if (vkCreatePipelineLayout(ctx_->device(), &ci, nullptr, &layout_) != VK_SUCCESS) {
+    VkPipelineLayout lay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &ci, nullptr, &lay) != VK_SUCCESS) {
         throw std::runtime_error("HudPipeline: vkCreatePipelineLayout failed");
     }
+    layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
 void HudPipeline::createPipeline(VkRenderPass renderPass, const std::string& shaderDir) {
@@ -124,14 +120,16 @@ void HudPipeline::createPipeline(VkRenderPass renderPass, const std::string& sha
     pi.pDepthStencilState = &depth;
     pi.pColorBlendState = &blend;
     pi.pDynamicState = &dyn;
-    pi.layout = layout_;
+    pi.layout = layout_.get();
     pi.renderPass = renderPass;
     pi.subpass = 0;
 
-    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pi, nullptr, &pipeline_) !=
+    VkPipeline pipe = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pi, nullptr, &pipe) !=
         VK_SUCCESS) {
         throw std::runtime_error("HudPipeline: vkCreateGraphicsPipelines failed");
     }
+    pipeline_ = VkUnique<VkPipeline>(ctx_->device(), pipe);
 
     vkDestroyShaderModule(ctx_->device(), vert, nullptr);
     vkDestroyShaderModule(ctx_->device(), frag, nullptr);
