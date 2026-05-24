@@ -39,29 +39,15 @@ void FrameSync::shutdown() {
     if (!ctx_) return;
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (inFlightFences_[i] != VK_NULL_HANDLE) {
-            vkDestroyFence(ctx_->device(), inFlightFences_[i], nullptr);
-            inFlightFences_[i] = VK_NULL_HANDLE;
-        }
-        if (imageAvailableSemaphores_[i] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx_->device(), imageAvailableSemaphores_[i], nullptr);
-            imageAvailableSemaphores_[i] = VK_NULL_HANDLE;
-        }
+        inFlightFences_[i].reset();
+        imageAvailableSemaphores_[i].reset();
     }
     // Per-image present-wait semaphores (sized to swapchain image count).
-    for (VkSemaphore& s : renderFinishedSemaphores_) {
-        if (s != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx_->device(), s, nullptr);
-            s = VK_NULL_HANDLE;
-        }
-    }
+    // VkUnique elements free their semaphores on clear.
     renderFinishedSemaphores_.clear();
 
-    if (commandPool_ != VK_NULL_HANDLE) {
-        // commandBuffers はプール破棄で一緒に解放される
-        vkDestroyCommandPool(ctx_->device(), commandPool_, nullptr);
-        commandPool_ = VK_NULL_HANDLE;
-    }
+    // commandBuffers are freed with the pool.
+    commandPool_.reset();
     for (auto& cb : commandBuffers_) cb = VK_NULL_HANDLE;
 
     currentFrame_ = 0;
@@ -77,9 +63,11 @@ void FrameSync::createCommandPool() {
     ci.queueFamilyIndex = ctx_->graphicsFamily();
     // RESET_COMMAND_BUFFER_BIT: 個別 cmd を vkResetCommandBuffer で reset 可能
     ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    if (vkCreateCommandPool(ctx_->device(), &ci, nullptr, &commandPool_) != VK_SUCCESS) {
+    VkCommandPool pool = VK_NULL_HANDLE;
+    if (vkCreateCommandPool(ctx_->device(), &ci, nullptr, &pool) != VK_SUCCESS) {
         throw std::runtime_error("FrameSync: vkCreateCommandPool failed");
     }
+    commandPool_ = VkUnique<VkCommandPool>(ctx_->device(), pool);
 }
 
 // =============================================================================
@@ -88,7 +76,7 @@ void FrameSync::createCommandPool() {
 
 void FrameSync::createCommandBuffers() {
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    ai.commandPool = commandPool_;
+    ai.commandPool = commandPool_.get();
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
     if (vkAllocateCommandBuffers(ctx_->device(), &ai, commandBuffers_.data()) != VK_SUCCESS) {
@@ -107,21 +95,26 @@ void FrameSync::createSyncObjects(uint32_t swapchainImageCount) {
 
     // image-available semaphore and the in-flight fence are per-frame.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &imageAvailableSemaphores_[i]) !=
-                VK_SUCCESS ||
-            vkCreateFence(ctx_->device(), &fi, nullptr, &inFlightFences_[i]) != VK_SUCCESS) {
+        VkSemaphore sem = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &sem) != VK_SUCCESS ||
+            vkCreateFence(ctx_->device(), &fi, nullptr, &fence) != VK_SUCCESS) {
             throw std::runtime_error("FrameSync: sync object creation failed");
         }
+        imageAvailableSemaphores_[i] = VkUnique<VkSemaphore>(ctx_->device(), sem);
+        inFlightFences_[i] = VkUnique<VkFence>(ctx_->device(), fence);
     }
 
     // render-finished (present-wait) semaphore is PER SWAPCHAIN IMAGE: it must not
     // be reused until its image is re-acquired (Vulkan-Guide swapchain_semaphore_reuse).
-    renderFinishedSemaphores_.resize(swapchainImageCount, VK_NULL_HANDLE);
+    renderFinishedSemaphores_.clear();
+    renderFinishedSemaphores_.reserve(swapchainImageCount);
     for (uint32_t i = 0; i < swapchainImageCount; ++i) {
-        if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &renderFinishedSemaphores_[i]) !=
-            VK_SUCCESS) {
+        VkSemaphore sem = VK_NULL_HANDLE;
+        if (vkCreateSemaphore(ctx_->device(), &si, nullptr, &sem) != VK_SUCCESS) {
             throw std::runtime_error("FrameSync: render-finished semaphore creation failed");
         }
+        renderFinishedSemaphores_.emplace_back(ctx_->device(), sem);
     }
 }
 
@@ -134,11 +127,12 @@ FrameSync::AcquireResult FrameSync::acquireNextImage(VkSwapchainKHR swapchain) {
     r.frameIndex = currentFrame_;
 
     // 前フレームの GPU 完了を待つ
-    vkWaitForFences(ctx_->device(), 1, &inFlightFences_[currentFrame_], VK_TRUE, UINT64_MAX);
+    VkFence waitFence = inFlightFences_[currentFrame_].get();
+    vkWaitForFences(ctx_->device(), 1, &waitFence, VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex = 0;
     VkResult res = vkAcquireNextImageKHR(ctx_->device(), swapchain, UINT64_MAX,
-                                         imageAvailableSemaphores_[currentFrame_], VK_NULL_HANDLE,
+                                         imageAvailableSemaphores_[currentFrame_].get(), VK_NULL_HANDLE,
                                          &imageIndex);
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         // swapchain 再生成が必要。 fence は reset しない (次フレームでも再利用)。
@@ -151,7 +145,8 @@ FrameSync::AcquireResult FrameSync::acquireNextImage(VkSwapchainKHR swapchain) {
     // SUBOPTIMAL は描画自体は可能なので続行 (submit 後にやり直す)
 
     // ここまで来たら確実にこのフレームを処理する → fence reset
-    vkResetFences(ctx_->device(), 1, &inFlightFences_[currentFrame_]);
+    VkFence resetFence = inFlightFences_[currentFrame_].get();
+    vkResetFences(ctx_->device(), 1, &resetFence);
 
     // 既に書き込んだ可能性のあるコマンドを reset
     vkResetCommandBuffer(commandBuffers_[currentFrame_], 0);
@@ -168,12 +163,12 @@ FrameSync::AcquireResult FrameSync::acquireNextImage(VkSwapchainKHR swapchain) {
 
 bool FrameSync::submitAndPresent(VkSwapchainKHR swapchain, uint32_t imageIndex) {
     // ─── Submit: imageAvailable を待ち、 renderFinished を signal、 fence で完了通知 ───
-    VkSemaphore waitSems[] = {imageAvailableSemaphores_[currentFrame_]};
+    VkSemaphore waitSems[] = {imageAvailableSemaphores_[currentFrame_].get()};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     // Index by the ACQUIRED IMAGE, not the in-flight frame, so a present-wait
     // semaphore is never reused while a previous present of the same image
     // is still pending.
-    VkSemaphore signalSems[] = {renderFinishedSemaphores_[imageIndex]};
+    VkSemaphore signalSems[] = {renderFinishedSemaphores_[imageIndex].get()};
 
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.waitSemaphoreCount = 1;
@@ -184,7 +179,7 @@ bool FrameSync::submitAndPresent(VkSwapchainKHR swapchain, uint32_t imageIndex) 
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = signalSems;
 
-    if (vkQueueSubmit(ctx_->graphicsQueue(), 1, &si, inFlightFences_[currentFrame_]) !=
+    if (vkQueueSubmit(ctx_->graphicsQueue(), 1, &si, inFlightFences_[currentFrame_].get()) !=
         VK_SUCCESS) {
         throw std::runtime_error("FrameSync: vkQueueSubmit failed");
     }
