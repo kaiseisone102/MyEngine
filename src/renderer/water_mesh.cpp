@@ -58,52 +58,49 @@ void WaterMesh::init(VulkanContext* ctx, ResourceFactory* resources, glm::vec3 c
     indexCount_ = static_cast<uint32_t>(indices.size());
 
     const VkDeviceSize vbSize = sizeof(WaterVertex) * vertices.size();
+    VkBuffer vbuf = VK_NULL_HANDLE;
+    VkDeviceMemory vmem = VK_NULL_HANDLE;
     resources->createBuffer(vbSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                            vertexBuffer_, vertexMemory_);
+                            vbuf, vmem);
+    vertexBuffer_ = VkUnique<VkBuffer>(ctx_->device(), vbuf);
+    vertexMemory_ = VkUnique<VkDeviceMemory>(ctx_->device(), vmem);
     void* vbData = nullptr;
-    vkMapMemory(ctx_->device(), vertexMemory_, 0, vbSize, 0, &vbData);
+    vkMapMemory(ctx_->device(), vertexMemory_.get(), 0, vbSize, 0, &vbData);
     std::memcpy(vbData, vertices.data(), static_cast<size_t>(vbSize));
-    vkUnmapMemory(ctx_->device(), vertexMemory_);
+    vkUnmapMemory(ctx_->device(), vertexMemory_.get());
 
     const VkDeviceSize ibSize = sizeof(uint32_t) * indices.size();
+    VkBuffer ibuf = VK_NULL_HANDLE;
+    VkDeviceMemory imem = VK_NULL_HANDLE;
     resources->createBuffer(ibSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                            indexBuffer_, indexMemory_);
+                            ibuf, imem);
+    indexBuffer_ = VkUnique<VkBuffer>(ctx_->device(), ibuf);
+    indexMemory_ = VkUnique<VkDeviceMemory>(ctx_->device(), imem);
     void* ibData = nullptr;
-    vkMapMemory(ctx_->device(), indexMemory_, 0, ibSize, 0, &ibData);
+    vkMapMemory(ctx_->device(), indexMemory_.get(), 0, ibSize, 0, &ibData);
     std::memcpy(ibData, indices.data(), static_cast<size_t>(ibSize));
-    vkUnmapMemory(ctx_->device(), indexMemory_);
+    vkUnmapMemory(ctx_->device(), indexMemory_.get());
 }
 
 void WaterMesh::destroy() {
-    if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    if (indexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), indexBuffer_, nullptr);
-        indexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (indexMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), indexMemory_, nullptr);
-        indexMemory_ = VK_NULL_HANDLE;
-    }
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), vertexBuffer_, nullptr);
-        vertexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (vertexMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), vertexMemory_, nullptr);
-        vertexMemory_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). The auto destructor would do
+    // the same if destroy() were never called.
+    indexBuffer_.reset();
+    indexMemory_.reset();
+    vertexBuffer_.reset();
+    vertexMemory_.reset();
     indexCount_ = 0;
     ctx_ = nullptr;
 }
 
 void WaterMesh::bind(VkCommandBuffer cmd) const {
     if (!vertexBuffer_ || !indexBuffer_) return;
-    VkBuffer vbs[] = {vertexBuffer_};
+    VkBuffer vbs[] = {vertexBuffer_.get()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
-    vkCmdBindIndexBuffer(cmd, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, indexBuffer_.get(), 0, VK_INDEX_TYPE_UINT32);
 }

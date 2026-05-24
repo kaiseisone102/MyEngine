@@ -7,6 +7,7 @@
 // =============================================================================
 
 #include <vulkan/vulkan.h>
+#include "renderer/vk_unique.h"
 
 #include <cstdint>
 
@@ -37,10 +38,10 @@ class WaterMesh {
    private:
     VulkanContext* ctx_ = nullptr;
 
-    VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory vertexMemory_ = VK_NULL_HANDLE;
-    VkBuffer indexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory indexMemory_ = VK_NULL_HANDLE;
+    VkUnique<VkBuffer> vertexBuffer_;
+    VkUnique<VkDeviceMemory> vertexMemory_;
+    VkUnique<VkBuffer> indexBuffer_;
+    VkUnique<VkDeviceMemory> indexMemory_;
     uint32_t indexCount_ = 0;
 
     glm::vec3 center_{};

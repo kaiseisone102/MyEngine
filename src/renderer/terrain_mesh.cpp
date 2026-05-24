@@ -334,8 +334,8 @@ void TerrainMesh::init(const VulkanContext* ctx, const ResourceFactory* resource
 }
 
 void TerrainMesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                                 VkBufferUsageFlags usage, VkBuffer& buffer,
-                                 VkDeviceMemory& memory) const {
+                                 VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
+                                 VkUnique<VkDeviceMemory>& memory) const {
     VkBuffer staging{};
     VkDeviceMemory stagingMem{};
     resources->createBuffer(
@@ -348,9 +348,13 @@ void TerrainMesh::uploadBuffer(const ResourceFactory* resources, const void* src
     std::memcpy(data, src, static_cast<size_t>(size));
     vkUnmapMemory(ctx_->device(), stagingMem);
 
+    VkBuffer buf = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
     resources->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer, memory);
-    resources->copyBuffer(staging, buffer, size);
+                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buf, mem);
+    buffer = VkUnique<VkBuffer>(ctx_->device(), buf);
+    memory = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
+    resources->copyBuffer(staging, buffer.get(), size);
 
     vkDestroyBuffer(ctx_->device(), staging, nullptr);
     vkFreeMemory(ctx_->device(), stagingMem, nullptr);
@@ -358,28 +362,18 @@ void TerrainMesh::uploadBuffer(const ResourceFactory* resources, const void* src
 
 void TerrainMesh::bind(VkCommandBuffer cmd) const {
     const VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer_, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
+    VkBuffer vb = vertexBuffer_.get();
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
+    vkCmdBindIndexBuffer(cmd, indexBuffer_.get(), 0, VK_INDEX_TYPE_UINT32);
 }
 
 void TerrainMesh::destroy() {
-    if (!ctx_) return;
-    if (indexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), indexBuffer_, nullptr);
-        indexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (indexBufferMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), indexBufferMemory_, nullptr);
-        indexBufferMemory_ = VK_NULL_HANDLE;
-    }
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), vertexBuffer_, nullptr);
-        vertexBuffer_ = VK_NULL_HANDLE;
-    }
-    if (vertexBufferMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), vertexBufferMemory_, nullptr);
-        vertexBufferMemory_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). The auto destructor would do
+    // the same if destroy() were never called.
+    indexBuffer_.reset();
+    indexBufferMemory_.reset();
+    vertexBuffer_.reset();
+    vertexBufferMemory_.reset();
     indexCount_ = 0;
     cpuVerts_.clear();
     cpuVerts_.shrink_to_fit();

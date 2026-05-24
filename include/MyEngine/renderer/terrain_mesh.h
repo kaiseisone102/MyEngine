@@ -11,6 +11,7 @@
 // =============================================================================
 
 #include <vulkan/vulkan.h>
+#include "renderer/vk_unique.h"
 
 #include <cstdint>
 #include <functional>
@@ -53,10 +54,10 @@ class TerrainMesh {
    private:
     const VulkanContext* ctx_ = nullptr;
 
-    VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory_ = VK_NULL_HANDLE;
-    VkBuffer indexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory_ = VK_NULL_HANDLE;
+    VkUnique<VkBuffer> vertexBuffer_;
+    VkUnique<VkDeviceMemory> vertexBufferMemory_;
+    VkUnique<VkBuffer> indexBuffer_;
+    VkUnique<VkDeviceMemory> indexBufferMemory_;
     uint32_t indexCount_ = 0;
 
     std::vector<glm::vec2> polygon_;
@@ -91,5 +92,6 @@ class TerrainMesh {
                                      float x, float z, glm::vec3& outBary);
 
     void uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                      VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory) const;
+                      VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
+                      VkUnique<VkDeviceMemory>& memory) const;
 };

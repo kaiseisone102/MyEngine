@@ -13,6 +13,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <vulkan/vulkan.h>
+#include "renderer/vk_unique.h"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -69,6 +70,8 @@ class Mesh {
     // Phase 1F: cross-quad for grass (2 vertical quads crossed at 90 deg)
     void createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources);
 
+    // Free GPU buffers now. Kept for explicit shutdown ordering; the auto
+    // destructor (VkUnique members) frees too, so calling twice is a no-op.
     void destroy();
     void bind(VkCommandBuffer cmd) const;
     uint32_t indexCount() const { return indexCount_; }
@@ -76,12 +79,13 @@ class Mesh {
    private:
     const VulkanContext* ctx_ = nullptr;
 
-    VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory_ = VK_NULL_HANDLE;
-    VkBuffer indexBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory_ = VK_NULL_HANDLE;
+    VkUnique<VkBuffer> vertexBuffer_;
+    VkUnique<VkDeviceMemory> vertexBufferMemory_;
+    VkUnique<VkBuffer> indexBuffer_;
+    VkUnique<VkDeviceMemory> indexBufferMemory_;
     uint32_t indexCount_ = 0;
 
     void uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                      VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory) const;
+                      VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
+                      VkUnique<VkDeviceMemory>& memory) const;
 };
