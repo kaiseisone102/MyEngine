@@ -20,6 +20,7 @@
 #include <vulkan/vulkan.h>
 
 #include "renderer/vk_unique.h"
+#include "renderer/vma_buffer.h"
 
 #include <array>
 #include <cstdint>
@@ -73,13 +74,9 @@ class DebugLinePass {
     VkUnique<VkPipeline> triPipeline_;    // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
 
     // per-frame 頂点バッファ (line / triangle で別バッファ)
-    std::array<VkUnique<VkBuffer>, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBs_{};
-    std::array<VkUnique<VkDeviceMemory>, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBMems_{};
-    std::array<void*, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBMapped_{};
+    std::array<VmaBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBs_{};
 
-    std::array<VkUnique<VkBuffer>, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBs_{};
-    std::array<VkUnique<VkDeviceMemory>, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBMems_{};
-    std::array<void*, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBMapped_{};
+    std::array<VmaBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBs_{};
 
     void createLayout(VkDescriptorSetLayout frameSetLayout);
     void createPipelines(VkRenderPass renderPass, const std::string& shaderDir);

@@ -164,52 +164,19 @@ void DebugLinePass::createVertexBuffers() {
     const VkDeviceSize bufSize = sizeof(DebugLineVertex) * kMaxVerticesPerFrame;
 
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
-        // line VB
-        VkBuffer lvb = VK_NULL_HANDLE;
-        VkDeviceMemory lvm = VK_NULL_HANDLE;
-        resources_->createBuffer(
-            bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            lvb, lvm);
-        lineVBs_[i] = VkUnique<VkBuffer>(ctx_->device(), lvb);
-        lineVBMems_[i] = VkUnique<VkDeviceMemory>(ctx_->device(), lvm);
-        if (vkMapMemory(ctx_->device(), lineVBMems_[i].get(), 0, bufSize, 0, &lineVBMapped_[i]) !=
-            VK_SUCCESS) {
-            throw std::runtime_error("DebugLinePass: vkMapMemory (line) failed");
-        }
-        // tri VB
-        VkBuffer tvb = VK_NULL_HANDLE;
-        VkDeviceMemory tvm = VK_NULL_HANDLE;
-        resources_->createBuffer(
-            bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            tvb, tvm);
-        triVBs_[i] = VkUnique<VkBuffer>(ctx_->device(), tvb);
-        triVBMems_[i] = VkUnique<VkDeviceMemory>(ctx_->device(), tvm);
-        if (vkMapMemory(ctx_->device(), triVBMems_[i].get(), 0, bufSize, 0, &triVBMapped_[i]) !=
-            VK_SUCCESS) {
-            throw std::runtime_error("DebugLinePass: vkMapMemory (tri) failed");
-        }
+        lineVBs_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        triVBs_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
 }
 
 void DebugLinePass::destroyVertexBuffers() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
+    // VmaBuffer frees buffer + allocation (and unmaps) in reset (no-op if empty).
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
-        // Unmap before freeing (vkFreeMemory would implicitly unmap, but clear
-        // the cached pointer explicitly). VkUnique then frees buffer + memory.
-        if (lineVBMapped_[i]) {
-            vkUnmapMemory(ctx_->device(), lineVBMems_[i].get());
-            lineVBMapped_[i] = nullptr;
-        }
         lineVBs_[i].reset();
-        lineVBMems_[i].reset();
-        if (triVBMapped_[i]) {
-            vkUnmapMemory(ctx_->device(), triVBMems_[i].get());
-            triVBMapped_[i] = nullptr;
-        }
         triVBs_[i].reset();
-        triVBMems_[i].reset();
     }
 }
 
@@ -241,11 +208,11 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
 
     // 頂点バッファに書き込む (vkMapMemory は init 時に永続マップ済み)
     if (lineUsed > 0) {
-        std::memcpy(lineVBMapped_[info.frameIndex], info.lineVertices->data(),
+        std::memcpy(lineVBs_[info.frameIndex].mapped(), info.lineVertices->data(),
                     sizeof(DebugLineVertex) * lineUsed);
     }
     if (triUsed > 0) {
-        std::memcpy(triVBMapped_[info.frameIndex], info.triVertices->data(),
+        std::memcpy(triVBs_[info.frameIndex].mapped(), info.triVertices->data(),
                     sizeof(DebugLineVertex) * triUsed);
     }
 
@@ -267,7 +234,7 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        VkBuffer tvb = triVBs_[info.frameIndex].get();
+        VkBuffer tvb = triVBs_[info.frameIndex].buffer();
         vkCmdBindVertexBuffers(info.cmd, 0, 1, &tvb, &zero);
         vkCmdDraw(info.cmd, static_cast<uint32_t>(triUsed), 1, 0, 0);
     }
@@ -277,7 +244,7 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        VkBuffer lvb = lineVBs_[info.frameIndex].get();
+        VkBuffer lvb = lineVBs_[info.frameIndex].buffer();
         vkCmdBindVertexBuffers(info.cmd, 0, 1, &lvb, &zero);
         vkCmdDraw(info.cmd, static_cast<uint32_t>(lineUsed), 1, 0, 0);
     }
