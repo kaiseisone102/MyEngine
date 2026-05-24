@@ -45,10 +45,10 @@ void BloomPass::shutdown() {
     VkDevice dev = ctx_->device();
     destroyFramebuffers();
     destroyPipelines();
-    if (pipelineLayout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(dev, pipelineLayout_, nullptr); pipelineLayout_ = VK_NULL_HANDLE; }
-    if (descPool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(dev, descPool_, nullptr); descPool_ = VK_NULL_HANDLE; }
-    if (descSetLayout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(dev, descSetLayout_, nullptr); descSetLayout_ = VK_NULL_HANDLE; }
-    if (renderPass_ != VK_NULL_HANDLE) { vkDestroyRenderPass(dev, renderPass_, nullptr); renderPass_ = VK_NULL_HANDLE; }
+    pipelineLayout_.reset();
+    descPool_.reset();
+    descSetLayout_.reset();
+    renderPass_.reset();
     descHdr_ = descA_ = descB_ = VK_NULL_HANDLE;
 }
 
@@ -117,8 +117,10 @@ void BloomPass::createRenderPass() {
     ci.dependencyCount = static_cast<uint32_t>(deps.size());
     ci.pDependencies = deps.data();
 
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &renderPass_) != VK_SUCCESS)
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkCreateRenderPass failed");
+    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void BloomPass::createDescriptorSetLayout() {
@@ -132,8 +134,10 @@ void BloomPass::createDescriptorSetLayout() {
     ci.bindingCount = 1;
     ci.pBindings = &b;
 
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &descSetLayout_) != VK_SUCCESS)
+    VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &dsl) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkCreateDescriptorSetLayout failed");
+    descSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), dsl);
 }
 
 void BloomPass::createDescriptorPool() {
@@ -146,14 +150,16 @@ void BloomPass::createDescriptorPool() {
     ci.poolSizeCount = 1;
     ci.pPoolSizes = &ps;
 
-    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &descPool_) != VK_SUCCESS)
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &pool) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkCreateDescriptorPool failed");
+    descPool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 }
 
 void BloomPass::allocateDescriptorSets() {
-    std::array<VkDescriptorSetLayout, 3> layouts{descSetLayout_, descSetLayout_, descSetLayout_};
+    std::array<VkDescriptorSetLayout, 3> layouts{descSetLayout_.get(), descSetLayout_.get(), descSetLayout_.get()};
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    ai.descriptorPool = descPool_;
+    ai.descriptorPool = descPool_.get();
     ai.descriptorSetCount = 3;
     ai.pSetLayouts = layouts.data();
 
@@ -192,12 +198,15 @@ void BloomPass::createPipelineLayout() {
 
     VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     li.setLayoutCount = 1;
-    li.pSetLayouts = &descSetLayout_;
+    VkDescriptorSetLayout liLayout = descSetLayout_.get();
+    li.pSetLayouts = &liLayout;
     li.pushConstantRangeCount = 1;
     li.pPushConstantRanges = &pcRange;
 
-    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &pipelineLayout_) != VK_SUCCESS)
+    VkPipelineLayout playout = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &playout) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkCreatePipelineLayout failed");
+    pipelineLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), playout);
 }
 
 void BloomPass::createPipelines(const std::string& shaderDir) {
@@ -241,7 +250,7 @@ void BloomPass::createPipelines(const std::string& shaderDir) {
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
-    auto buildPipeline = [&](VkShaderModule frag, VkPipeline& outPipe) {
+    auto buildPipeline = [&](VkShaderModule frag) -> VkPipeline {
         VkPipelineShaderStageCreateInfo stages[2]{};
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -263,16 +272,18 @@ void BloomPass::createPipelines(const std::string& shaderDir) {
         pci.pColorBlendState = &cb;
         pci.pDepthStencilState = &ds;
         pci.pDynamicState = &dyn;
-        pci.layout = pipelineLayout_;
-        pci.renderPass = renderPass_;
+        pci.layout = pipelineLayout_.get();
+        pci.renderPass = renderPass_.get();
         pci.subpass = 0;
 
+        VkPipeline outPipe = VK_NULL_HANDLE;
         if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &outPipe) != VK_SUCCESS)
             throw std::runtime_error("BloomPass: vkCreateGraphicsPipelines failed");
+        return outPipe;
     };
 
-    buildPipeline(brightFrag, pipelineBright_);
-    buildPipeline(blurFrag, pipelineBlur_);
+    pipelineBright_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(brightFrag));
+    pipelineBlur_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(blurFrag));
 
     vkDestroyShaderModule(ctx_->device(), blurFrag, nullptr);
     vkDestroyShaderModule(ctx_->device(), brightFrag, nullptr);
@@ -280,31 +291,33 @@ void BloomPass::createPipelines(const std::string& shaderDir) {
 }
 
 void BloomPass::createFramebuffers() {
-    auto makeFb = [&](VkImageView view, VkFramebuffer& outFb) {
+    auto makeFb = [&](VkImageView view) -> VkFramebuffer {
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        fi.renderPass = renderPass_;
+        fi.renderPass = renderPass_.get();
         fi.attachmentCount = 1;
         fi.pAttachments = &view;
         fi.width = width_;
         fi.height = height_;
         fi.layers = 1;
+        VkFramebuffer outFb = VK_NULL_HANDLE;
         if (vkCreateFramebuffer(ctx_->device(), &fi, nullptr, &outFb) != VK_SUCCESS)
             throw std::runtime_error("BloomPass: vkCreateFramebuffer failed");
+        return outFb;
     };
-    makeFb(targetAView_, fbA_);
-    makeFb(targetBView_, fbB_);
+    fbA_ = VkUnique<VkFramebuffer>(ctx_->device(), makeFb(targetAView_));
+    fbB_ = VkUnique<VkFramebuffer>(ctx_->device(), makeFb(targetBView_));
 }
 
 void BloomPass::destroyFramebuffers() {
     VkDevice dev = ctx_->device();
-    if (fbA_ != VK_NULL_HANDLE) { vkDestroyFramebuffer(dev, fbA_, nullptr); fbA_ = VK_NULL_HANDLE; }
-    if (fbB_ != VK_NULL_HANDLE) { vkDestroyFramebuffer(dev, fbB_, nullptr); fbB_ = VK_NULL_HANDLE; }
+    fbA_.reset();
+    fbB_.reset();
 }
 
 void BloomPass::destroyPipelines() {
     VkDevice dev = ctx_->device();
-    if (pipelineBright_ != VK_NULL_HANDLE) { vkDestroyPipeline(dev, pipelineBright_, nullptr); pipelineBright_ = VK_NULL_HANDLE; }
-    if (pipelineBlur_ != VK_NULL_HANDLE) { vkDestroyPipeline(dev, pipelineBlur_, nullptr); pipelineBlur_ = VK_NULL_HANDLE; }
+    pipelineBright_.reset();
+    pipelineBlur_.reset();
 }
 
 void BloomPass::recordDraw(VkCommandBuffer cmd, VkFramebuffer fb, VkPipeline pipe,
@@ -313,7 +326,7 @@ void BloomPass::recordDraw(VkCommandBuffer cmd, VkFramebuffer fb, VkPipeline pip
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_;
+    rp.renderPass = renderPass_.get();
     rp.framebuffer = fb;
     rp.renderArea = {{0, 0}, {width_, height_}};
     rp.clearValueCount = 1;
@@ -334,8 +347,8 @@ void BloomPass::recordDraw(VkCommandBuffer cmd, VkFramebuffer fb, VkPipeline pip
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &set, 0, nullptr);
-    vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_.get(), 0, 1, &set, 0, nullptr);
+    vkCmdPushConstants(cmd, pipelineLayout_.get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);  // fullscreen triangle
     vkCmdEndRenderPass(cmd);
@@ -351,13 +364,13 @@ void BloomPass::execute(const ExecuteInfo& info) {
 
     // 1) bright extract: HDR -> targetA
     pc.texelDir = 0.0f;
-    recordDraw(info.cmd, fbA_, pipelineBright_, descHdr_, pc);
+    recordDraw(info.cmd, fbA_.get(), pipelineBright_.get(), descHdr_, pc);
 
     // 2) horizontal blur: targetA -> targetB
     pc.texelDir = 0.0f;
-    recordDraw(info.cmd, fbB_, pipelineBlur_, descA_, pc);
+    recordDraw(info.cmd, fbB_.get(), pipelineBlur_.get(), descA_, pc);
 
     // 3) vertical blur: targetB -> targetA  (result = bloom)
     pc.texelDir = 1.0f;
-    recordDraw(info.cmd, fbA_, pipelineBlur_, descB_, pc);
+    recordDraw(info.cmd, fbA_.get(), pipelineBlur_.get(), descB_, pc);
 }

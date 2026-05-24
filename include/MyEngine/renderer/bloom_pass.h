@@ -20,6 +20,8 @@
 // Three descriptor sets, each binding the source texture of that draw.
 // =============================================================================
 #include <vulkan/vulkan.h>
+
+#include "renderer/vk_unique.h"
 #include <string>
 
 class VulkanContext;
@@ -96,18 +98,18 @@ class BloomPass {
     uint32_t width_ = 0;
     uint32_t height_ = 0;
 
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool descPool_ = VK_NULL_HANDLE;
+    VkUnique<VkRenderPass> renderPass_;
+    VkUnique<VkDescriptorSetLayout> descSetLayout_;
+    VkUnique<VkDescriptorPool> descPool_;
     // 0 = sample HDR, 1 = sample targetA, 2 = sample targetB
     VkDescriptorSet descHdr_ = VK_NULL_HANDLE;
     VkDescriptorSet descA_ = VK_NULL_HANDLE;
     VkDescriptorSet descB_ = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
-    VkPipeline pipelineBright_ = VK_NULL_HANDLE;
-    VkPipeline pipelineBlur_ = VK_NULL_HANDLE;
-    VkFramebuffer fbA_ = VK_NULL_HANDLE;  // renders into targetA
-    VkFramebuffer fbB_ = VK_NULL_HANDLE;  // renders into targetB
+    VkUnique<VkPipelineLayout> pipelineLayout_;
+    VkUnique<VkPipeline> pipelineBright_;
+    VkUnique<VkPipeline> pipelineBlur_;
+    VkUnique<VkFramebuffer> fbA_;  // renders into targetA
+    VkUnique<VkFramebuffer> fbB_;  // renders into targetB
 
     std::string shaderDir_;
     float threshold_ = 1.0f;
