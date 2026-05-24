@@ -23,6 +23,8 @@
 #include <SDL3/SDL.h>
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -39,29 +41,29 @@ class Swapchain {
     void recreate();
 
     // ─── アクセサ ─────────────────────────────────────────────
-    VkSwapchainKHR handle() const { return swapchain_; }
+    VkSwapchainKHR handle() const { return swapchain_.get(); }
     VkFormat colorFormat() const { return colorFormat_; }
     VkFormat depthFormat() const { return depthFormat_; }
     VkExtent2D extent() const { return extent_; }
     uint32_t imageCount() const { return static_cast<uint32_t>(images_.size()); }
-    VkImageView colorView(uint32_t i) const { return views_[i]; }
-    VkImageView depthView() const { return depthView_; }
+    VkImageView colorView(uint32_t i) const { return views_[i].get(); }
+    VkImageView depthView() const { return depthView_.get(); }
 
    private:
     const VulkanContext* ctx_ = nullptr;
     const ResourceFactory* resources_ = nullptr;
     SDL_Window* window_ = nullptr;
 
-    VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+    VkUnique<VkSwapchainKHR> swapchain_;
     VkFormat colorFormat_ = VK_FORMAT_UNDEFINED;
     VkExtent2D extent_ = {};
     std::vector<VkImage> images_;  // swapchain が所有（破棄不要）
-    std::vector<VkImageView> views_;
+    std::vector<VkUnique<VkImageView>> views_;
 
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
-    VkImage depthImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory depthImageMemory_ = VK_NULL_HANDLE;
-    VkImageView depthView_ = VK_NULL_HANDLE;
+    VkUnique<VkImage> depthImage_;
+    VkUnique<VkDeviceMemory> depthImageMemory_;
+    VkUnique<VkImageView> depthView_;
 
     // ─── 内部ヘルパ ───────────────────────────────────────────
     void createSwapchain(VkSwapchainKHR oldSwapchain);

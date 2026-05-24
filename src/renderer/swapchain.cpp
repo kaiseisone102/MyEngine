@@ -112,19 +112,17 @@ void Swapchain::recreate() {
 
     vkDeviceWaitIdle(ctx_->device());
 
-    // 古い swapchain は oldSwapchain として新 swapchain 作成時に渡す。
-    // ドライバが内部リソースを再利用できるためリサイズが滑らか。
-    VkSwapchainKHR old = swapchain_;
-    swapchain_ = VK_NULL_HANDLE;  // handle を退避 (createSwapchain が上書きする前に)
+    // 古い swapchain を move で退避。createSwapchain が swapchain_ に新しい物を
+    // 入れ、old.get() を oldSwapchain として渡す（ドライバの内部リソース再利用で
+    // リサイズが滑らか）。old は新 swapchain 作成後にスコープを抜けて VkUnique が
+    // 破棄するので、手動 vkDestroySwapchainKHR は不要。
+    VkUnique<VkSwapchainKHR> old = std::move(swapchain_);
 
     // 旧 views と depth は新しい extent で作り直すので先に破棄
-    for (auto v : views_) vkDestroyImageView(ctx_->device(), v, nullptr);
-    views_.clear();
+    views_.clear();  // VkUnique が各 view を破棄
     destroyDepthResources();
 
-    createSwapchain(old);
-    // createSwapchain 内で old を参照し終わっているので、 今安全に破棄できる
-    if (old != VK_NULL_HANDLE) vkDestroySwapchainKHR(ctx_->device(), old, nullptr);
+    createSwapchain(old.get());
 
     createImageViews();
     createDepthResources();
@@ -177,16 +175,18 @@ void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
         ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    if (vkCreateSwapchainKHR(ctx_->device(), &ci, nullptr, &swapchain_) != VK_SUCCESS) {
+    VkSwapchainKHR sc = VK_NULL_HANDLE;
+    if (vkCreateSwapchainKHR(ctx_->device(), &ci, nullptr, &sc) != VK_SUCCESS) {
         throw std::runtime_error("Swapchain::createSwapchain: vkCreateSwapchainKHR failed");
     }
+    swapchain_ = VkUnique<VkSwapchainKHR>(ctx_->device(), sc);
 
     colorFormat_ = fmt.format;
     extent_ = extent;
 
-    vkGetSwapchainImagesKHR(ctx_->device(), swapchain_, &imgCount, nullptr);
+    vkGetSwapchainImagesKHR(ctx_->device(), swapchain_.get(), &imgCount, nullptr);
     images_.resize(imgCount);
-    vkGetSwapchainImagesKHR(ctx_->device(), swapchain_, &imgCount, images_.data());
+    vkGetSwapchainImagesKHR(ctx_->device(), swapchain_.get(), &imgCount, images_.data());
 }
 
 // =============================================================================
@@ -194,16 +194,19 @@ void Swapchain::createSwapchain(VkSwapchainKHR oldSwapchain) {
 // =============================================================================
 
 void Swapchain::createImageViews() {
-    views_.resize(images_.size());
+    views_.clear();
+    views_.reserve(images_.size());
     for (size_t i = 0; i < images_.size(); ++i) {
         VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         ci.image = images_[i];
         ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
         ci.format = colorFormat_;
         ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(ctx_->device(), &ci, nullptr, &views_[i]) != VK_SUCCESS) {
+        VkImageView v = VK_NULL_HANDLE;
+        if (vkCreateImageView(ctx_->device(), &ci, nullptr, &v) != VK_SUCCESS) {
             throw std::runtime_error("Swapchain::createImageViews: vkCreateImageView failed");
         }
+        views_.emplace_back(ctx_->device(), v);
     }
 }
 
@@ -212,9 +215,13 @@ void Swapchain::createImageViews() {
 // =============================================================================
 
 void Swapchain::createDepthResources() {
+    VkImage di = VK_NULL_HANDLE;
+    VkDeviceMemory dm = VK_NULL_HANDLE;
     resources_->createImage(extent_.width, extent_.height, depthFormat_, VK_IMAGE_TILING_OPTIMAL,
                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage_, depthImageMemory_);
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, di, dm);
+    depthImage_ = VkUnique<VkImage>(ctx_->device(), di);
+    depthImageMemory_ = VkUnique<VkDeviceMemory>(ctx_->device(), dm);
 
     // depth view: フォーマットに stencil 成分があれば STENCIL_BIT も追加 (安全側)
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -224,13 +231,15 @@ void Swapchain::createDepthResources() {
     }
 
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    ci.image = depthImage_;
+    ci.image = depthImage_.get();
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = depthFormat_;
     ci.subresourceRange = {aspect, 0, 1, 0, 1};
-    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &depthView_) != VK_SUCCESS) {
+    VkImageView dv = VK_NULL_HANDLE;
+    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &dv) != VK_SUCCESS) {
         throw std::runtime_error("Swapchain::createDepthResources: vkCreateImageView failed");
     }
+    depthView_ = VkUnique<VkImageView>(ctx_->device(), dv);
 }
 
 // =============================================================================
@@ -238,26 +247,13 @@ void Swapchain::createDepthResources() {
 // =============================================================================
 
 void Swapchain::destroyImageViewsAndSwapchain() {
-    for (auto v : views_) vkDestroyImageView(ctx_->device(), v, nullptr);
-    views_.clear();
-    images_.clear();  // swapchain が所有していたので解放不要
-    if (swapchain_ != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(ctx_->device(), swapchain_, nullptr);
-        swapchain_ = VK_NULL_HANDLE;
-    }
+    views_.clear();      // VkUnique が各 view を破棄
+    images_.clear();     // swapchain が所有していたので解放不要
+    swapchain_.reset();  // vkDestroySwapchainKHR
 }
 
 void Swapchain::destroyDepthResources() {
-    if (depthView_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(ctx_->device(), depthView_, nullptr);
-        depthView_ = VK_NULL_HANDLE;
-    }
-    if (depthImage_ != VK_NULL_HANDLE) {
-        vkDestroyImage(ctx_->device(), depthImage_, nullptr);
-        depthImage_ = VK_NULL_HANDLE;
-    }
-    if (depthImageMemory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), depthImageMemory_, nullptr);
-        depthImageMemory_ = VK_NULL_HANDLE;
-    }
+    depthView_.reset();
+    depthImage_.reset();
+    depthImageMemory_.reset();
 }
