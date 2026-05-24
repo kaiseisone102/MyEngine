@@ -39,10 +39,12 @@ void BindlessTextureRegistry::init(VulkanContext* ctx) {
     layoutCi.pBindings = &binding;
     layoutCi.pNext = &bindingFlagsInfo;
 
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &layoutCi, nullptr, &layout_) != VK_SUCCESS) {
+    VkDescriptorSetLayout lay = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &layoutCi, nullptr, &lay) != VK_SUCCESS) {
         throw std::runtime_error(
             "BindlessTextureRegistry: vkCreateDescriptorSetLayout failed");
     }
+    layout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), lay);
 
     // ─── Descriptor Pool ──────────────────────────────────────────────────
     VkDescriptorPoolSize poolSize{};
@@ -55,16 +57,19 @@ void BindlessTextureRegistry::init(VulkanContext* ctx) {
     poolCi.poolSizeCount = 1;
     poolCi.pPoolSizes = &poolSize;
 
-    if (vkCreateDescriptorPool(ctx_->device(), &poolCi, nullptr, &pool_) != VK_SUCCESS) {
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &poolCi, nullptr, &pool) != VK_SUCCESS) {
         throw std::runtime_error("BindlessTextureRegistry: vkCreateDescriptorPool failed");
     }
+    pool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 
     // ─── Allocate the single bindless descriptor set ──────────────────────
     // Variable count is optional but supported; we use the full MAX_TEXTURES upper bound.
     VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    allocInfo.descriptorPool = pool_;
+    allocInfo.descriptorPool = pool_.get();
     allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &layout_;
+    VkDescriptorSetLayout layoutHandle = layout_.get();
+    allocInfo.pSetLayouts = &layoutHandle;
 
     if (vkAllocateDescriptorSets(ctx_->device(), &allocInfo, &set_) != VK_SUCCESS) {
         throw std::runtime_error("BindlessTextureRegistry: vkAllocateDescriptorSets failed");
@@ -118,16 +123,10 @@ void BindlessTextureRegistry::writeDescriptor(uint32_t index, VkImageView view,
 void BindlessTextureRegistry::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
-    if (pool_ != VK_NULL_HANDLE) {
-        // Sets are freed automatically with the pool.
-        vkDestroyDescriptorPool(ctx_->device(), pool_, nullptr);
-        pool_ = VK_NULL_HANDLE;
-        set_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(ctx_->device(), layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
+    // Destroying the pool frees its sets; clear the cached handle to match.
+    pool_.reset();
+    set_ = VK_NULL_HANDLE;
+    layout_.reset();
     nextIndex_ = 0;
     ctx_ = nullptr;
 }

@@ -32,6 +32,8 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <cstdint>
 
 class VulkanContext;
@@ -51,7 +53,7 @@ class BindlessTextureRegistry {
     /// Overwrite the descriptor at an existing index (e.g., for streaming).
     void updateTexture(uint32_t index, VkImageView view, VkSampler sampler);
 
-    VkDescriptorSetLayout layout() const { return layout_; }
+    VkDescriptorSetLayout layout() const { return layout_.get(); }
     VkDescriptorSet descriptorSet() const { return set_; }
 
     uint32_t count() const { return nextIndex_; }
@@ -59,8 +61,8 @@ class BindlessTextureRegistry {
 
    private:
     VulkanContext* ctx_ = nullptr;
-    VkDescriptorSetLayout layout_ = VK_NULL_HANDLE;
-    VkDescriptorPool pool_ = VK_NULL_HANDLE;
+    VkUnique<VkDescriptorSetLayout> layout_;
+    VkUnique<VkDescriptorPool> pool_;
     VkDescriptorSet set_ = VK_NULL_HANDLE;
     uint32_t nextIndex_ = 0;
 
