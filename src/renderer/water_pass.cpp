@@ -165,15 +165,13 @@ void WaterPass::execute(const ExecuteInfo& info) {
         if (!item.mesh) continue;
 
         WaterPipeline::PushConstants pc{};
+        pc.model = glm::mat4(1.0f);  // WaterMesh bakes world coords into vertices
         pc.time = info.time;
         pc.waveAmp = item.drawParams.waveAmp;
         pc.waveSpeed = item.drawParams.waveSpeed;
         pc.waveWavelength = item.drawParams.waveWavelength;
-        // pc.shallowColor = item.drawParams.shallowColor;  // TODO: WaterDrawParams not yet vec4
-        // pc.fresnelPower = item.drawParams.fresnelPower;  // removed in shared::WaterPushConstants
-        // pc.deepColor = item.drawParams.deepColor;  // TODO: WaterDrawParams not yet vec4
-        // pc.specularPower = item.drawParams.specularPower;  // removed
-        // pc.baseAlpha = item.drawParams.baseAlpha;  // removed
+        pc.shallowColor = glm::vec4(item.drawParams.shallowColor, item.drawParams.baseAlpha);
+        pc.deepColor = glm::vec4(item.drawParams.deepColor, item.drawParams.baseAlpha);
 
         vkCmdPushConstants(info.cmd, layout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
