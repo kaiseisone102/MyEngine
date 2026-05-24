@@ -21,6 +21,8 @@
 
 #include "core/particle.h"
 #include "renderer/frame_sync.h"
+#include "renderer/vk_unique.h"
+#include "renderer/vma_buffer.h"
 
 class VulkanContext;
 class ResourceFactory;
@@ -70,17 +72,13 @@ class ParticlePass {
     ResourceFactory* resources_ = nullptr;
     Swapchain* swapchain_ = nullptr;
 
-    VkPipelineLayout layout_ = VK_NULL_HANDLE;
-    VkPipeline pipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> layout_;
+    VkUnique<VkPipeline> pipeline_;
 
-    VkBuffer quadVB_ = VK_NULL_HANDLE;
-    VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
-    VkBuffer quadIB_ = VK_NULL_HANDLE;
-    VkDeviceMemory quadIBMem_ = VK_NULL_HANDLE;
+    VmaBuffer quadVB_;
+    VmaBuffer quadIB_;
 
-    std::array<VkBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> instanceVBs_{};
-    std::array<VkDeviceMemory, FrameSync::MAX_FRAMES_IN_FLIGHT> instanceVBMems_{};
-    std::array<void*, FrameSync::MAX_FRAMES_IN_FLIGHT> instanceVBMapped_{};
+    std::array<VmaBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> instanceVBs_{};
 
     void createLayout(VkDescriptorSetLayout frameSetLayout);
     void createPipeline(VkRenderPass renderPass, const std::string& shaderDir);

@@ -51,6 +51,13 @@ class VmaBuffer {
     // Throws std::runtime_error if mapping or the device address fails.
     static VmaBuffer createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize size);
 
+    // Create a persistently-mapped host-visible buffer with arbitrary usage and
+    // no buffer device address (for vertex/index/uniform data the CPU writes each
+    // frame and the GPU reads). Maps once via VMA; no manual vkMapMemory. usage is
+    // taken as-is. Throws std::runtime_error if mapping fails. deviceAddress()
+    // stays 0.
+    static VmaBuffer createMappedHostVisible(VulkanContext* ctx, VkDeviceSize size,
+                                             VkBufferUsageFlags usage);
     void reset() noexcept;  // vmaDestroyBuffer (no-op if empty)
 
     VkBuffer buffer() const noexcept { return buffer_; }

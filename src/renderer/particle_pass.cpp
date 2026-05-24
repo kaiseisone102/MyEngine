@@ -62,9 +62,11 @@ void ParticlePass::createLayout(VkDescriptorSetLayout frameSetLayout) {
     lci.pSetLayouts = &frameSetLayout;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pcRange;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &layout_) != VK_SUCCESS) {
+    VkPipelineLayout lay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &lay) != VK_SUCCESS) {
         throw std::runtime_error("ParticlePass: vkCreatePipelineLayout failed");
     }
+    layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
 void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& shaderDir) {
@@ -162,12 +164,13 @@ void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& sh
     pci.pDepthStencilState = &ds;
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
-    pci.layout = layout_;
+    pci.layout = layout_.get();
     pci.renderPass = renderPass;
     pci.subpass = 0;
 
+    VkPipeline pipe = VK_NULL_HANDLE;
     const VkResult r =
-        vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline_);
+        vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipe);
 
     vkDestroyShaderModule(ctx_->device(), vert, nullptr);
     vkDestroyShaderModule(ctx_->device(), frag, nullptr);
@@ -175,35 +178,20 @@ void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& sh
     if (r != VK_SUCCESS) {
         throw std::runtime_error("ParticlePass: vkCreateGraphicsPipelines failed");
     }
+    pipeline_ = VkUnique<VkPipeline>(ctx_->device(), pipe);
 }
 
 void ParticlePass::createQuadBuffers() {
     {
         const VkDeviceSize sz = sizeof(kQuadVertices);
-        resources_->createBuffer(
-            sz, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            quadVB_, quadVBMem_);
-        void* mapped = nullptr;
-        if (vkMapMemory(ctx_->device(), quadVBMem_, 0, sz, 0, &mapped) != VK_SUCCESS) {
-            throw std::runtime_error("ParticlePass: quad VB map failed");
-        }
-        std::memcpy(mapped, kQuadVertices, sz);
-        vkUnmapMemory(ctx_->device(), quadVBMem_);
+        quadVB_ = VmaBuffer::createMappedHostVisible(ctx_, sz, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        std::memcpy(quadVB_.mapped(), kQuadVertices, sz);
     }
 
     {
         const VkDeviceSize sz = sizeof(kQuadIndices);
-        resources_->createBuffer(
-            sz, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            quadIB_, quadIBMem_);
-        void* mapped = nullptr;
-        if (vkMapMemory(ctx_->device(), quadIBMem_, 0, sz, 0, &mapped) != VK_SUCCESS) {
-            throw std::runtime_error("ParticlePass: quad IB map failed");
-        }
-        std::memcpy(mapped, kQuadIndices, sz);
-        vkUnmapMemory(ctx_->device(), quadIBMem_);
+        quadIB_ = VmaBuffer::createMappedHostVisible(ctx_, sz, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        std::memcpy(quadIB_.mapped(), kQuadIndices, sz);
     }
 }
 
@@ -211,64 +199,28 @@ void ParticlePass::createInstanceBuffers() {
     const VkDeviceSize bufSize = sizeof(particle::ParticleInstance) * kMaxParticlesPerFrame;
 
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
-        resources_->createBuffer(
-            bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            instanceVBs_[i], instanceVBMems_[i]);
-        if (vkMapMemory(ctx_->device(), instanceVBMems_[i], 0, bufSize, 0,
-                        &instanceVBMapped_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("ParticlePass: instance VB map failed");
-        }
+        instanceVBs_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
 }
 
 void ParticlePass::destroyBuffers() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
+    // VmaBuffer frees buffer + allocation (and unmaps) in reset (no-op if empty).
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (instanceVBMapped_[i]) {
-            vkUnmapMemory(ctx_->device(), instanceVBMems_[i]);
-            instanceVBMapped_[i] = nullptr;
-        }
-        if (instanceVBs_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), instanceVBs_[i], nullptr);
-            instanceVBs_[i] = VK_NULL_HANDLE;
-        }
-        if (instanceVBMems_[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(ctx_->device(), instanceVBMems_[i], nullptr);
-            instanceVBMems_[i] = VK_NULL_HANDLE;
-        }
+        instanceVBs_[i].reset();
     }
-
-    if (quadVB_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), quadVB_, nullptr);
-        quadVB_ = VK_NULL_HANDLE;
-    }
-    if (quadVBMem_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), quadVBMem_, nullptr);
-        quadVBMem_ = VK_NULL_HANDLE;
-    }
-    if (quadIB_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(ctx_->device(), quadIB_, nullptr);
-        quadIB_ = VK_NULL_HANDLE;
-    }
-    if (quadIBMem_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), quadIBMem_, nullptr);
-        quadIBMem_ = VK_NULL_HANDLE;
-    }
+    quadVB_.reset();
+    quadIB_.reset();
 }
 
 void ParticlePass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     destroyBuffers();
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). pipeline before layout.
+    pipeline_.reset();
+    layout_.reset();
     ctx_ = nullptr;
     resources_ = nullptr;
     swapchain_ = nullptr;
@@ -280,7 +232,7 @@ void ParticlePass::execute(const ExecuteInfo& info) {
     if (!info.particles || info.particles->empty()) return;
 
     particle::ParticleInstance* dst =
-        reinterpret_cast<particle::ParticleInstance*>(instanceVBMapped_[info.frameIndex]);
+        reinterpret_cast<particle::ParticleInstance*>(instanceVBs_[info.frameIndex].mapped());
     uint32_t aliveN = 0;
     for (const auto& p : *info.particles) {
         if (!p.alive) continue;
@@ -303,11 +255,11 @@ void ParticlePass::execute(const ExecuteInfo& info) {
         0.f, 0.f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.f, 1.f};
     VkRect2D scissor{{0, 0}, extent};
 
-    vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
     vkCmdSetViewport(info.cmd, 0, 1, &viewport);
     vkCmdSetScissor(info.cmd, 0, 1, &scissor);
 
-    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
+    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_.get(), 0, 1,
                             &info.frameSet, 0, nullptr);
 
     // ─── push constant: フェード範囲を送る ─────────────────
@@ -320,13 +272,13 @@ void ParticlePass::execute(const ExecuteInfo& info) {
         pc.fadeStart = 0.f;
         pc.fadeEnd = 0.f;
     }
-    vkCmdPushConstants(info.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+    vkCmdPushConstants(info.cmd, layout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 
-    VkBuffer buffers[2] = {quadVB_, instanceVBs_[info.frameIndex]};
+    VkBuffer buffers[2] = {quadVB_.buffer(), instanceVBs_[info.frameIndex].buffer()};
     VkDeviceSize offsets[2] = {0, 0};
     vkCmdBindVertexBuffers(info.cmd, 0, 2, buffers, offsets);
 
-    vkCmdBindIndexBuffer(info.cmd, quadIB_, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(info.cmd, quadIB_.buffer(), 0, VK_INDEX_TYPE_UINT16);
 
     vkCmdDrawIndexed(info.cmd, 6, aliveN, 0, 0, 0);
 }

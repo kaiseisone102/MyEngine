@@ -47,6 +47,39 @@ VmaBuffer VmaBuffer::createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize siz
     return out;
 }
 
+VmaBuffer VmaBuffer::createMappedHostVisible(VulkanContext* ctx, VkDeviceSize size,
+                                             VkBufferUsageFlags usage) {
+    if (!ctx) throw std::runtime_error("VmaBuffer::createMappedHostVisible: null ctx");
+
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = usage;
+    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo ai{};
+    ai.usage = VMA_MEMORY_USAGE_AUTO;
+    ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+               VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaBuffer out;
+    out.allocator_ = ctx->allocator();
+    out.size_ = size;
+
+    VmaAllocationInfo allocInfo{};
+    if (vmaCreateBuffer(out.allocator_, &bi, &ai, &out.buffer_, &out.allocation_, &allocInfo) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("VmaBuffer::createMappedHostVisible: vmaCreateBuffer failed");
+    }
+
+    out.mapped_ = allocInfo.pMappedData;
+    if (!out.mapped_) {
+        out.reset();
+        throw std::runtime_error("VmaBuffer::createMappedHostVisible: not persistently mapped");
+    }
+    // No buffer device address requested; address_ stays 0.
+    return out;
+}
+
 void VmaBuffer::reset() noexcept {
     if (buffer_ != VK_NULL_HANDLE && allocator_ != VK_NULL_HANDLE) {
         vmaDestroyBuffer(allocator_, buffer_, allocation_);
