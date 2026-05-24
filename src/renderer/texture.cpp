@@ -1,8 +1,7 @@
 // src/renderer/texture.cpp
-
 #include "renderer/texture.h"
 
-// stb_image: IMPLEMENTATION マクロを 1 つの .cpp でだけ定義する
+// stb_image: define IMPLEMENTATION in exactly one .cpp.
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -31,14 +30,11 @@ void Texture::generateCheckerboard(uint8_t* dst, int w, int h) {
 void Texture::loadFromFileOrCheckerboard(const VulkanContext* ctx, const ResourceFactory* resources,
                                          const std::string& path) {
     ctx_ = ctx;
-
     int texW = 0, texH = 0, texCh = 0;
     uint8_t* stbiPix = stbi_load(path.c_str(), &texW, &texH, &texCh, STBI_rgb_alpha);
     std::vector<uint8_t> owned;
     const uint8_t* pixels = stbiPix;
-
     if (!pixels) {
-        // フォールバック: 256x256 チェッカーボード
         std::cerr << "[Texture] file not found, falling back to checkerboard: " << path << "\n";
         texW = texH = 256;
         owned.resize(static_cast<size_t>(texW * texH * 4));
@@ -48,27 +44,22 @@ void Texture::loadFromFileOrCheckerboard(const VulkanContext* ctx, const Resourc
         std::cout << "[Texture] loaded from file: " << path << " (" << texW << "x" << texH
                   << ")\n";
     }
-
     buildFromRgbaPixels(resources, pixels, texW, texH);
-
     if (stbiPix) stbi_image_free(stbiPix);
 }
 
 void Texture::loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
                              const uint8_t* encodedData, size_t size) {
     ctx_ = ctx;
-
     int texW = 0, texH = 0, texCh = 0;
     uint8_t* stbiPix = nullptr;
     std::vector<uint8_t> owned;
     const uint8_t* pixels = nullptr;
-
     if (encodedData && size > 0) {
         stbiPix = stbi_load_from_memory(encodedData, static_cast<int>(size), &texW, &texH, &texCh,
                                         STBI_rgb_alpha);
         pixels = stbiPix;
     }
-
     if (!pixels) {
         std::cerr << "[Texture] loadFromMemory failed, falling back to checkerboard\n";
         texW = texH = 256;
@@ -76,9 +67,7 @@ void Texture::loadFromMemory(const VulkanContext* ctx, const ResourceFactory* re
         generateCheckerboard(owned.data(), texW, texH);
         pixels = owned.data();
     }
-
     buildFromRgbaPixels(resources, pixels, texW, texH);
-
     if (stbiPix) stbi_image_free(stbiPix);
 }
 
@@ -120,28 +109,36 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     std::memcpy(data, pixels, static_cast<size_t>(imageSize));
     vkUnmapMemory(ctx_->device(), stagingMem);
 
+    // Create image + memory into raw locals, then take ownership via VkUnique.
+    // Move-assign frees any previous handle first, so re-loading a Texture is safe.
+    VkImage img = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
     resources->createImage(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                            VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, image_, memory_);
+                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
+    image_ = VkUnique<VkImage>(ctx_->device(), img);
+    memory_ = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
 
-    resources->transitionImageLayout(image_, VK_IMAGE_LAYOUT_UNDEFINED,
+    resources->transitionImageLayout(image_.get(), VK_IMAGE_LAYOUT_UNDEFINED,
                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    resources->copyBufferToImage(staging, image_, static_cast<uint32_t>(width),
+    resources->copyBufferToImage(staging, image_.get(), static_cast<uint32_t>(width),
                                  static_cast<uint32_t>(height));
-    resources->transitionImageLayout(image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    resources->transitionImageLayout(image_.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     vkDestroyBuffer(ctx_->device(), staging, nullptr);
     vkFreeMemory(ctx_->device(), stagingMem, nullptr);
 
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    ci.image = image_;
+    ci.image = image_.get();
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = VK_FORMAT_R8G8B8A8_SRGB;
     ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &view_) != VK_SUCCESS)
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(ctx_->device(), &ci, nullptr, &view) != VK_SUCCESS)
         throw std::runtime_error("Texture::createImageAndView: vkCreateImageView failed");
+    view_ = VkUnique<VkImageView>(ctx_->device(), view);
 }
 
 void Texture::createSampler() {
@@ -153,27 +150,18 @@ void Texture::createSampler() {
     ci.maxAnisotropy = 1.f;
     ci.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     ci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    if (vkCreateSampler(ctx_->device(), &ci, nullptr, &sampler_) != VK_SUCCESS)
+    VkSampler sampler = VK_NULL_HANDLE;
+    if (vkCreateSampler(ctx_->device(), &ci, nullptr, &sampler) != VK_SUCCESS)
         throw std::runtime_error("Texture::createSampler: vkCreateSampler failed");
+    sampler_ = VkUnique<VkSampler>(ctx_->device(), sampler);
 }
 
 void Texture::destroy() {
-    if (!ctx_) return;
-    if (sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(ctx_->device(), sampler_, nullptr);
-        sampler_ = VK_NULL_HANDLE;
-    }
-    if (view_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(ctx_->device(), view_, nullptr);
-        view_ = VK_NULL_HANDLE;
-    }
-    if (image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(ctx_->device(), image_, nullptr);
-        image_ = VK_NULL_HANDLE;
-    }
-    if (memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(ctx_->device(), memory_, nullptr);
-        memory_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). Reset in reverse dependency
+    // order; the auto destructor would do the same if destroy() were never called.
+    sampler_.reset();
+    view_.reset();
+    image_.reset();
+    memory_.reset();
     ctx_ = nullptr;
 }
