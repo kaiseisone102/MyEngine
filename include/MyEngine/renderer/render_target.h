@@ -14,6 +14,7 @@
 // =============================================================================
 
 #include <vulkan/vulkan.h>
+#include "renderer/vk_unique.h"
 
 class VulkanContext;
 class ResourceFactory;
@@ -37,9 +38,9 @@ class RenderTarget {
     void init(VulkanContext* ctx, ResourceFactory* resources, const Desc& desc);
     void shutdown();
 
-    VkImage image() const { return image_; }
-    VkImageView view() const { return view_; }
-    VkSampler sampler() const { return sampler_; }
+    VkImage image() const { return image_.get(); }
+    VkImageView view() const { return view_.get(); }
+    VkSampler sampler() const { return sampler_.get(); }
     VkFormat format() const { return desc_.format; }
     VkExtent2D extent() const { return {desc_.width, desc_.height}; }
     VkImageAspectFlags aspect() const { return desc_.aspect; }
@@ -48,8 +49,8 @@ class RenderTarget {
     VulkanContext* ctx_ = nullptr;
     Desc desc_{};
 
-    VkImage image_ = VK_NULL_HANDLE;
-    VkDeviceMemory memory_ = VK_NULL_HANDLE;
-    VkImageView view_ = VK_NULL_HANDLE;
-    VkSampler sampler_ = VK_NULL_HANDLE;
+    VkUnique<VkImage> image_;
+    VkUnique<VkDeviceMemory> memory_;
+    VkUnique<VkImageView> view_;
+    VkUnique<VkSampler> sampler_;
 };
