@@ -163,8 +163,8 @@ SubMeshCpuData buildSubMeshCpu(const aiMesh* mesh) {
 }
 
 void uploadBuffer(const VulkanContext* ctx, const ResourceFactory* resources, const void* src,
-                  VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& outBuffer,
-                  VkDeviceMemory& outMemory) {
+                  VkDeviceSize size, VkBufferUsageFlags usage, VkUnique<VkBuffer>& outBuffer,
+                  VkUnique<VkDeviceMemory>& outMemory) {
     VkBuffer staging{};
     VkDeviceMemory stagingMem{};
     resources->createBuffer(
@@ -177,9 +177,13 @@ void uploadBuffer(const VulkanContext* ctx, const ResourceFactory* resources, co
     std::memcpy(data, src, static_cast<size_t>(size));
     vkUnmapMemory(ctx->device(), stagingMem);
 
+    VkBuffer buf = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
     resources->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outBuffer, outMemory);
-    resources->copyBuffer(staging, outBuffer, size);
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buf, mem);
+    outBuffer = VkUnique<VkBuffer>(ctx->device(), buf);
+    outMemory = VkUnique<VkDeviceMemory>(ctx->device(), mem);
+    resources->copyBuffer(staging, outBuffer.get(), size);
 
     vkDestroyBuffer(ctx->device(), staging, nullptr);
     vkFreeMemory(ctx->device(), stagingMem, nullptr);

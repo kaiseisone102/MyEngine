@@ -5,8 +5,9 @@
 
 void SubMesh::bind(VkCommandBuffer cmd) const {
     const VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    VkBuffer vb = vertexBuffer.get();
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
+    vkCmdBindIndexBuffer(cmd, indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
 }
 
 void Model::destroy() {
@@ -24,22 +25,11 @@ void Model::destroy() {
     textures_.clear();
 
     for (SubMesh& sm : subMeshes_) {
-        if (sm.indexBuffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, sm.indexBuffer, nullptr);
-            sm.indexBuffer = VK_NULL_HANDLE;
-        }
-        if (sm.indexBufferMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device, sm.indexBufferMemory, nullptr);
-            sm.indexBufferMemory = VK_NULL_HANDLE;
-        }
-        if (sm.vertexBuffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, sm.vertexBuffer, nullptr);
-            sm.vertexBuffer = VK_NULL_HANDLE;
-        }
-        if (sm.vertexBufferMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(device, sm.vertexBufferMemory, nullptr);
-            sm.vertexBufferMemory = VK_NULL_HANDLE;
-        }
+        // VkUnique frees each handle (no-op if empty).
+        sm.indexBuffer.reset();
+        sm.indexBufferMemory.reset();
+        sm.vertexBuffer.reset();
+        sm.vertexBufferMemory.reset();
         sm.indexCount = 0;
     }
     subMeshes_.clear();

@@ -12,6 +12,7 @@
 #include "core/aabb.h"
 #include "renderer/material.h"
 #include "renderer/mesh.h"
+#include "renderer/vk_unique.h"
 #include "renderer/skeleton.h"
 #include "renderer/texture.h"
 
@@ -20,10 +21,10 @@ class ResourceFactory;
 class AssetRegistry;
 
 struct SubMesh {
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer indexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
+    VkUnique<VkBuffer> vertexBuffer;
+    VkUnique<VkDeviceMemory> vertexBufferMemory;
+    VkUnique<VkBuffer> indexBuffer;
+    VkUnique<VkDeviceMemory> indexBufferMemory;
     uint32_t indexCount = 0;
     uint32_t materialIndex = 0;
 
