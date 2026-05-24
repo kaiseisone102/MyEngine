@@ -19,6 +19,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -66,17 +68,17 @@ class DebugLinePass {
     ResourceFactory* resources_ = nullptr;
     Swapchain* swapchain_ = nullptr;
 
-    VkPipelineLayout layout_ = VK_NULL_HANDLE;
-    VkPipeline linePipeline_ = VK_NULL_HANDLE;   // VK_PRIMITIVE_TOPOLOGY_LINE_LIST
-    VkPipeline triPipeline_ = VK_NULL_HANDLE;    // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+    VkUnique<VkPipelineLayout> layout_;
+    VkUnique<VkPipeline> linePipeline_;   // VK_PRIMITIVE_TOPOLOGY_LINE_LIST
+    VkUnique<VkPipeline> triPipeline_;    // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
 
     // per-frame 頂点バッファ (line / triangle で別バッファ)
-    std::array<VkBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBs_{};
-    std::array<VkDeviceMemory, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBMems_{};
+    std::array<VkUnique<VkBuffer>, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBs_{};
+    std::array<VkUnique<VkDeviceMemory>, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBMems_{};
     std::array<void*, FrameSync::MAX_FRAMES_IN_FLIGHT> lineVBMapped_{};
 
-    std::array<VkBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBs_{};
-    std::array<VkDeviceMemory, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBMems_{};
+    std::array<VkUnique<VkBuffer>, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBs_{};
+    std::array<VkUnique<VkDeviceMemory>, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBMems_{};
     std::array<void*, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBMapped_{};
 
     void createLayout(VkDescriptorSetLayout frameSetLayout);

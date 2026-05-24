@@ -39,14 +39,18 @@ void DebugLinePass::createLayout(VkDescriptorSetLayout frameSetLayout) {
     lci.pSetLayouts = &frameSetLayout;
     lci.pushConstantRangeCount = 0;
     lci.pPushConstantRanges = nullptr;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &layout_) != VK_SUCCESS) {
+    VkPipelineLayout lay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &lay) != VK_SUCCESS) {
         throw std::runtime_error("DebugLinePass: vkCreatePipelineLayout failed");
     }
+    layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
 void DebugLinePass::createPipelines(VkRenderPass renderPass, const std::string& shaderDir) {
-    linePipeline_ = buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
-    triPipeline_  = buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    linePipeline_ = VkUnique<VkPipeline>(
+        ctx_->device(), buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_LINE_LIST));
+    triPipeline_ = VkUnique<VkPipeline>(
+        ctx_->device(), buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST));
 }
 
 VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::string& shaderDir,
@@ -139,7 +143,7 @@ VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::stri
     pci.pDepthStencilState = &ds;
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
-    pci.layout = layout_;
+    pci.layout = layout_.get();
     pci.renderPass = renderPass;
     pci.subpass = 0;
 
@@ -161,20 +165,28 @@ void DebugLinePass::createVertexBuffers() {
 
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
         // line VB
+        VkBuffer lvb = VK_NULL_HANDLE;
+        VkDeviceMemory lvm = VK_NULL_HANDLE;
         resources_->createBuffer(
             bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            lineVBs_[i], lineVBMems_[i]);
-        if (vkMapMemory(ctx_->device(), lineVBMems_[i], 0, bufSize, 0, &lineVBMapped_[i]) !=
+            lvb, lvm);
+        lineVBs_[i] = VkUnique<VkBuffer>(ctx_->device(), lvb);
+        lineVBMems_[i] = VkUnique<VkDeviceMemory>(ctx_->device(), lvm);
+        if (vkMapMemory(ctx_->device(), lineVBMems_[i].get(), 0, bufSize, 0, &lineVBMapped_[i]) !=
             VK_SUCCESS) {
             throw std::runtime_error("DebugLinePass: vkMapMemory (line) failed");
         }
         // tri VB
+        VkBuffer tvb = VK_NULL_HANDLE;
+        VkDeviceMemory tvm = VK_NULL_HANDLE;
         resources_->createBuffer(
             bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            triVBs_[i], triVBMems_[i]);
-        if (vkMapMemory(ctx_->device(), triVBMems_[i], 0, bufSize, 0, &triVBMapped_[i]) !=
+            tvb, tvm);
+        triVBs_[i] = VkUnique<VkBuffer>(ctx_->device(), tvb);
+        triVBMems_[i] = VkUnique<VkDeviceMemory>(ctx_->device(), tvm);
+        if (vkMapMemory(ctx_->device(), triVBMems_[i].get(), 0, bufSize, 0, &triVBMapped_[i]) !=
             VK_SUCCESS) {
             throw std::runtime_error("DebugLinePass: vkMapMemory (tri) failed");
         }
@@ -184,48 +196,30 @@ void DebugLinePass::createVertexBuffers() {
 void DebugLinePass::destroyVertexBuffers() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
+        // Unmap before freeing (vkFreeMemory would implicitly unmap, but clear
+        // the cached pointer explicitly). VkUnique then frees buffer + memory.
         if (lineVBMapped_[i]) {
-            vkUnmapMemory(ctx_->device(), lineVBMems_[i]);
+            vkUnmapMemory(ctx_->device(), lineVBMems_[i].get());
             lineVBMapped_[i] = nullptr;
         }
-        if (lineVBs_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), lineVBs_[i], nullptr);
-            lineVBs_[i] = VK_NULL_HANDLE;
-        }
-        if (lineVBMems_[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(ctx_->device(), lineVBMems_[i], nullptr);
-            lineVBMems_[i] = VK_NULL_HANDLE;
-        }
+        lineVBs_[i].reset();
+        lineVBMems_[i].reset();
         if (triVBMapped_[i]) {
-            vkUnmapMemory(ctx_->device(), triVBMems_[i]);
+            vkUnmapMemory(ctx_->device(), triVBMems_[i].get());
             triVBMapped_[i] = nullptr;
         }
-        if (triVBs_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), triVBs_[i], nullptr);
-            triVBs_[i] = VK_NULL_HANDLE;
-        }
-        if (triVBMems_[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(ctx_->device(), triVBMems_[i], nullptr);
-            triVBMems_[i] = VK_NULL_HANDLE;
-        }
+        triVBs_[i].reset();
+        triVBMems_[i].reset();
     }
 }
 
 void DebugLinePass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     destroyVertexBuffers();
-    if (linePipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), linePipeline_, nullptr);
-        linePipeline_ = VK_NULL_HANDLE;
-    }
-    if (triPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), triPipeline_, nullptr);
-        triPipeline_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty). pipelines before layout.
+    linePipeline_.reset();
+    triPipeline_.reset();
+    layout_.reset();
     ctx_ = nullptr;
     resources_ = nullptr;
     swapchain_ = nullptr;
@@ -263,26 +257,28 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
     VkRect2D scissor{{0, 0}, extent};
 
     // frame set bind は 1 回で OK (どちらの pipeline でも layout は同じ)
-    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1,
+    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_.get(), 0, 1,
                             &info.frameSet, 0, nullptr);
 
     VkDeviceSize zero = 0;
 
     // ── triangle pass (扇形の塗りつぶし、 先に描いて線で上書きされるように) ──
     if (triUsed > 0) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triPipeline_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindVertexBuffers(info.cmd, 0, 1, &triVBs_[info.frameIndex], &zero);
+        VkBuffer tvb = triVBs_[info.frameIndex].get();
+        vkCmdBindVertexBuffers(info.cmd, 0, 1, &tvb, &zero);
         vkCmdDraw(info.cmd, static_cast<uint32_t>(triUsed), 1, 0, 0);
     }
 
     // ── line pass (縁取り、 刃の線、 円) ──
     if (lineUsed > 0) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindVertexBuffers(info.cmd, 0, 1, &lineVBs_[info.frameIndex], &zero);
+        VkBuffer lvb = lineVBs_[info.frameIndex].get();
+        vkCmdBindVertexBuffers(info.cmd, 0, 1, &lvb, &zero);
         vkCmdDraw(info.cmd, static_cast<uint32_t>(lineUsed), 1, 0, 0);
     }
 }
