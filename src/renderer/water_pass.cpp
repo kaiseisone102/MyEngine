@@ -29,7 +29,7 @@ void WaterPass::init(const InitInfo& info) {
     pi.ctx = info.ctx;
     pi.renderPass = info.mainRenderPass;
     pi.frameSetLayout = info.frameSetLayout;
-    pi.reflectionSetLayout = reflectionLayout_;
+    pi.reflectionSetLayout = reflectionLayout_.get();
     pi.shaderDir = info.shaderDir;
     pipeline_.init(pi);
 }
@@ -48,8 +48,10 @@ void WaterPass::createReflectionLayoutAndPool() {
     VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     ci.bindingCount = 2;
     ci.pBindings = bindings;
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &reflectionLayout_) != VK_SUCCESS)
+    VkDescriptorSetLayout lay = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &lay) != VK_SUCCESS)
         throw std::runtime_error("WaterPass: reflection layout failed");
+    reflectionLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), lay);
 
     VkDescriptorPoolSize sizes[2]{};
     sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -61,30 +63,29 @@ void WaterPass::createReflectionLayoutAndPool() {
     pi.maxSets = MAX_FRAMES_IN_FLIGHT;
     pi.poolSizeCount = 2;
     pi.pPoolSizes = sizes;
-    if (vkCreateDescriptorPool(ctx_->device(), &pi, nullptr, &reflectionPool_) != VK_SUCCESS)
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &pi, nullptr, &pool) != VK_SUCCESS)
         throw std::runtime_error("WaterPass: reflection pool failed");
+    reflectionPool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 }
 
 void WaterPass::createReflectionUbo(ResourceFactory* resources) {
     const VkDeviceSize size = sizeof(ReflectVpUboData);
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        resources->createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                reflectVpBuffers_[i], reflectVpMemories_[i]);
-        vkMapMemory(ctx_->device(), reflectVpMemories_[i], 0, size, 0, &reflectVpMapped_[i]);
+        reflectVpBuffers_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         ReflectVpUboData init{};
         init.reflectVP = glm::mat4(1.0f);
-        std::memcpy(reflectVpMapped_[i], &init, sizeof(init));
+        std::memcpy(reflectVpBuffers_[i].mapped(), &init, sizeof(init));
     }
 }
 
 void WaterPass::allocateReflectionSets() {
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = reflectionLayout_;
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = reflectionLayout_.get();
 
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    ai.descriptorPool = reflectionPool_;
+    ai.descriptorPool = reflectionPool_.get();
     ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     ai.pSetLayouts = layouts.data();
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, reflectionSets_.data()) != VK_SUCCESS)
@@ -93,7 +94,7 @@ void WaterPass::allocateReflectionSets() {
     // UBO 部分だけ最初に書き込み (sampler は bindReflectionTexture で後で)
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorBufferInfo bi{};
-        bi.buffer = reflectVpBuffers_[i];
+        bi.buffer = reflectVpBuffers_[i].buffer();
         bi.offset = 0;
         bi.range = sizeof(ReflectVpUboData);
 
@@ -137,7 +138,7 @@ void WaterPass::writeReflectVp(uint32_t frameIndex, const glm::mat4& reflectVP) 
     const uint32_t idx = frameIndex % MAX_FRAMES_IN_FLIGHT;
     ReflectVpUboData data{};
     data.reflectVP = reflectVP;
-    std::memcpy(reflectVpMapped_[idx], &data, sizeof(data));
+    std::memcpy(reflectVpBuffers_[idx].mapped(), &data, sizeof(data));
 }
 
 void WaterPass::execute(const ExecuteInfo& info) {
@@ -186,26 +187,12 @@ void WaterPass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     pipeline_.shutdown();
 
+    // VmaBuffer frees buffer + allocation (and unmaps) in reset (no-op if empty).
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (reflectVpMemories_[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(ctx_->device(), reflectVpMemories_[i]);
-            vkFreeMemory(ctx_->device(), reflectVpMemories_[i], nullptr);
-            reflectVpMemories_[i] = VK_NULL_HANDLE;
-        }
-        if (reflectVpBuffers_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), reflectVpBuffers_[i], nullptr);
-            reflectVpBuffers_[i] = VK_NULL_HANDLE;
-        }
-        reflectVpMapped_[i] = nullptr;
+        reflectVpBuffers_[i].reset();
     }
-
-    if (reflectionPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(ctx_->device(), reflectionPool_, nullptr);
-        reflectionPool_ = VK_NULL_HANDLE;
-    }
-    if (reflectionLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(ctx_->device(), reflectionLayout_, nullptr);
-        reflectionLayout_ = VK_NULL_HANDLE;
-    }
+    // Descriptor sets are freed implicitly when the pool is destroyed.
+    reflectionPool_.reset();
+    reflectionLayout_.reset();
     ctx_ = nullptr;
 }

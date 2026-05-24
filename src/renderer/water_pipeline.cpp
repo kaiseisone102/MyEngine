@@ -31,10 +31,13 @@ void WaterPipeline::init(const InitInfo& info) {
         lci.pSetLayouts = &info.frameSetLayout;
         lci.pushConstantRangeCount = 1;
         lci.pPushConstantRanges = &pcRange;
-        if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &layoutFakeOnly_) != VK_SUCCESS)
+        VkPipelineLayout lay = VK_NULL_HANDLE;
+        if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &lay) != VK_SUCCESS)
             throw std::runtime_error("WaterPipeline: layoutFakeOnly failed");
-        pipelineFakeOnly_ = buildPipeline(info.renderPass, layoutFakeOnly_, info.shaderDir,
-                                          "water_frag.spv");
+        layoutFakeOnly_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
+        pipelineFakeOnly_ = VkUnique<VkPipeline>(
+            ctx_->device(),
+            buildPipeline(info.renderPass, layoutFakeOnly_.get(), info.shaderDir, "water_frag.spv"));
     }
 
     // ─── withReflection レイアウト (set=0, set=1) ────
@@ -45,11 +48,13 @@ void WaterPipeline::init(const InitInfo& info) {
         lci.pSetLayouts = setLayouts;
         lci.pushConstantRangeCount = 1;
         lci.pPushConstantRanges = &pcRange;
-        if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &layoutWithReflection_) !=
-            VK_SUCCESS)
+        VkPipelineLayout lay = VK_NULL_HANDLE;
+        if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &lay) != VK_SUCCESS)
             throw std::runtime_error("WaterPipeline: layoutWithReflection failed");
-        pipelineWithReflection_ = buildPipeline(info.renderPass, layoutWithReflection_,
-                                                 info.shaderDir, "water_reflect_frag.spv");
+        layoutWithReflection_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
+        pipelineWithReflection_ = VkUnique<VkPipeline>(
+            ctx_->device(), buildPipeline(info.renderPass, layoutWithReflection_.get(),
+                                          info.shaderDir, "water_reflect_frag.spv"));
     }
 }
 
@@ -158,21 +163,10 @@ VkPipeline WaterPipeline::buildPipeline(VkRenderPass renderPass, VkPipelineLayou
 
 void WaterPipeline::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    if (pipelineWithReflection_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipelineWithReflection_, nullptr);
-        pipelineWithReflection_ = VK_NULL_HANDLE;
-    }
-    if (layoutWithReflection_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), layoutWithReflection_, nullptr);
-        layoutWithReflection_ = VK_NULL_HANDLE;
-    }
-    if (pipelineFakeOnly_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipelineFakeOnly_, nullptr);
-        pipelineFakeOnly_ = VK_NULL_HANDLE;
-    }
-    if (layoutFakeOnly_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), layoutFakeOnly_, nullptr);
-        layoutFakeOnly_ = VK_NULL_HANDLE;
-    }
+    // VkUnique frees each handle (no-op if empty); pipeline before its layout.
+    pipelineWithReflection_.reset();
+    layoutWithReflection_.reset();
+    pipelineFakeOnly_.reset();
+    layoutFakeOnly_.reset();
     ctx_ = nullptr;
 }

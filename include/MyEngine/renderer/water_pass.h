@@ -20,6 +20,8 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 
+#include "renderer/vk_unique.h"
+#include "renderer/vma_buffer.h"
 #include "renderer/water_pipeline.h"
 #include "scene/scene_data.h"
 
@@ -61,14 +63,12 @@ class WaterPass {
     WaterPipeline pipeline_;
 
     // set=1 layout (sampler + UBO)
-    VkDescriptorSetLayout reflectionLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool reflectionPool_ = VK_NULL_HANDLE;
+    VkUnique<VkDescriptorSetLayout> reflectionLayout_;
+    VkUnique<VkDescriptorPool> reflectionPool_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> reflectionSets_{};
 
     // reflection VP UBO (frame in flight 分)
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> reflectVpBuffers_{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> reflectVpMemories_{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> reflectVpMapped_{};
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> reflectVpBuffers_{};
 
     // 現在 bind されてる reflection texture
     VkImageView currentReflectView_ = VK_NULL_HANDLE;

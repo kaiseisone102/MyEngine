@@ -11,6 +11,8 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <cstdint>
 #include <string>
 
@@ -37,17 +39,17 @@ class WaterPipeline {
     void init(const InitInfo& info);
     void shutdown();
 
-    VkPipelineLayout layoutFakeOnly() const { return layoutFakeOnly_; }
-    VkPipeline pipelineFakeOnly() const { return pipelineFakeOnly_; }
-    VkPipelineLayout layoutWithReflection() const { return layoutWithReflection_; }
-    VkPipeline pipelineWithReflection() const { return pipelineWithReflection_; }
+    VkPipelineLayout layoutFakeOnly() const { return layoutFakeOnly_.get(); }
+    VkPipeline pipelineFakeOnly() const { return pipelineFakeOnly_.get(); }
+    VkPipelineLayout layoutWithReflection() const { return layoutWithReflection_.get(); }
+    VkPipeline pipelineWithReflection() const { return pipelineWithReflection_.get(); }
 
    private:
     VulkanContext* ctx_ = nullptr;
-    VkPipelineLayout layoutFakeOnly_ = VK_NULL_HANDLE;
-    VkPipeline pipelineFakeOnly_ = VK_NULL_HANDLE;
-    VkPipelineLayout layoutWithReflection_ = VK_NULL_HANDLE;
-    VkPipeline pipelineWithReflection_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> layoutFakeOnly_;
+    VkUnique<VkPipeline> pipelineFakeOnly_;
+    VkUnique<VkPipelineLayout> layoutWithReflection_;
+    VkUnique<VkPipeline> pipelineWithReflection_;
 
     VkPipeline buildPipeline(VkRenderPass renderPass, VkPipelineLayout layout,
                               const std::string& shaderDir, const std::string& fragName);
