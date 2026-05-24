@@ -40,23 +40,11 @@ void PostPass::shutdown() {
     destroyFramebuffers();
     destroyPipeline();
 
-    if (pipelineLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), pipelineLayout_, nullptr);
-        pipelineLayout_ = VK_NULL_HANDLE;
-    }
-    if (descPool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(ctx_->device(), descPool_, nullptr);
-        descPool_ = VK_NULL_HANDLE;
-        descSet_ = VK_NULL_HANDLE;  // freed with pool
-    }
-    if (descSetLayout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(ctx_->device(), descSetLayout_, nullptr);
-        descSetLayout_ = VK_NULL_HANDLE;
-    }
-    if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(ctx_->device(), renderPass_, nullptr);
-        renderPass_ = VK_NULL_HANDLE;
-    }
+    pipelineLayout_.reset();
+    descPool_.reset();
+    descSet_ = VK_NULL_HANDLE;  // freed with pool
+    descSetLayout_.reset();
+    renderPass_.reset();
 
     ctx_ = nullptr;
     swapchain_ = nullptr;
@@ -121,8 +109,10 @@ void PostPass::createRenderPass() {
     ci.dependencyCount = 1;
     ci.pDependencies = &dep;
 
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &renderPass_) != VK_SUCCESS)
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreateRenderPass failed");
+    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void PostPass::createDescriptorSetLayout() {
@@ -140,8 +130,10 @@ void PostPass::createDescriptorSetLayout() {
     ci.bindingCount = 2;
     ci.pBindings = b;
 
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &descSetLayout_) != VK_SUCCESS)
+    VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &dsl) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreateDescriptorSetLayout failed");
+    descSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), dsl);
 }
 
 void PostPass::createDescriptorPool() {
@@ -156,21 +148,24 @@ void PostPass::createDescriptorPool() {
     // FREE_DESCRIPTOR_SET so we can re-allocate on resize
     ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
-    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &descPool_) != VK_SUCCESS)
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &pool) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreateDescriptorPool failed");
+    descPool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 }
 
 void PostPass::allocateAndUpdateDescriptorSet() {
     // Free previous set if any (resize case)
     if (descSet_ != VK_NULL_HANDLE) {
-        vkFreeDescriptorSets(ctx_->device(), descPool_, 1, &descSet_);
+        vkFreeDescriptorSets(ctx_->device(), descPool_.get(), 1, &descSet_);
         descSet_ = VK_NULL_HANDLE;
     }
 
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    ai.descriptorPool = descPool_;
+    ai.descriptorPool = descPool_.get();
     ai.descriptorSetCount = 1;
-    ai.pSetLayouts = &descSetLayout_;
+    VkDescriptorSetLayout dslHandle = descSetLayout_.get();
+    ai.pSetLayouts = &dslHandle;
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, &descSet_) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkAllocateDescriptorSets failed");
 
@@ -208,12 +203,15 @@ void PostPass::createPipelineLayout() {
 
     VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     li.setLayoutCount = 1;
-    li.pSetLayouts = &descSetLayout_;
+    VkDescriptorSetLayout liLayout = descSetLayout_.get();
+    li.pSetLayouts = &liLayout;
     li.pushConstantRangeCount = 1;
     li.pPushConstantRanges = &pcRange;
 
-    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &pipelineLayout_) != VK_SUCCESS)
+    VkPipelineLayout playout = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &playout) != VK_SUCCESS)
         throw std::runtime_error("PostPass: vkCreatePipelineLayout failed");
+    pipelineLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), playout);
 }
 
 void PostPass::createPipeline(const std::string& shaderDir) {
@@ -278,11 +276,12 @@ void PostPass::createPipeline(const std::string& shaderDir) {
     pci.pColorBlendState = &cb;
     pci.pDepthStencilState = &ds;
     pci.pDynamicState = &dyn;
-    pci.layout = pipelineLayout_;
-    pci.renderPass = renderPass_;
+    pci.layout = pipelineLayout_.get();
+    pci.renderPass = renderPass_.get();
     pci.subpass = 0;
 
-    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline_) != VK_SUCCESS) {
+    VkPipeline pipe = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipe) != VK_SUCCESS) {
         vkDestroyShaderModule(ctx_->device(), frag, nullptr);
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
         throw std::runtime_error("PostPass: vkCreateGraphicsPipelines failed");
@@ -290,6 +289,7 @@ void PostPass::createPipeline(const std::string& shaderDir) {
 
     vkDestroyShaderModule(ctx_->device(), frag, nullptr);
     vkDestroyShaderModule(ctx_->device(), vert, nullptr);
+    pipeline_ = VkUnique<VkPipeline>(ctx_->device(), pipe);
 }
 
 void PostPass::createFramebuffers() {
@@ -300,7 +300,7 @@ void PostPass::createFramebuffers() {
     for (uint32_t i = 0; i < count; ++i) {
         VkImageView attachments[] = {swapchain_->colorView(i)};
         VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        ci.renderPass = renderPass_;
+        ci.renderPass = renderPass_.get();
         ci.attachmentCount = 1;
         ci.pAttachments = attachments;
         ci.width = extent.width;
@@ -319,10 +319,7 @@ void PostPass::destroyFramebuffers() {
 }
 
 void PostPass::destroyPipeline() {
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
-    }
+    pipeline_.reset();
 }
 
 void PostPass::execute(const ExecuteInfo& info) {
@@ -336,7 +333,7 @@ void PostPass::execute(const ExecuteInfo& info) {
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_;
+    rp.renderPass = renderPass_.get();
     rp.framebuffer = framebuffers_[info.imageIndex];
     rp.renderArea = {{0, 0}, extent};
     rp.clearValueCount = 1;
@@ -356,12 +353,12 @@ void PostPass::execute(const ExecuteInfo& info) {
     VkRect2D scissor{{0, 0}, extent};
     vkCmdSetScissor(info.cmd, 0, 1, &scissor);
 
-    vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSet_, 0, nullptr);
+    vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+    vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_.get(), 0, 1, &descSet_, 0, nullptr);
 
     // Phase 1H-4: push tonemapper mode + exposure
     struct { int mode; float exposure; } pc{tonemapMode_, exposure_};
-    vkCmdPushConstants(info.cmd, pipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+    vkCmdPushConstants(info.cmd, pipelineLayout_.get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     // Fullscreen triangle (3 vertices, no vertex buffer)
     vkCmdDraw(info.cmd, 3, 1, 0, 0);

@@ -16,6 +16,8 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <string>
 #include <vector>
 
@@ -54,7 +56,7 @@ class PostPass {
     int  tonemapMode() const { return tonemapMode_; }
     float exposure() const { return exposure_; }
 
-    VkRenderPass renderPass() const { return renderPass_; }
+    VkRenderPass renderPass() const { return renderPass_.get(); }
 
    private:
     void createRenderPass();
@@ -74,12 +76,12 @@ class PostPass {
     VkImageView bloomColorView_ = VK_NULL_HANDLE;   // Phase 1I
     VkSampler bloomColorSampler_ = VK_NULL_HANDLE;
 
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool descPool_ = VK_NULL_HANDLE;
+    VkUnique<VkRenderPass> renderPass_;
+    VkUnique<VkDescriptorSetLayout> descSetLayout_;
+    VkUnique<VkDescriptorPool> descPool_;
     VkDescriptorSet descSet_ = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
-    VkPipeline pipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> pipelineLayout_;
+    VkUnique<VkPipeline> pipeline_;
     std::vector<VkFramebuffer> framebuffers_;
 
     std::string shaderDir_;
