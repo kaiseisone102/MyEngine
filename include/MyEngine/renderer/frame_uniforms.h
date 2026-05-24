@@ -8,6 +8,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+#include "renderer/vma_buffer.h"
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -41,22 +44,18 @@ class FrameUniforms {
     void updateReflection(uint32_t frameIndex, const LightingUBO& data);
     VkDescriptorSet descriptorSetReflection(uint32_t frameIndex) const;
 
-    VkDescriptorSetLayout layout() const { return layout_; }
+    VkDescriptorSetLayout layout() const { return layout_.get(); }
 
    private:
     VulkanContext* ctx_ = nullptr;
 
-    VkDescriptorSetLayout layout_ = VK_NULL_HANDLE;
-    VkDescriptorPool pool_ = VK_NULL_HANDLE;
+    VkUnique<VkDescriptorSetLayout> layout_;
+    VkUnique<VkDescriptorPool> pool_;
 
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> memories_{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> mapped_{};
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sets_{};
 
-    std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> buffersReflection_{};
-    std::array<VkDeviceMemory, MAX_FRAMES_IN_FLIGHT> memoriesReflection_{};
-    std::array<void*, MAX_FRAMES_IN_FLIGHT> mappedReflection_{};
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffersReflection_{};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> setsReflection_{};
 
     VkImageView shadowView_ = VK_NULL_HANDLE;

@@ -30,8 +30,10 @@ void FrameUniforms::createLayoutAndPool() {
     VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     ci.bindingCount = 2;
     ci.pBindings = bindings;
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &layout_) != VK_SUCCESS)
+    VkDescriptorSetLayout lay = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &lay) != VK_SUCCESS)
         throw std::runtime_error("FrameUniforms: layout failed");
+    layout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), lay);
 
     // 通常 N + 反射 N の 2 倍
     VkDescriptorPoolSize sizes[2]{};
@@ -44,33 +46,28 @@ void FrameUniforms::createLayoutAndPool() {
     pi.maxSets = MAX_FRAMES_IN_FLIGHT * 2;
     pi.poolSizeCount = 2;
     pi.pPoolSizes = sizes;
-    if (vkCreateDescriptorPool(ctx_->device(), &pi, nullptr, &pool_) != VK_SUCCESS)
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &pi, nullptr, &pool) != VK_SUCCESS)
         throw std::runtime_error("FrameUniforms: pool failed");
+    pool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 }
 
 void FrameUniforms::createUbos(ResourceFactory* resources) {
     const VkDeviceSize size = sizeof(LightingUBO);
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        resources->createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  buffers_[i], memories_[i]);
-        vkMapMemory(ctx_->device(), memories_[i], 0, size, 0, &mapped_[i]);
-
-        resources->createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  buffersReflection_[i], memoriesReflection_[i]);
-        vkMapMemory(ctx_->device(), memoriesReflection_[i], 0, size, 0, &mappedReflection_[i]);
+        buffers_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        buffersReflection_[i] =
+            VmaBuffer::createMappedHostVisible(ctx_, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
 }
 
 void FrameUniforms::allocateSets() {
     std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = layout_;
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) layouts[i] = layout_.get();
 
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    ai.descriptorPool = pool_;
+    ai.descriptorPool = pool_.get();
     ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     ai.pSetLayouts = layouts.data();
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, sets_.data()) != VK_SUCCESS)
@@ -93,8 +90,8 @@ void FrameUniforms::allocateSets() {
         vkUpdateDescriptorSets(ctx_->device(), 1, &w, 0, nullptr);
     };
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        writeUbo(sets_[i], buffers_[i]);
-        writeUbo(setsReflection_[i], buffersReflection_[i]);
+        writeUbo(sets_[i], buffers_[i].buffer());
+        writeUbo(setsReflection_[i], buffersReflection_[i].buffer());
     }
 }
 
@@ -127,12 +124,12 @@ void FrameUniforms::rebuildDescriptorSets() {
 
 void FrameUniforms::update(uint32_t frameIndex, const LightingUBO& data) {
     const uint32_t idx = frameIndex % MAX_FRAMES_IN_FLIGHT;
-    std::memcpy(mapped_[idx], &data, sizeof(data));
+    std::memcpy(buffers_[idx].mapped(), &data, sizeof(data));
 }
 
 void FrameUniforms::updateReflection(uint32_t frameIndex, const LightingUBO& data) {
     const uint32_t idx = frameIndex % MAX_FRAMES_IN_FLIGHT;
-    std::memcpy(mappedReflection_[idx], &data, sizeof(data));
+    std::memcpy(buffersReflection_[idx].mapped(), &data, sizeof(data));
 }
 
 VkDescriptorSet FrameUniforms::descriptorSet(uint32_t frameIndex) const {
@@ -145,36 +142,13 @@ VkDescriptorSet FrameUniforms::descriptorSetReflection(uint32_t frameIndex) cons
 
 void FrameUniforms::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
+    // VmaBuffer frees buffer + allocation (and unmaps) in reset (no-op if empty).
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (memories_[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(ctx_->device(), memories_[i]);
-            vkFreeMemory(ctx_->device(), memories_[i], nullptr);
-            memories_[i] = VK_NULL_HANDLE;
-        }
-        if (buffers_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), buffers_[i], nullptr);
-            buffers_[i] = VK_NULL_HANDLE;
-        }
-        mapped_[i] = nullptr;
-
-        if (memoriesReflection_[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(ctx_->device(), memoriesReflection_[i]);
-            vkFreeMemory(ctx_->device(), memoriesReflection_[i], nullptr);
-            memoriesReflection_[i] = VK_NULL_HANDLE;
-        }
-        if (buffersReflection_[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(ctx_->device(), buffersReflection_[i], nullptr);
-            buffersReflection_[i] = VK_NULL_HANDLE;
-        }
-        mappedReflection_[i] = nullptr;
+        buffers_[i].reset();
+        buffersReflection_[i].reset();
     }
-    if (pool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(ctx_->device(), pool_, nullptr);
-        pool_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(ctx_->device(), layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
+    // Descriptor sets are freed implicitly when the pool is destroyed.
+    pool_.reset();
+    layout_.reset();
     ctx_ = nullptr;
 }
