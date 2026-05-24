@@ -58,8 +58,10 @@ void ShadowPass::createRenderPass() {
     ci.pSubpasses = &sub;
     ci.dependencyCount = 1;
     ci.pDependencies = &dep;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &renderPass_) != VK_SUCCESS)
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
         throw std::runtime_error("ShadowPass: vkCreateRenderPass failed");
+    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void ShadowPass::createTarget(ResourceFactory* resources) {
@@ -79,14 +81,16 @@ void ShadowPass::createTarget(ResourceFactory* resources) {
 void ShadowPass::createFramebuffer() {
     VkImageView view = target_.view();
     VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    fi.renderPass = renderPass_;
+    fi.renderPass = renderPass_.get();
     fi.attachmentCount = 1;
     fi.pAttachments = &view;
     fi.width = extent_.width;
     fi.height = extent_.height;
     fi.layers = 1;
-    if (vkCreateFramebuffer(ctx_->device(), &fi, nullptr, &framebuffer_) != VK_SUCCESS)
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    if (vkCreateFramebuffer(ctx_->device(), &fi, nullptr, &fb) != VK_SUCCESS)
         throw std::runtime_error("ShadowPass: vkCreateFramebuffer failed");
+    framebuffer_ = VkUnique<VkFramebuffer>(ctx_->device(), fb);
 }
 
 namespace {
@@ -195,15 +199,17 @@ void ShadowPass::createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
     lci.pSetLayouts = &frameSetLayout;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &staticLayout_) != VK_SUCCESS) {
+    VkPipelineLayout slay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &slay) != VK_SUCCESS) {
         throw std::runtime_error("ShadowPass: static layout failed");
     }
+    staticLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), slay);
 
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), renderPass_, staticLayout_, vert, false};
-        staticPipeline_ = createShadowPipeline(p);
+        ShadowPipelineParams p{ctx_->device(), renderPass_.get(), staticLayout_.get(), vert, false};
+        staticPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
         throw;
@@ -224,15 +230,17 @@ void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &skinnedLayout_) != VK_SUCCESS) {
+    VkPipelineLayout klay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &klay) != VK_SUCCESS) {
         throw std::runtime_error("ShadowPass: skinned layout failed");
     }
+    skinnedLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), klay);
 
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_skinned_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), renderPass_, skinnedLayout_, vert, true};
-        skinnedPipeline_ = createShadowPipeline(p);
+        ShadowPipelineParams p{ctx_->device(), renderPass_.get(), skinnedLayout_.get(), vert, true};
+        skinnedPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
         throw;
@@ -246,8 +254,8 @@ void ShadowPass::execute(const ExecuteInfo& info) {
     VkClearValue clear{};
     clear.depthStencil = {1.0f, 0};
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_;
-    rp.framebuffer = framebuffer_;
+    rp.renderPass = renderPass_.get();
+    rp.framebuffer = framebuffer_.get();
     rp.renderArea = {{0, 0}, extent_};
     rp.clearValueCount = 1;
     rp.pClearValues = &clear;
@@ -267,17 +275,17 @@ void ShadowPass::execute(const ExecuteInfo& info) {
         info.staticModelDrawList && !info.staticModelDrawList->empty();
 
     if (hasMesh || hasStaticModels) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipeline_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
 
         // ── Mesh (cube) 影 ────────────────────────────────────
         if (hasMesh) {
             info.mesh->bind(info.cmd);
             for (const MeshDrawItem& item : *info.meshDrawList) {
-                vkCmdPushConstants(info.cmd, staticLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                                    sizeof(glm::mat4), &item.model);
                 vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
             }
@@ -291,7 +299,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
                 if (item.sourceModel != curModel) {
                     curModel = item.sourceModel;
                 }
-                vkCmdPushConstants(info.cmd, staticLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                                    sizeof(glm::mat4), &item.model);
                 for (const SubMesh& sm : curModel->subMeshes()) {
                     if (sm.indexCount == 0) continue;
@@ -304,10 +312,10 @@ void ShadowPass::execute(const ExecuteInfo& info) {
 
     // ─── Skinned (Model) 影 ──────────────────────────────────
     if (info.modelDrawList && !info.modelDrawList->empty()) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipeline_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
 
         const Model* curModel = nullptr;
@@ -321,7 +329,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
             pc.model = item.model;
             pc.skinOffset = item.skinOffset;
             pc.skinBuffer = info.skinAddress;
-            vkCmdPushConstants(info.cmd, skinnedLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            vkCmdPushConstants(info.cmd, skinnedLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                                sizeof(SkinnedPushConstants), &pc);
             for (const SubMesh& sm : curModel->subMeshes()) {
                 if (sm.indexCount == 0) continue;
@@ -349,30 +357,12 @@ void ShadowPass::execute(const ExecuteInfo& info) {
 
 void ShadowPass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    if (framebuffer_ != VK_NULL_HANDLE) {
-        vkDestroyFramebuffer(ctx_->device(), framebuffer_, nullptr);
-        framebuffer_ = VK_NULL_HANDLE;
-    }
-    if (skinnedPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), skinnedPipeline_, nullptr);
-        skinnedPipeline_ = VK_NULL_HANDLE;
-    }
-    if (skinnedLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), skinnedLayout_, nullptr);
-        skinnedLayout_ = VK_NULL_HANDLE;
-    }
-    if (staticPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), staticPipeline_, nullptr);
-        staticPipeline_ = VK_NULL_HANDLE;
-    }
-    if (staticLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), staticLayout_, nullptr);
-        staticLayout_ = VK_NULL_HANDLE;
-    }
+    framebuffer_.reset();
+    skinnedPipeline_.reset();
+    skinnedLayout_.reset();
+    staticPipeline_.reset();
+    staticLayout_.reset();
     target_.shutdown();
-    if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(ctx_->device(), renderPass_, nullptr);
-        renderPass_ = VK_NULL_HANDLE;
-    }
+    renderPass_.reset();
     ctx_ = nullptr;
 }

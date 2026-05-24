@@ -10,6 +10,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <cstdint>
 #include <glm/glm.hpp>
 #include "shaders/shared/types.h"
@@ -61,13 +63,13 @@ class ShadowPass {
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
 
     RenderTarget target_;
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-    VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
+    VkUnique<VkRenderPass> renderPass_;
+    VkUnique<VkFramebuffer> framebuffer_;
 
-    VkPipelineLayout staticLayout_ = VK_NULL_HANDLE;
-    VkPipeline staticPipeline_ = VK_NULL_HANDLE;
-    VkPipelineLayout skinnedLayout_ = VK_NULL_HANDLE;
-    VkPipeline skinnedPipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> staticLayout_;
+    VkUnique<VkPipeline> staticPipeline_;
+    VkUnique<VkPipelineLayout> skinnedLayout_;
+    VkUnique<VkPipeline> skinnedPipeline_;
 
     void createRenderPass();
     void createTarget(ResourceFactory* resources);
