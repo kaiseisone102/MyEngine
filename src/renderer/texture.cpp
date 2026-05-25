@@ -111,27 +111,25 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
 
     // Create image + memory into raw locals, then take ownership via VkUnique.
     // Move-assign frees any previous handle first, so re-loading a Texture is safe.
-    VkImage img = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    resources->createImage(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                           VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                           VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
-    image_ = VkUnique<VkImage>(ctx_->device(), img);
-    memory_ = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
+    // image memory is now VMA-managed via VmaImage (createImageVMA path).
+    // ctx_ is const here; createAttachment needs non-const (allocator()), so cast.
+    image_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
+                                        static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                        VK_FORMAT_R8G8B8A8_SRGB,
+                                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
-    resources->transitionImageLayout(image_.get(), VK_IMAGE_LAYOUT_UNDEFINED,
+    resources->transitionImageLayout(image_.image(), VK_IMAGE_LAYOUT_UNDEFINED,
                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    resources->copyBufferToImage(staging, image_.get(), static_cast<uint32_t>(width),
+    resources->copyBufferToImage(staging, image_.image(), static_cast<uint32_t>(width),
                                  static_cast<uint32_t>(height));
-    resources->transitionImageLayout(image_.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    resources->transitionImageLayout(image_.image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     vkDestroyBuffer(ctx_->device(), staging, nullptr);
     vkFreeMemory(ctx_->device(), stagingMem, nullptr);
 
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    ci.image = image_.get();
+    ci.image = image_.image();
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = VK_FORMAT_R8G8B8A8_SRGB;
     ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -162,6 +160,5 @@ void Texture::destroy() {
     sampler_.reset();
     view_.reset();
     image_.reset();
-    memory_.reset();
     ctx_ = nullptr;
 }

@@ -19,6 +19,7 @@
 #include <string>
 
 #include "renderer/vk_unique.h"
+#include "renderer/vma_image.h"
 
 class VulkanContext;
 class ResourceFactory;
@@ -51,8 +52,7 @@ class Texture {
 
    private:
     const VulkanContext* ctx_ = nullptr;
-    VkUnique<VkImage> image_;
-    VkUnique<VkDeviceMemory> memory_;
+    VmaImage image_;  // VkImage + VmaAllocation (memory is now VMA-managed)
     VkUnique<VkImageView> view_;
     VkUnique<VkSampler> sampler_;
     uint32_t bindlessIndex_ = UINT32_MAX;
