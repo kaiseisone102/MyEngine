@@ -9,6 +9,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
 #include "shared/shadow_sampling.glsl"
+#include "shared/pbr.glsl"
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -37,33 +38,6 @@ layout(push_constant) uniform PC {
 layout(location = 0) out vec4 outColor;
 
 const float kShadowBias = 0.0015;
-const float PI = 3.14159265359;
-
-// ─── Cook-Torrance PBR BRDF (metallic-roughness workflow) ───
-// D: GGX / Trowbridge-Reitz normal distribution
-float distributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    return a2 / (PI * denom * denom);
-}
-// G: Smith's method with Schlick-GGX
-float geometrySchlickGGX(float NdotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    return NdotV / (NdotV * (1.0 - k) + k);
-}
-float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return geometrySchlickGGX(NdotV, roughness) * geometrySchlickGGX(NdotL, roughness);
-}
-// F: Fresnel-Schlick approximation
-vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
 
 void main() {
     // Phase 1K-2 S4-c: fetch material from the SSBO by id
@@ -80,43 +54,26 @@ void main() {
     vec3 V = normalize(ubo.frame.viewPos.xyz - fragWorldPos);
     // lightDir is the direction the light TRAVELS; flip for "to-light"
     vec3 L = normalize(-ubo.frame.lightDir.xyz);
-    vec3 H = normalize(V + L);
 
     // ─── PBR material params (Phase 1K-2: from GpuMaterial) ───
     float metallic = m.metallic;
     float roughness = m.roughness;
     vec3 albedo = baseColor.rgb;
-
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 radiance = ubo.frame.lightColor.rgb;
 
-    // Cook-Torrance specular
-    float D = distributionGGX(N, H, roughness);
-    float G = geometrySmith(N, V, L, roughness);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
-
-    // energy conservation: metals have no diffuse
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-    vec3 diffuse = kD * albedo / PI;
-
+    // Shadow (directional/sun). litFactor folds shadow strength in.
     vec3 proj = fragLightPos.xyz / fragLightPos.w;
     proj.xy = proj.xy * 0.5 + 0.5;
-
     float shadow = 0.0;
     if (proj.x >= 0.0 && proj.x <= 1.0 && proj.y >= 0.0 && proj.y <= 1.0 &&
         proj.z >= 0.0 && proj.z <= 1.0) {
         int quality = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=Soft(PCF),2=High(PCSS)
         shadow = sampleShadowFactor(shadowMap, proj.xy, proj.z, kShadowBias, quality);
     }
-
     float litFactor = 1.0 - shadow * ubo.frame.shadowParams.x;
-    // PBR direct lighting: (diffuse + specular) * radiance * NdotL, shadowed
-    vec3 Lo = (diffuse + specular) * radiance * NdotL * litFactor;
-    // ambient (environment) approximation, proportional to albedo
-    vec3 ambient = ubo.frame.ambient.rgb * albedo;
-    vec3 color = ambient + Lo;
+
+    // One directional light today; loop here when multi-light (Phase 2A) lands.
+    vec3 Lo = pbrDirectLighting(N, V, L, radiance, albedo, metallic, roughness) * litFactor;
+    vec3 color = pbrAmbient(ubo.frame.ambient.rgb, albedo) + Lo;
     outColor = vec4(color, baseColor.a * fragAlpha);
 }
