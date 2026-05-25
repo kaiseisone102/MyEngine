@@ -1,0 +1,53 @@
+#version 450
+// bloom_downsample.comp - Jimenez 13-tap downsample. Karis avg when param>0.5.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D srcSampled;     // source mip
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dstImage; // dst mip
+layout(push_constant) uniform PushConstants {
+    float threshold;
+    float softKnee;
+    float intensity;
+    float param;   // >0.5 => Karis average (firefly suppression for mip0->mip1)
+} pc;
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float karisW(vec3 c) { return 1.0 / (1.0 + luma(c)); }
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 dstSize = imageSize(dstImage);
+    if (p.x >= dstSize.x || p.y >= dstSize.y) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(dstSize);
+    vec2 t = 1.0 / vec2(textureSize(srcSampled, 0));
+    float dx = t.x, dy = t.y;
+
+    vec3 a = texture(srcSampled, uv + vec2(-2*dx,  2*dy)).rgb;
+    vec3 b = texture(srcSampled, uv + vec2(  0,    2*dy)).rgb;
+    vec3 c = texture(srcSampled, uv + vec2( 2*dx,  2*dy)).rgb;
+    vec3 d = texture(srcSampled, uv + vec2(-2*dx,  0)).rgb;
+    vec3 e = texture(srcSampled, uv + vec2(  0,    0)).rgb;
+    vec3 f = texture(srcSampled, uv + vec2( 2*dx,  0)).rgb;
+    vec3 g = texture(srcSampled, uv + vec2(-2*dx, -2*dy)).rgb;
+    vec3 h = texture(srcSampled, uv + vec2(  0,   -2*dy)).rgb;
+    vec3 i = texture(srcSampled, uv + vec2( 2*dx, -2*dy)).rgb;
+    vec3 j = texture(srcSampled, uv + vec2(-dx,  dy)).rgb;
+    vec3 k = texture(srcSampled, uv + vec2( dx,  dy)).rgb;
+    vec3 l = texture(srcSampled, uv + vec2(-dx, -dy)).rgb;
+    vec3 m = texture(srcSampled, uv + vec2( dx, -dy)).rgb;
+
+    vec3 color;
+    if (pc.param > 0.5) {
+        vec3 g0 = (j + k + l + m) * 0.25;
+        vec3 g1 = (a + b + d + e) * 0.25;
+        vec3 g2 = (b + c + e + f) * 0.25;
+        vec3 g3 = (d + e + g + h) * 0.25;
+        vec3 g4 = (e + f + h + i) * 0.25;
+        float w0 = karisW(g0), w1 = karisW(g1), w2 = karisW(g2), w3 = karisW(g3), w4 = karisW(g4);
+        float wsum = w0*0.5 + (w1+w2+w3+w4)*0.125;
+        color = (g0*w0*0.5 + g1*w1*0.125 + g2*w2*0.125 + g3*w3*0.125 + g4*w4*0.125) / max(wsum, 1e-5);
+    } else {
+        color  = e * 0.125;
+        color += (a + c + g + i) * 0.03125;
+        color += (b + d + f + h) * 0.0625;
+        color += (j + k + l + m) * 0.125;
+    }
+    imageStore(dstImage, p, vec4(color, 1.0));
+}

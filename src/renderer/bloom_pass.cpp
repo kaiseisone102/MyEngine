@@ -1,376 +1,373 @@
 // src/renderer/bloom_pass.cpp
 // =============================================================================
-// bloom_pass.cpp - Phase 1I: HDR bloom (bright extract + separable Gaussian)
+// bloom_pass.cpp - Phase 1I: compute-based mip-chain bloom (Jimenez / CoD:AW).
+// First compute pass in the engine. See bloom_pass.h for the flow + contract.
+//
+// Conventions established here for future compute passes (2B culling, etc.):
+//   - Workgroup is 8x8; dispatch groups = ceil(dst extent / 8).
+//   - Storage images are written in GENERAL layout; sampled reads also use
+//     GENERAL (a single layout for the whole chain keeps barriers simple).
+//   - Between dispatches we insert a COMPUTE->COMPUTE barrier on the just-written
+//     image: srcAccess SHADER_WRITE -> dstAccess SHADER_READ, so the next stage
+//     samples completed data. The HDR input is produced by a prior graphics pass;
+//     pass_chain orders bloom after MainPass so HDR is already readable.
 // =============================================================================
 #include "renderer/bloom_pass.h"
 
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 
+#include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
 
+namespace {
+constexpr uint32_t kLocalSize = 8;
+inline uint32_t groups(uint32_t n) { return (n + kLocalSize - 1) / kLocalSize; }
+}  // namespace
+
+// --- mip math: the ONLY place that decides count + per-mip extent -----------
+std::vector<BloomPass::MipSize> BloomPass::computeMipSizes() const {
+    std::vector<MipSize> sizes;
+    uint32_t w = baseWidth_, h = baseHeight_;
+    for (uint32_t i = 0; i < maxMips_; ++i) {
+        if (w == 0 || h == 0) break;
+        sizes.push_back({w, h});
+        if (w == 1 && h == 1) break;
+        w = std::max(1u, w / 2);
+        h = std::max(1u, h / 2);
+    }
+    return sizes;
+}
+
 void BloomPass::init(const InitInfo& info) {
     if (!info.ctx) throw std::runtime_error("BloomPass::init: ctx is null");
-    if (info.hdrColorView == VK_NULL_HANDLE) throw std::runtime_error("BloomPass::init: hdrColorView is null");
-    if (info.targetAView == VK_NULL_HANDLE || info.targetBView == VK_NULL_HANDLE)
-        throw std::runtime_error("BloomPass::init: bloom target views are null");
+    if (info.hdrColorView == VK_NULL_HANDLE) throw std::runtime_error("BloomPass::init: hdrColorView null");
     if (info.bloomFormat == VK_FORMAT_UNDEFINED) throw std::runtime_error("BloomPass::init: bloomFormat undefined");
-    if (info.width == 0 || info.height == 0) throw std::runtime_error("BloomPass::init: zero extent");
+    if (info.baseWidth == 0 || info.baseHeight == 0) throw std::runtime_error("BloomPass::init: zero extent");
 
     ctx_ = info.ctx;
+    resources_ = info.resources;
+    if (!resources_) throw std::runtime_error("BloomPass::init: resources is null");
     hdrColorView_ = info.hdrColorView;
     hdrColorSampler_ = info.hdrColorSampler;
-    targetAView_ = info.targetAView;
-    targetASampler_ = info.targetASampler;
-    targetBView_ = info.targetBView;
-    targetBSampler_ = info.targetBSampler;
     bloomFormat_ = info.bloomFormat;
-    width_ = info.width;
-    height_ = info.height;
+    baseWidth_ = info.baseWidth;
+    baseHeight_ = info.baseHeight;
+    maxMips_ = std::max(2u, info.maxMips);  // need at least 2 mips for a chain
     shaderDir_ = info.shaderDir;
 
-    createRenderPass();
-    createDescriptorSetLayout();
-    createDescriptorPool();
-    allocateDescriptorSets();
-    updateDescriptorSets();
-    createPipelineLayout();
+    createMipsAndViews();
+    createDescriptorInfra();
+    allocateAndWriteSets();
     createPipelines(shaderDir_);
-    createFramebuffers();
 }
 
 void BloomPass::shutdown() {
     if (!ctx_) return;
-    VkDevice dev = ctx_->device();
-    destroyFramebuffers();
-    destroyPipelines();
+    pipeUpsample_.reset();
+    pipeDownsample_.reset();
+    pipeBright_.reset();
     pipelineLayout_.reset();
+    destroyMipsAndSets();
     descPool_.reset();
     descSetLayout_.reset();
-    renderPass_.reset();
-    descHdr_ = descA_ = descB_ = VK_NULL_HANDLE;
 }
 
 void BloomPass::onSwapchainResized(const InitInfo& info) {
-    // Resources were recreated by the renderer; refresh views + extent and
-    // rebuild framebuffers + descriptor sets. Render pass / pipelines / layout
-    // are format-only dependent and can be kept (format unchanged).
+    // Extent + HDR view changed. Pipelines + layout + set layout are extent-
+    // independent and kept. Rebuild mips, views, sampler, pool, and sets.
     hdrColorView_ = info.hdrColorView;
     hdrColorSampler_ = info.hdrColorSampler;
-    targetAView_ = info.targetAView;
-    targetASampler_ = info.targetASampler;
-    targetBView_ = info.targetBView;
-    targetBSampler_ = info.targetBSampler;
-    width_ = info.width;
-    height_ = info.height;
+    baseWidth_ = info.baseWidth;
+    baseHeight_ = info.baseHeight;
 
-    destroyFramebuffers();
-    updateDescriptorSets();
-    createFramebuffers();
+    destroyMipsAndSets();
+    descPool_.reset();
+    createMipsAndViews();
+    createDescriptorInfra();   // recreates pool (layout kept, but pool was reset)
+    allocateAndWriteSets();
 }
 
-void BloomPass::createRenderPass() {
-    // One color attachment in the bloom format. We CLEAR on load (we fully
-    // overwrite each target) and leave it SHADER_READ_ONLY so the next pass
-    // (or PostPass) can sample it.
-    VkAttachmentDescription color{};
-    color.format = bloomFormat_;
-    color.samples = VK_SAMPLE_COUNT_1_BIT;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+// --- mips: each is STORAGE | SAMPLED, GENERAL layout; one view + shared sampler
+void BloomPass::createMipsAndViews() {
+    const auto sizes = computeMipSizes();
+    if (sizes.size() < 2) throw std::runtime_error("BloomPass: extent too small for a mip chain");
 
-    VkAttachmentReference colorRef{};
-    colorRef.attachment = 0;
-    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    mips_.clear();
+    mipViews_.clear();
+    mips_.reserve(sizes.size());
+    mipViews_.reserve(sizes.size());
 
-    VkSubpassDescription sub{};
-    sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub.colorAttachmentCount = 1;
-    sub.pColorAttachments = &colorRef;
+    const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    for (const auto& s : sizes) {
+        VmaImage img = VmaImage::createAttachment(ctx_, s.w, s.h, bloomFormat_, usage);
 
-    // Two dependencies: wait for prior sampling to finish before we write,
-    // and make our writes visible to the next fragment-shader sampling.
-    std::array<VkSubpassDependency, 2> deps{};
-    deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-    deps[0].dstSubpass = 0;
-    deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    deps[1].srcSubpass = 0;
-    deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vi.image = img.image();
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.format = bloomFormat_;
+        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkImageView view = VK_NULL_HANDLE;
+        if (vkCreateImageView(ctx_->device(), &vi, nullptr, &view) != VK_SUCCESS)
+            throw std::runtime_error("BloomPass: vkCreateImageView failed");
 
-    VkRenderPassCreateInfo ci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    ci.attachmentCount = 1;
-    ci.pAttachments = &color;
-    ci.subpassCount = 1;
-    ci.pSubpasses = &sub;
-    ci.dependencyCount = static_cast<uint32_t>(deps.size());
-    ci.pDependencies = deps.data();
+        mips_.push_back(std::move(img));
+        mipViews_.emplace_back(ctx_->device(), view);
+    }
 
-    VkRenderPass rp = VK_NULL_HANDLE;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
-        throw std::runtime_error("BloomPass: vkCreateRenderPass failed");
-    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
+    // One shared sampler: linear, clamp-to-edge (avoids wrap bleeding at edges).
+    VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sc.magFilter = VK_FILTER_LINEAR;
+    sc.minFilter = VK_FILTER_LINEAR;
+    sc.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sc.addressModeU = sc.addressModeV = sc.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sc.maxLod = 0.0f;
+    VkSampler samp = VK_NULL_HANDLE;
+    if (vkCreateSampler(ctx_->device(), &sc, nullptr, &samp) != VK_SUCCESS)
+        throw std::runtime_error("BloomPass: vkCreateSampler failed");
+    sampler_ = VkUnique<VkSampler>(ctx_->device(), samp);
+
+    // Transition every mip UNDEFINED -> GENERAL once, up front. Uses the shared
+    // ResourceFactory helper (its generic fallback covers UNDEFINED->GENERAL).
+    // Storage writes only need GENERAL layout; initial contents are irrelevant
+    // because the first dispatch fully overwrites each mip.
+    for (auto& img : mips_) {
+        resources_->transitionImageLayout(img.image(), VK_IMAGE_LAYOUT_UNDEFINED,
+                                          VK_IMAGE_LAYOUT_GENERAL);
+    }
 }
 
-void BloomPass::createDescriptorSetLayout() {
-    VkDescriptorSetLayoutBinding b{};
-    b.binding = 0;
-    b.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    b.descriptorCount = 1;
-    b.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+void BloomPass::createDescriptorInfra() {
+    // binding 0: sampled source (sampler2D). binding 1: storage dest (image2D).
+    std::array<VkDescriptorSetLayoutBinding, 2> b{};
+    b[0].binding = 0;
+    b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[0].descriptorCount = 1;
+    b[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    b[1].binding = 1;
+    b[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    b[1].descriptorCount = 1;
+    b[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    ci.bindingCount = 1;
-    ci.pBindings = &b;
+    if (!descSetLayout_) {  // layout is extent-independent; create once
+        VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        ci.bindingCount = static_cast<uint32_t>(b.size());
+        ci.pBindings = b.data();
+        VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
+        if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &dsl) != VK_SUCCESS)
+            throw std::runtime_error("BloomPass: vkCreateDescriptorSetLayout failed");
+        descSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), dsl);
+    }
 
-    VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
-    if (vkCreateDescriptorSetLayout(ctx_->device(), &ci, nullptr, &dsl) != VK_SUCCESS)
-        throw std::runtime_error("BloomPass: vkCreateDescriptorSetLayout failed");
-    descSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), dsl);
-}
+    // Sets needed: 1 (bright) + (n-1) down + (n-1) up.
+    const uint32_t n = static_cast<uint32_t>(mips_.size());
+    const uint32_t setCount = 1u + (n - 1u) * 2u;
 
-void BloomPass::createDescriptorPool() {
-    VkDescriptorPoolSize ps{};
-    ps.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    ps.descriptorCount = 3;  // HDR, A, B
+    std::array<VkDescriptorPoolSize, 2> ps{};
+    ps[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    ps[0].descriptorCount = setCount;
+    ps[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    ps[1].descriptorCount = setCount;
 
-    VkDescriptorPoolCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    ci.maxSets = 3;
-    ci.poolSizeCount = 1;
-    ci.pPoolSizes = &ps;
-
+    VkDescriptorPoolCreateInfo pci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pci.maxSets = setCount;
+    pci.poolSizeCount = static_cast<uint32_t>(ps.size());
+    pci.pPoolSizes = ps.data();
     VkDescriptorPool pool = VK_NULL_HANDLE;
-    if (vkCreateDescriptorPool(ctx_->device(), &ci, nullptr, &pool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(ctx_->device(), &pci, nullptr, &pool) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkCreateDescriptorPool failed");
     descPool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
 }
 
-void BloomPass::allocateDescriptorSets() {
-    std::array<VkDescriptorSetLayout, 3> layouts{descSetLayout_.get(), descSetLayout_.get(), descSetLayout_.get()};
+void BloomPass::allocateAndWriteSets() {
+    const uint32_t n = static_cast<uint32_t>(mips_.size());
+    const uint32_t setCount = 1u + (n - 1u) * 2u;
+
+    std::vector<VkDescriptorSetLayout> layouts(setCount, descSetLayout_.get());
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     ai.descriptorPool = descPool_.get();
-    ai.descriptorSetCount = 3;
+    ai.descriptorSetCount = setCount;
     ai.pSetLayouts = layouts.data();
-
-    std::array<VkDescriptorSet, 3> sets{};
+    std::vector<VkDescriptorSet> sets(setCount);
     if (vkAllocateDescriptorSets(ctx_->device(), &ai, sets.data()) != VK_SUCCESS)
         throw std::runtime_error("BloomPass: vkAllocateDescriptorSets failed");
-    descHdr_ = sets[0];
-    descA_ = sets[1];
-    descB_ = sets[2];
-}
 
-void BloomPass::updateDescriptorSets() {
-    auto writeOne = [&](VkDescriptorSet set, VkImageView view, VkSampler samp) {
-        VkDescriptorImageInfo ii{};
-        ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ii.imageView = view;
-        ii.sampler = samp;
-        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w.dstSet = set;
-        w.dstBinding = 0;
-        w.descriptorCount = 1;
-        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w.pImageInfo = &ii;
-        vkUpdateDescriptorSets(ctx_->device(), 1, &w, 0, nullptr);
+    setBright_ = sets[0];
+    setDown_.assign(n - 1, VK_NULL_HANDLE);
+    setUp_.assign(n - 1, VK_NULL_HANDLE);
+    for (uint32_t i = 0; i < n - 1; ++i) {
+        setDown_[i] = sets[1 + i];
+        setUp_[i] = sets[1 + (n - 1) + i];
+    }
+
+    // Helper: write (sampledView, storageView) into a set. sampledLayout differs:
+    // the HDR input is SHADER_READ_ONLY_OPTIMAL (owned by MainPass), while mips are
+    // GENERAL (we read+write them as storage within this pass).
+    auto writeSet = [&](VkDescriptorSet set, VkImageView sampledView, VkImageLayout sampledLayout,
+                        VkImageView storageView) {
+        VkDescriptorImageInfo si{};
+        si.imageLayout = sampledLayout;
+        si.imageView = sampledView;
+        si.sampler = sampler_.get();
+        VkDescriptorImageInfo di{};
+        di.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        di.imageView = storageView;
+        di.sampler = VK_NULL_HANDLE;
+
+        std::array<VkWriteDescriptorSet, 2> w{};
+        w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[0].dstSet = set;
+        w[0].dstBinding = 0;
+        w[0].descriptorCount = 1;
+        w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[0].pImageInfo = &si;
+        w[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[1].dstSet = set;
+        w[1].dstBinding = 1;
+        w[1].descriptorCount = 1;
+        w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        w[1].pImageInfo = &di;
+        vkUpdateDescriptorSets(ctx_->device(), 2, w.data(), 0, nullptr);
     };
-    writeOne(descHdr_, hdrColorView_, hdrColorSampler_);
-    writeOne(descA_, targetAView_, targetASampler_);
-    writeOne(descB_, targetBView_, targetBSampler_);
-}
 
-void BloomPass::createPipelineLayout() {
-    VkPushConstantRange pcRange{};
-    pcRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pcRange.offset = 0;
-    pcRange.size = sizeof(PushConstants);
-
-    VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    li.setLayoutCount = 1;
-    VkDescriptorSetLayout liLayout = descSetLayout_.get();
-    li.pSetLayouts = &liLayout;
-    li.pushConstantRangeCount = 1;
-    li.pPushConstantRanges = &pcRange;
-
-    VkPipelineLayout playout = VK_NULL_HANDLE;
-    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &playout) != VK_SUCCESS)
-        throw std::runtime_error("BloomPass: vkCreatePipelineLayout failed");
-    pipelineLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), playout);
+    // bright: read HDR (SHADER_READ_ONLY, owned by MainPass), write mip0 (storage).
+    writeSet(setBright_, hdrColorView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipViews_[0].get());
+    // down[i]: read mip[i] (GENERAL), write mip[i+1] (storage).
+    for (uint32_t i = 0; i < n - 1; ++i)
+        writeSet(setDown_[i], mipViews_[i].get(), VK_IMAGE_LAYOUT_GENERAL, mipViews_[i + 1].get());
+    // up[i]: read mip[i+1] (GENERAL), write mip[i] (storage, additive in shader).
+    for (uint32_t i = 0; i < n - 1; ++i)
+        writeSet(setUp_[i], mipViews_[i + 1].get(), VK_IMAGE_LAYOUT_GENERAL, mipViews_[i].get());
 }
 
 void BloomPass::createPipelines(const std::string& shaderDir) {
-    VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + "/post_fullscreen_vert.spv");
-    VkShaderModule brightFrag = shader_util::loadShaderModule(ctx_->device(), shaderDir + "/bloom_bright_frag.spv");
-    VkShaderModule blurFrag = shader_util::loadShaderModule(ctx_->device(), shaderDir + "/bloom_blur_frag.spv");
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(PushConstants);
 
-    // Shared fixed-function state.
-    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkDescriptorSetLayout dsl = descSetLayout_.get();
+    VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    li.setLayoutCount = 1;
+    li.pSetLayouts = &dsl;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges = &pc;
+    VkPipelineLayout pl = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &pl) != VK_SUCCESS)
+        throw std::runtime_error("BloomPass: vkCreatePipelineLayout failed");
+    pipelineLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), pl);
 
-    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    vp.viewportCount = 1;
-    vp.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_NONE;
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rs.lineWidth = 1.0f;
-
-    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineColorBlendAttachmentState cba{};
-    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    cba.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
-
-    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    ds.depthTestEnable = VK_FALSE;
-    ds.depthWriteEnable = VK_FALSE;
-
-    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dyn.dynamicStateCount = 2;
-    dyn.pDynamicStates = dynStates;
-
-    auto buildPipeline = [&](VkShaderModule frag) -> VkPipeline {
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vert;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = frag;
-        stages[1].pName = "main";
-
-        VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-        pci.stageCount = 2;
-        pci.pStages = stages;
-        pci.pVertexInputState = &vi;
-        pci.pInputAssemblyState = &ia;
-        pci.pViewportState = &vp;
-        pci.pRasterizationState = &rs;
-        pci.pMultisampleState = &ms;
-        pci.pColorBlendState = &cb;
-        pci.pDepthStencilState = &ds;
-        pci.pDynamicState = &dyn;
-        pci.layout = pipelineLayout_.get();
-        pci.renderPass = renderPass_.get();
-        pci.subpass = 0;
-
-        VkPipeline outPipe = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &outPipe) != VK_SUCCESS)
-            throw std::runtime_error("BloomPass: vkCreateGraphicsPipelines failed");
-        return outPipe;
+    auto buildCompute = [&](const std::string& spv) -> VkPipeline {
+        VkShaderModule mod = shader_util::loadShaderModule(ctx_->device(), shaderDir + "/" + spv);
+        VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = mod;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        ci.stage = stage;
+        ci.layout = pipelineLayout_.get();
+        VkPipeline p = VK_NULL_HANDLE;
+        VkResult r = vkCreateComputePipelines(ctx_->device(), VK_NULL_HANDLE, 1, &ci, nullptr, &p);
+        vkDestroyShaderModule(ctx_->device(), mod, nullptr);
+        if (r != VK_SUCCESS) throw std::runtime_error("BloomPass: vkCreateComputePipelines failed");
+        return p;
     };
 
-    pipelineBright_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(brightFrag));
-    pipelineBlur_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(blurFrag));
-
-    vkDestroyShaderModule(ctx_->device(), blurFrag, nullptr);
-    vkDestroyShaderModule(ctx_->device(), brightFrag, nullptr);
-    vkDestroyShaderModule(ctx_->device(), vert, nullptr);
+    pipeBright_ = VkUnique<VkPipeline>(ctx_->device(), buildCompute("bloom_bright_comp.spv"));
+    pipeDownsample_ = VkUnique<VkPipeline>(ctx_->device(), buildCompute("bloom_downsample_comp.spv"));
+    pipeUpsample_ = VkUnique<VkPipeline>(ctx_->device(), buildCompute("bloom_upsample_comp.spv"));
 }
 
-void BloomPass::createFramebuffers() {
-    auto makeFb = [&](VkImageView view) -> VkFramebuffer {
-        VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        fi.renderPass = renderPass_.get();
-        fi.attachmentCount = 1;
-        fi.pAttachments = &view;
-        fi.width = width_;
-        fi.height = height_;
-        fi.layers = 1;
-        VkFramebuffer outFb = VK_NULL_HANDLE;
-        if (vkCreateFramebuffer(ctx_->device(), &fi, nullptr, &outFb) != VK_SUCCESS)
-            throw std::runtime_error("BloomPass: vkCreateFramebuffer failed");
-        return outFb;
-    };
-    fbA_ = VkUnique<VkFramebuffer>(ctx_->device(), makeFb(targetAView_));
-    fbB_ = VkUnique<VkFramebuffer>(ctx_->device(), makeFb(targetBView_));
+void BloomPass::destroyMipsAndSets() {
+    // Sets are freed implicitly when the pool is reset/destroyed by the caller.
+    setBright_ = VK_NULL_HANDLE;
+    setDown_.clear();
+    setUp_.clear();
+    mipViews_.clear();  // VkUnique views freed
+    mips_.clear();      // VmaImage freed
+    sampler_.reset();
 }
 
-void BloomPass::destroyFramebuffers() {
-    VkDevice dev = ctx_->device();
-    fbA_.reset();
-    fbB_.reset();
+void BloomPass::barrierWriteToRead(VkCommandBuffer cmd, VkImage img) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = img;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
 }
 
-void BloomPass::destroyPipelines() {
-    VkDevice dev = ctx_->device();
-    pipelineBright_.reset();
-    pipelineBlur_.reset();
+// mip0 layout flips so PostPass can sample it as SHADER_READ_ONLY while bloom
+// produces it in GENERAL. Called at the start (->GENERAL) and end (->READ) of execute.
+void BloomPass::transitionMip0(VkCommandBuffer cmd, VkImageLayout oldL, VkImageLayout newL,
+                               VkAccessFlags srcAccess, VkAccessFlags dstAccess,
+                               VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.oldLayout = oldL;
+    b.newLayout = newL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = mips_[0].image();
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
 }
 
-void BloomPass::recordDraw(VkCommandBuffer cmd, VkFramebuffer fb, VkPipeline pipe,
-                           VkDescriptorSet set, const PushConstants& pc) {
-    VkClearValue clear{};
-    clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-
-    VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_.get();
-    rp.framebuffer = fb;
-    rp.renderArea = {{0, 0}, {width_, height_}};
-    rp.clearValueCount = 1;
-    rp.pClearValues = &clear;
-
-    vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(width_);
-    viewport.height = static_cast<float>(height_);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    VkRect2D scissor{{0, 0}, {width_, height_}};
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_.get(), 0, 1, &set, 0, nullptr);
-    vkCmdPushConstants(cmd, pipelineLayout_.get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
-
-    vkCmdDraw(cmd, 3, 1, 0, 0);  // fullscreen triangle
-    vkCmdEndRenderPass(cmd);
+void BloomPass::recordDispatch(VkCommandBuffer cmd, VkPipeline pipe, VkDescriptorSet set,
+                               uint32_t dstW, uint32_t dstH, const PushConstants& pc) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_.get(), 0, 1, &set, 0, nullptr);
+    vkCmdPushConstants(cmd, pipelineLayout_.get(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pc);
+    vkCmdDispatch(cmd, groups(dstW), groups(dstH), 1);
 }
 
 void BloomPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("BloomPass::execute: invalid cmd");
+    const auto sizes = computeMipSizes();
+    const uint32_t n = static_cast<uint32_t>(mips_.size());
+    if (n < 2) return;
 
     PushConstants pc{};
     pc.threshold = threshold_;
     pc.softKnee = softKnee_;
     pc.intensity = 1.0f;
 
-    // 1) bright extract: HDR -> targetA
-    pc.texelDir = 0.0f;
-    recordDraw(info.cmd, fbA_.get(), pipelineBright_.get(), descHdr_, pc);
+    // mip0 was left in SHADER_READ_ONLY by the previous frame (for PostPass). Flip
+    // it back to GENERAL before the bright pass writes it. UNDEFINED old layout =
+    // "don't care about contents" (bright fully overwrites mip0 anyway).
+    transitionMip0(info.cmd, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    // 2) horizontal blur: targetA -> targetB
-    pc.texelDir = 0.0f;
-    recordDraw(info.cmd, fbB_.get(), pipelineBlur_.get(), descA_, pc);
+    // 1) bright: HDR -> mip0
+    pc.param = 0.0f;
+    recordDispatch(info.cmd, pipeBright_.get(), setBright_, sizes[0].w, sizes[0].h, pc);
+    barrierWriteToRead(info.cmd, mips_[0].image());
 
-    // 3) vertical blur: targetB -> targetA  (result = bloom)
-    pc.texelDir = 1.0f;
-    recordDraw(info.cmd, fbA_.get(), pipelineBlur_.get(), descB_, pc);
+    // 2) downsample chain: mip[i] -> mip[i+1]. Karis only on the first edge.
+    for (uint32_t i = 0; i < n - 1; ++i) {
+        pc.param = (i == 0) ? 1.0f : 0.0f;  // Karis average for mip0->mip1
+        recordDispatch(info.cmd, pipeDownsample_.get(), setDown_[i], sizes[i + 1].w, sizes[i + 1].h, pc);
+        barrierWriteToRead(info.cmd, mips_[i + 1].image());
+    }
+
+    // 3) upsample chain: read mip[i+1], add into mip[i]. Top-down (i = n-2 .. 0).
+    pc.param = filterRadius_;
+    for (int i = static_cast<int>(n) - 2; i >= 0; --i) {
+        recordDispatch(info.cmd, pipeUpsample_.get(), setUp_[i], sizes[i].w, sizes[i].h, pc);
+        barrierWriteToRead(info.cmd, mips_[i].image());
+    }
+    // mip0 now holds the final bloom. Flip it to SHADER_READ_ONLY so PostPass (a
+    // graphics pass) can sample it with the layout its descriptor expects.
+    transitionMip0(info.cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }

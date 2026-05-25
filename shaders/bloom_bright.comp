@@ -1,0 +1,25 @@
+#version 450
+// bloom_bright.comp - extract bright HDR regions into mip0 (storage image).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D srcSampled;     // HDR scene color
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dstImage; // mip0
+layout(push_constant) uniform PushConstants {
+    float threshold;
+    float softKnee;
+    float intensity;
+    float param;
+} pc;
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstImage);
+    if (p.x >= size.x || p.y >= size.y) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(size);
+    vec3 hdr = texture(srcSampled, uv).rgb;
+    float luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
+    float thr = max(pc.threshold, 0.0001);
+    float knee = max(pc.softKnee, 0.0001);
+    float soft = clamp((luma - thr + knee) / (2.0 * knee), 0.0, 1.0);
+    soft = soft * soft;
+    float contrib = max(soft, step(thr, luma));
+    imageStore(dstImage, p, vec4(hdr * contrib, 1.0));
+}

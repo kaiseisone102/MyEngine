@@ -30,7 +30,6 @@ void VulkanRenderer::init(SDL_Window* window) {
     // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
     bindlessTextures_.init(&ctx_);
     createHdrTarget();
-    createBloomTargets();
     assets_.init(&ctx_, &resources_, assetDir_, &bindlessTextures_);
 
     frameUniforms_.init(&ctx_, &resources_);
@@ -50,13 +49,10 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.hdrColorSampler = hdrTarget_.sampler();  // Phase 1H-3  // Phase 1H-2
         info.hdrColorFormat = hdrTarget_.format();
         info.shaderDir = shaderDir_;
-        info.bloomViewA = bloomTargetA_.view();
-        info.bloomSamplerA = bloomTargetA_.sampler();
-        info.bloomViewB = bloomTargetB_.view();
-        info.bloomSamplerB = bloomTargetB_.sampler();
-        info.bloomFormat = bloomTargetA_.format();
-        info.bloomWidth = bloomTargetA_.extent().width;
-        info.bloomHeight = bloomTargetA_.extent().height;
+        info.bloomFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        info.bloomBaseWidth = swapchain_.extent().width / 2;
+        info.bloomBaseHeight = swapchain_.extent().height / 2;
+        info.bloomMaxMips = 6;
         passChain_.init(info);
     }
 }
@@ -64,21 +60,16 @@ void VulkanRenderer::init(SDL_Window* window) {
 void VulkanRenderer::destroyRenderTargets() {
     // Single source of truth for tearing down swapchain-sized targets.
     hdrTarget_.shutdown();
-    bloomTargetA_.shutdown();
-    bloomTargetB_.shutdown();
 }
 
 void VulkanRenderer::recreateSwapchain() {
     swapchain_.recreate();
     // HDR target must be recreated BEFORE MainPass framebuffers (which use its view).
-    // bloom targets follow swapchain size too. Destroy them all in one place.
+    // Bloom mip chain is owned by BloomPass and rebuilt inside onSwapchainResized.
     destroyRenderTargets();
     createHdrTarget();
-    createBloomTargets();
     passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler(),
-                                  bloomTargetA_.view(), bloomTargetA_.sampler(),
-                                  bloomTargetB_.view(), bloomTargetB_.sampler(),
-                                  bloomTargetA_.extent().width, bloomTargetA_.extent().height);
+                                  swapchain_.extent().width / 2, swapchain_.extent().height / 2);
 }
 
 void VulkanRenderer::onResize() {
@@ -208,21 +199,4 @@ void VulkanRenderer::createHdrTarget() {
     hdrDesc.samplerFilter = VK_FILTER_LINEAR;
     hdrTarget_.init(&ctx_, &resources_, hdrDesc);
     std::cout << "[VulkanRenderer] HDR target created (" << hdrDesc.width << "x" << hdrDesc.height << ")\n";
-}
-
-void VulkanRenderer::createBloomTargets() {
-    // Half-resolution ping-pong targets, same HDR float format.
-    RenderTarget::Desc d{};
-    d.width  = swapchain_.extent().width  / 2;
-    d.height = swapchain_.extent().height / 2;
-    if (d.width  == 0) d.width  = 1;
-    if (d.height == 0) d.height = 1;
-    d.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    d.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    d.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-    d.createSampler = true;
-    d.samplerFilter = VK_FILTER_LINEAR;
-    bloomTargetA_.init(&ctx_, &resources_, d);
-    bloomTargetB_.init(&ctx_, &resources_, d);
-    std::cout << "[VulkanRenderer] Bloom targets created (" << d.width << "x" << d.height << ")\n";
 }

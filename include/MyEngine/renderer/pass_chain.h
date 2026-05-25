@@ -50,14 +50,12 @@ class PassChain {
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         VkSampler hdrColorSampler = VK_NULL_HANDLE;  // Phase 1H-3
-    // Phase 1I: bloom ping-pong targets (owned by VulkanRenderer)
-    VkImageView bloomViewA = VK_NULL_HANDLE;
-    VkSampler bloomSamplerA = VK_NULL_HANDLE;
-    VkImageView bloomViewB = VK_NULL_HANDLE;
-    VkSampler bloomSamplerB = VK_NULL_HANDLE;
-    VkFormat bloomFormat = VK_FORMAT_UNDEFINED;
-    uint32_t bloomWidth = 0;
-    uint32_t bloomHeight = 0;
+        // Phase 1I: compute mip-chain bloom. BloomPass owns its own mip chain;
+        // we only pass the format, base (mip0) extent, and mip count.
+        VkFormat bloomFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        uint32_t bloomBaseWidth = 0;
+        uint32_t bloomBaseHeight = 0;
+        uint32_t bloomMaxMips = 6;
         std::string shaderDir;
         ReflectionQuality reflectionQuality = ReflectionQuality::Half;
         bool reflectShadows = true;
@@ -99,9 +97,7 @@ class PassChain {
     int lastInstancedVisible() const { return lastInstancedVisible_; }
     int lastInstancedTotal() const { return lastInstancedTotal_; }
     void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE,
-                            VkImageView bloomViewA = VK_NULL_HANDLE, VkSampler bloomSamplerA = VK_NULL_HANDLE,
-                            VkImageView bloomViewB = VK_NULL_HANDLE, VkSampler bloomSamplerB = VK_NULL_HANDLE,
-                            uint32_t bloomW = 0, uint32_t bloomH = 0);  // Phase 1H-2/3 + 1I
+                            uint32_t bloomBaseW = 0, uint32_t bloomBaseH = 0);  // Phase 1H-2/3 + 1I
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }

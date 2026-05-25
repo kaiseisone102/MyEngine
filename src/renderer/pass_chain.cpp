@@ -71,18 +71,16 @@ void PassChain::init(const InitInfo& info) {
     // Phase 1E: instance matrix pool
     instancePool_.init(info.ctx, info.resources);
     {
-        // Phase 1I: bloom pass (HDR -> bright -> blur -> bloom texture)
+        // Phase 1I: compute mip-chain bloom (HDR -> mip chain -> mip0 = bloom)
         BloomPass::InitInfo bi{};
         bi.ctx = info.ctx;
+        bi.resources = info.resources;
         bi.hdrColorView = info.hdrColorView;
         bi.hdrColorSampler = info.hdrColorSampler;
-        bi.targetAView = info.bloomViewA;
-        bi.targetASampler = info.bloomSamplerA;
-        bi.targetBView = info.bloomViewB;
-        bi.targetBSampler = info.bloomSamplerB;
         bi.bloomFormat = info.bloomFormat;
-        bi.width = info.bloomWidth;
-        bi.height = info.bloomHeight;
+        bi.baseWidth = info.bloomBaseWidth;
+        bi.baseHeight = info.bloomBaseHeight;
+        bi.maxMips = info.bloomMaxMips;
         bi.shaderDir = info.shaderDir;
         bloomPass_.init(bi);
     }
@@ -92,8 +90,8 @@ void PassChain::init(const InitInfo& info) {
         poi.swapchain = info.swapchain;
         poi.hdrColorView = info.hdrColorView;
         poi.hdrColorSampler = info.hdrColorSampler;
-        poi.bloomColorView = info.bloomViewA;   // Phase 1I: final bloom = targetA
-        poi.bloomColorSampler = info.bloomSamplerA;
+        poi.bloomColorView = bloomPass_.bloomView();   // Phase 1I: final bloom = mip0
+        poi.bloomColorSampler = bloomPass_.bloomSampler();
         poi.shaderDir = info.shaderDir;
         postPass_.init(poi);
     }
@@ -203,31 +201,26 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
 }
 
 void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
-                                   VkImageView bloomViewA, VkSampler bloomSamplerA,
-                                   VkImageView bloomViewB, VkSampler bloomSamplerB,
-                                   uint32_t bloomW, uint32_t bloomH) {
+                                   uint32_t bloomBaseW, uint32_t bloomBaseH) {
     // Phase 1H-2: forward new HDR view to MainPass before re-creating framebuffer
     if (hdrColorView != VK_NULL_HANDLE) {
         mainPass_.setHdrColorView(hdrColorView);
     }
     mainPass_.onSwapchainResized();
-    // Phase 1H-3: forward new HDR view + sampler to PostPass
-    if (hdrColorView != VK_NULL_HANDLE) {
-        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler, bloomViewA, bloomSamplerA);
-    }
-    // Phase 1I: rebuild bloom pass with new HDR + bloom views + extent
-    if (bloomViewA != VK_NULL_HANDLE) {
+    // Phase 1I: rebuild bloom mip chain at the new base extent FIRST, so its new
+    // mip0 view/sampler can be forwarded to PostPass below.
+    if (bloomBaseW != 0 && bloomBaseH != 0) {
         BloomPass::InitInfo bi{};
-        bi.ctx = nullptr;  // unused by onSwapchainResized
         bi.hdrColorView = hdrColorView;
         bi.hdrColorSampler = hdrColorSampler;
-        bi.targetAView = bloomViewA;
-        bi.targetASampler = bloomSamplerA;
-        bi.targetBView = bloomViewB;
-        bi.targetBSampler = bloomSamplerB;
-        bi.width = bloomW;
-        bi.height = bloomH;
+        bi.baseWidth = bloomBaseW;
+        bi.baseHeight = bloomBaseH;
         bloomPass_.onSwapchainResized(bi);
+    }
+    // Phase 1H-3: forward new HDR view + sampler + new bloom mip0 to PostPass
+    if (hdrColorView != VK_NULL_HANDLE) {
+        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler,
+                                     bloomPass_.bloomView(), bloomPass_.bloomSampler());
     }
     // swapchain サイズ変更時、 反射 texture も新サイズに合わせて再作成。
     // quality は ReflectionPass が保持してる現在値を維持。

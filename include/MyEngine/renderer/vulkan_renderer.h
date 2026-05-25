@@ -72,7 +72,6 @@ class VulkanRenderer {
     const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
     RenderTarget& hdrTarget() { return hdrTarget_; }
     const RenderTarget& hdrTarget() const { return hdrTarget_; }
-    RenderTarget& bloomTargetA() { return bloomTargetA_; }
     void setBloomEnabled(bool b) { passChain_.setBloomEnabled(b); }
 
     DebugLineRenderer& debugLines() { return debugLines_; }
@@ -124,14 +123,11 @@ class VulkanRenderer {
     // === Phase 1D: bindless texture system ===
     BindlessTextureRegistry bindlessTextures_;
     void createHdrTarget();  // Phase 1H-1
-    void createBloomTargets();
     // Destroy all swapchain-sized render targets (HDR + bloom) in one place, so
     // recreateSwapchain() and shutdown() can't drift out of sync (a target added
     // here is freed by both paths).
     void destroyRenderTargets();  // Phase 1I
-    RenderTarget hdrTarget_;  // Phase 1H
-    RenderTarget bloomTargetA_;  // Phase 1I (half-res ping-pong)
-    RenderTarget bloomTargetB_;
+    RenderTarget hdrTarget_;  // Phase 1H (bloom mip chain is owned by BloomPass)
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;
