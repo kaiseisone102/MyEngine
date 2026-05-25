@@ -109,6 +109,7 @@ void EngineApp::initGame() {
     state_.worldState.data.vulkan.setShadowQuality(state_.settings.shadowQuality);
     state_.worldState.data.vulkan.setBloomEnabled(state_.settings.bloom);
     state_.worldState.data.vulkan.setNormalMapping(state_.settings.normalMapping);
+    state_.worldState.data.vulkan.setMRMapping(state_.settings.mrMapping);
     // Phase 1C: グローバル SceneRenderer、 引数なし、 cullingDistance も保持しない
     sceneRenderer_ = std::make_unique<SceneRenderer>();
     {

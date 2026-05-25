@@ -86,7 +86,7 @@ void main() {
     float roughness = m.roughness;
     // Phase 1K-4: metallic-roughness map (glTF packs roughness=G, metallic=B,
     // linear). Overrides the constant factors when present.
-    if (m.mrIdx >= 0) {
+    if (m.mrIdx >= 0 && ubo.frame.shadowParams.w > 0.5) {
         vec2 mr = texture(bindlessTextures[nonuniformEXT(m.mrIdx)], fragTexCoord).gb;
         roughness = mr.x;  // G
         metallic = mr.y;   // B

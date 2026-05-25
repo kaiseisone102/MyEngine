@@ -41,6 +41,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Shadow Quality", shadowQualityName(s.shadowQuality)),
         MenuItem("Bloom", s.bloom ? "On" : "Off"),
         MenuItem("Normal Mapping", s.normalMapping ? "On" : "Off"),
+        MenuItem("Metal/Rough Map", s.mrMapping ? "On" : "Off"),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -85,6 +86,13 @@ void GraphicsSettingsLayer::handleConfirm(int selectedIndex, LayerCommands& cmds
             auto& s = state_.settings;
             s.normalMapping = !s.normalMapping;
             vulkan().setNormalMapping(s.normalMapping);
+            hasUnsavedChanges_ = true;
+            break;
+        }
+        case kIdxMRMapping: {
+            auto& s = state_.settings;
+            s.mrMapping = !s.mrMapping;
+            vulkan().setMRMapping(s.mrMapping);
             hasUnsavedChanges_ = true;
             break;
         }
@@ -170,6 +178,13 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
             (void)direction;
             s.normalMapping = !s.normalMapping;
             vulkan().setNormalMapping(s.normalMapping);
+            changed = true;
+            break;
+        }
+        case kIdxMRMapping: {
+            (void)direction;
+            s.mrMapping = !s.mrMapping;
+            vulkan().setMRMapping(s.mrMapping);
             changed = true;
             break;
         }
