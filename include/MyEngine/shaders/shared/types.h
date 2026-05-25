@@ -207,6 +207,19 @@ struct InstanceData {
 };
 
 // -----------------------------------------------------------------------------
+// CullObject: Phase 2B - one cullable draw item for GPU frustum culling.
+//   A conservative bounding sphere (from the world-space AABB) plus the AABB
+//   half-extent (kept for future precise AABB-vs-plane culling) and a drawId
+//   that maps to the indirect draw command slot.
+//   vec4(16) + vec4(16) = 32 bytes, std430 16-byte aligned.
+//   No BDA inside, so one definition serves both C++ and GLSL.
+// -----------------------------------------------------------------------------
+struct CullObject {
+    vec4 centerRadius;   // xyz = world AABB center, w = bounding sphere radius
+    vec4 extentDrawId;   // xyz = world AABB half-extent, w = drawId (as float)
+};
+
+// -----------------------------------------------------------------------------
 // GpuMaterial: Phase 1K-2 - unified PBR material, stored in an SSBO indexed by
 //   materialId. Read via BDA (buffer address passed in the frame UBO).
 //   Texture indices are bindless slots; -1 means "no texture, use the factor".

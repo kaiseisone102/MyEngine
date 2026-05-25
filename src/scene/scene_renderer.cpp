@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -25,6 +26,8 @@
 #include "renderer/animator.h"
 #include "renderer/material.h"
 #include "renderer/skin_buffer_pool.h"
+#include "core/aabb.h"
+#include "renderer/model.h"
 #include "renderer/terrain_mesh.h"
 #include "renderer/water_mesh.h"
 #include "scene/scene_data.h"
@@ -193,6 +196,26 @@ void SceneRenderer::buildSceneData(const WorldData& wd, const glm::vec3& cameraP
                     return a.sourceModel < b.sourceModel;
                 });
 
+    // ─── Phase 2B: build one CullObject per opaque static draw (post-sort, so
+    //     drawId matches the indirect command slot used later). World bounding
+    //     sphere from the model matrix * the model's local AABB. ───
+    {
+        const auto& staticList = out.staticModelDrawListOpaque();
+        auto& culls = out.cullObjects();
+        culls.reserve(staticList.size());
+        for (size_t i = 0; i < staticList.size(); ++i) {
+            const StaticModelDrawItem& it = staticList[i];
+            if (!it.sourceModel) continue;
+            const BoundingSphere bs = worldBoundingSphere(it.model, it.sourceModel->localAABB());
+            const AABB wb = transformAABB(it.model, it.sourceModel->localAABB());
+            const glm::vec3 halfExtent = (wb.max - wb.min) * 0.5f;
+            myengine::shared::CullObject co{};
+            co.centerRadius = glm::vec4(bs.center, bs.radius);
+            co.extentDrawId = glm::vec4(halfExtent, static_cast<float>(i));
+            culls.push_back(co);
+        }
+    }
+
     // ─── 8. Transparent ソート (奥→手前、 alpha blend 正しさのため) ─
     auto sortByCameraDistDesc = [&cameraPos](auto& list, auto getPos) {
         std::sort(list.begin(), list.end(), [&](const auto& a, const auto& b) {
@@ -214,4 +237,19 @@ void SceneRenderer::buildSceneData(const WorldData& wd, const glm::vec3& cameraP
                           [](const TerrainDrawItem& i) {
                               return i.terrain ? i.terrain->worldCenter() : glm::vec3(0.f);
                           });
+
+    // Phase 2B PART1 verify: CullObject count must equal opaque static draw count.
+    // (temporary log; removed once the compute cull pass is in)
+    static int s_cullLogFrames = 0;
+    if (s_cullLogFrames < 3) {
+        ++s_cullLogFrames;
+        std::cout << "[Cull2B] opaque static draws=" << out.staticModelDrawListOpaque().size()
+                  << " cullObjects=" << out.cullObjects().size();
+        if (!out.cullObjects().empty()) {
+            const auto& c0 = out.cullObjects().front();
+            std::cout << " first center=(" << c0.centerRadius.x << "," << c0.centerRadius.y
+                      << "," << c0.centerRadius.z << ") r=" << c0.centerRadius.w;
+        }
+        std::cout << "\n";
+    }
 }

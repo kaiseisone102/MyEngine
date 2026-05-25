@@ -92,6 +92,10 @@ class SceneData {
     const std::vector<WaterDrawItem>& waterDrawList() const { return waters_; }
     std::vector<WaterDrawItem>& waterDrawList() { return waters_; }
 
+    // ─── Phase 2B: GPU frustum culling — one CullObject per opaque static draw ─
+    const std::vector<myengine::shared::CullObject>& cullObjects() const { return cullObjects_; }
+    std::vector<myengine::shared::CullObject>& cullObjects() { return cullObjects_; }
+
     // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ culling distance ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     float cullingDistance() const { return cullingDistance_; }
     void setCullingDistance(float d) { cullingDistance_ = d; }
@@ -106,6 +110,7 @@ class SceneData {
         modelTransparent_.clear();
         terrainTransparent_.clear();
         waters_.clear();
+        cullObjects_.clear();
     }
 
    private:
@@ -120,6 +125,8 @@ class SceneData {
     std::vector<TerrainDrawItem> terrainTransparent_;
 
     std::vector<WaterDrawItem> waters_;
+
+    std::vector<myengine::shared::CullObject> cullObjects_;  // Phase 2B
 
     float cullingDistance_ = 100.f;
 };

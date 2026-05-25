@@ -201,3 +201,36 @@ struct AABB {
         };
     }
 };
+
+// Phase 2B: transform a local-space AABB by a model matrix into a world-space
+// AABB (transforms all 8 corners, takes min/max). Works for any affine model
+// matrix (scale + rotation + translation), unlike the yaw-only physics helper,
+// so it serves static models now and skinned/instanced draws later.
+inline AABB transformAABB(const glm::mat4& model, const AABB& local) {
+    glm::vec3 mn(std::numeric_limits<float>::infinity());
+    glm::vec3 mx(-std::numeric_limits<float>::infinity());
+    for (int i = 0; i < 8; ++i) {
+        const glm::vec3 corner{
+            (i & 1) ? local.max.x : local.min.x,
+            (i & 2) ? local.max.y : local.min.y,
+            (i & 4) ? local.max.z : local.min.z,
+        };
+        const glm::vec3 w = glm::vec3(model * glm::vec4(corner, 1.0f));
+        mn = glm::min(mn, w);
+        mx = glm::max(mx, w);
+    }
+    return AABB{mn, mx};
+}
+
+// Phase 2B: conservative bounding sphere of a world AABB.
+//   center = AABB center, radius = half the diagonal length.
+struct BoundingSphere {
+    glm::vec3 center{};
+    float radius = 0.f;
+};
+inline BoundingSphere worldBoundingSphere(const glm::mat4& model, const AABB& local) {
+    const AABB w = transformAABB(model, local);
+    const glm::vec3 center = (w.min + w.max) * 0.5f;
+    const float radius = glm::length(w.max - center);
+    return BoundingSphere{center, radius};
+}
