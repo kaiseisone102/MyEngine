@@ -13,15 +13,11 @@ void RenderTarget::init(VulkanContext* ctx, ResourceFactory* resources, const De
     if (desc.width == 0 || desc.height == 0) throw std::runtime_error("RenderTarget: zero extent");
     if (desc.format == VK_FORMAT_UNDEFINED) throw std::runtime_error("RenderTarget: no format");
 
-    VkImage img = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    resources->createImage(desc.width, desc.height, desc.format, VK_IMAGE_TILING_OPTIMAL,
-                           desc.usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
-    image_ = VkUnique<VkImage>(ctx_->device(), img);
-    memory_ = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
+    (void)resources;  // image memory is now VMA-managed via VmaImage; ResourceFactory unused here
+    image_ = VmaImage::createAttachment(ctx_, desc.width, desc.height, desc.format, desc.usage);
 
     VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    vi.image = image_.get();
+    vi.image = image_.image();
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = desc.format;
     vi.subresourceRange = {desc.aspect, 0, 1, 0, 1};
@@ -55,6 +51,5 @@ void RenderTarget::shutdown() {
     sampler_.reset();
     view_.reset();
     image_.reset();
-    memory_.reset();
     ctx_ = nullptr;
 }
