@@ -134,33 +134,33 @@ void MainPass::init(const InitInfo& info) {
 
     createStaticLayout(info.frameSetLayout, info.bindlessSetLayout);  // S4-c: set=1 is now the bindless array
     {
-        PipelineBuildArgs argsOp{staticLayout_, "triangle_vert.spv", "triangle_frag.spv", false};
-        staticPipelineOpaque_ = buildPipeline(argsOp, info.shaderDir);
-        PipelineBuildArgs argsTr{staticLayout_, "triangle_vert.spv", "triangle_frag.spv", true};
-        staticPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
+        PipelineBuildArgs argsOp{staticLayout_.get(), "triangle_vert.spv", "triangle_frag.spv", false};
+        staticPipelineOpaque_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsOp, info.shaderDir));
+        PipelineBuildArgs argsTr{staticLayout_.get(), "triangle_vert.spv", "triangle_frag.spv", true};
+        staticPipelineTransparent_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsTr, info.shaderDir));
     }
 
     createSkinnedLayout(info.frameSetLayout, info.bindlessSetLayout);  // S5: set=1 bindless
     {
-        PipelineBuildArgs argsOp{skinnedLayout_, "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", false, true};
-        skinnedPipelineOpaque_ = buildPipeline(argsOp, info.shaderDir);
-        PipelineBuildArgs argsTr{skinnedLayout_, "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", true, true};
-        skinnedPipelineTransparent_ = buildPipeline(argsTr, info.shaderDir);
+        PipelineBuildArgs argsOp{skinnedLayout_.get(), "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", false, true};
+        skinnedPipelineOpaque_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsOp, info.shaderDir));
+        PipelineBuildArgs argsTr{skinnedLayout_.get(), "triangle_skinned_vert.spv", "triangle_skinned_frag.spv", true, true};
+        skinnedPipelineTransparent_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsTr, info.shaderDir));
     }
 
     // === Phase 1D: bindless pipeline (opaque only, test cube) ===
     if (info.bindlessSetLayout != VK_NULL_HANDLE) {
         createBindlessLayout(info.frameSetLayout, info.bindlessSetLayout);
-        PipelineBuildArgs argsBl{bindlessLayout_, "triangle_bindless_vert.spv",
+        PipelineBuildArgs argsBl{bindlessLayout_.get(), "triangle_bindless_vert.spv",
                                   "triangle_bindless_frag.spv", false};
-        bindlessPipelineOpaque_ = buildPipeline(argsBl, info.shaderDir);
+        bindlessPipelineOpaque_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsBl, info.shaderDir));
         std::cout << "[MainPass] bindless pipeline created\n";
         // Phase 1F: grass pipeline (alpha-tested, bindless texture, no cull)
         createGrassLayout(info.frameSetLayout, info.bindlessSetLayout);
-        PipelineBuildArgs argsGrass{grassLayout_, "grass_instanced_vert.spv",
+        PipelineBuildArgs argsGrass{grassLayout_.get(), "grass_instanced_vert.spv",
                                    "grass_instanced_frag.spv", false};
         argsGrass.noCull = true;
-        grassPipeline_ = buildPipeline(argsGrass, info.shaderDir);
+        grassPipeline_ = VkUnique<VkPipeline>(ctx_->device(), buildPipeline(argsGrass, info.shaderDir));
         std::cout << "[MainPass] grass pipeline created\n";
     }
 
@@ -216,8 +216,10 @@ void MainPass::createRenderPass() {
     ci.pSubpasses = &sub;
     ci.dependencyCount = 1;
     ci.pDependencies = &dep;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &renderPass_) != VK_SUCCESS)
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
         throw std::runtime_error("MainPass: vkCreateRenderPass failed");
+    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
@@ -234,9 +236,11 @@ void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &staticLayout_) != VK_SUCCESS) {
+    VkPipelineLayout slay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &slay) != VK_SUCCESS) {
         throw std::runtime_error("MainPass: static layout failed");
     }
+    staticLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), slay);
 }
 
 void MainPass::createGrassLayout(VkDescriptorSetLayout frameSetLayout,
@@ -253,9 +257,11 @@ void MainPass::createGrassLayout(VkDescriptorSetLayout frameSetLayout,
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &grassLayout_) != VK_SUCCESS) {
+    VkPipelineLayout glay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &glay) != VK_SUCCESS) {
         throw std::runtime_error("MainPass: grass layout failed");
     }
+    grassLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), glay);
 }
 
 void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
@@ -271,9 +277,11 @@ void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
     lci.pSetLayouts = setLayouts;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &skinnedLayout_) != VK_SUCCESS) {
+    VkPipelineLayout klay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &klay) != VK_SUCCESS) {
         throw std::runtime_error("MainPass: skinned layout failed");
     }
+    skinnedLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), klay);
 }
 
 VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir) {
@@ -371,7 +379,7 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
     pci.layout = args.layout;
-    pci.renderPass = renderPass_;
+    pci.renderPass = renderPass_.get();
     pci.subpass = 0;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
@@ -388,24 +396,24 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
 void MainPass::createFramebuffers() {
     // Phase 1H-2: write into the HDR target (single framebuffer, not per-swapchain-image)
     const VkExtent2D extent = swapchain_->extent();
-    framebuffers_.resize(1);
+    framebuffers_.clear();
     VkImageView attachments[] = {hdrColorView_, swapchain_->depthView()};
     VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    ci.renderPass = renderPass_;
+    ci.renderPass = renderPass_.get();
     ci.attachmentCount = 2;
     ci.pAttachments = attachments;
     ci.width = extent.width;
     ci.height = extent.height;
     ci.layers = 1;
-    if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &framebuffers_[0]) != VK_SUCCESS)
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &fb) != VK_SUCCESS)
         throw std::runtime_error("MainPass: vkCreateFramebuffer failed");
+    framebuffers_.emplace_back(ctx_->device(), fb);
 }
 
 void MainPass::destroyFramebuffers() {
     if (!ctx_) return;
-    for (auto fb : framebuffers_) {
-        if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(ctx_->device(), fb, nullptr);
-    }
+    // VkUnique elements free their framebuffers on clear.
     framebuffers_.clear();
 }
 
@@ -428,8 +436,8 @@ void MainPass::execute(const ExecuteInfo& info) {
     clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_;
-    rp.framebuffer = framebuffers_[0];  // Phase 1H-2 (single HDR framebuffer)
+    rp.renderPass = renderPass_.get();
+    rp.framebuffer = framebuffers_[0].get();  // Phase 1H-2 (single HDR framebuffer)
     rp.renderArea = {{0, 0}, extent};
     rp.clearValueCount = 2;
     rp.pClearValues = clearValues;
@@ -453,33 +461,33 @@ void MainPass::execute(const ExecuteInfo& info) {
         (staticOp && !staticOp->empty()) ||
         (terrainOp && !terrainOp->empty());
     if (hasOpaqueStatic) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineOpaque_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineOpaque_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 0, 1,
                                   &info.frameSet, 0, nullptr);
         // S4-c: set=1 is the bindless texture array (bound once for all static draws)
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && meshOp)
-            drawMeshList(info.cmd, staticLayout_, info.mesh, *meshOp);
+            drawMeshList(info.cmd, staticLayout_.get(), info.mesh, *meshOp);
         if (staticOp)
-            drawStaticModelList(info.cmd, staticLayout_, *staticOp);
+            drawStaticModelList(info.cmd, staticLayout_.get(), *staticOp);
         if (terrainOp)
-            drawTerrainList(info.cmd, staticLayout_, *terrainOp);
+            drawTerrainList(info.cmd, staticLayout_.get(), *terrainOp);
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===
     if (info.grassDrawList && !info.grassDrawList->empty()
-        && info.instanceBufferAddress != 0 && grassPipeline_ != VK_NULL_HANDLE
+        && info.instanceBufferAddress != 0 && grassPipeline_
         && info.bindlessSet != VK_NULL_HANDLE) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassPipeline_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassLayout_.get(), 1, 1,
                                 &info.bindlessSet, 0, nullptr);
         for (const InstancedMeshDrawItem& item : *info.grassDrawList) {
             if (!item.mesh || item.instances.empty()) continue;
@@ -488,7 +496,7 @@ void MainPass::execute(const ExecuteInfo& info) {
             pc.instanceBuffer = info.instanceBufferAddress;
             pc.materialId = item.material ? item.material->materialId() : 0u;  // S6-b: unified material path
             pc.alpha = item.alpha;
-            vkCmdPushConstants(info.cmd, grassLayout_,
+            vkCmdPushConstants(info.cmd, grassLayout_.get(),
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(InstancedPushConstants), &pc);
             const uint32_t count = static_cast<uint32_t>(item.instances.size());
@@ -497,15 +505,15 @@ void MainPass::execute(const ExecuteInfo& info) {
     }
 
     if (modelOp && !modelOp->empty()) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 0, 1,
                                   &info.frameSet, 0, nullptr);
         // S5: set=1 bindless texture array
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_, info.skinAddress, *modelOp);
+        drawSkinnedList(info.cmd, skinnedLayout_.get(), info.skinAddress, *modelOp);
     }
 
     // ============================================================
@@ -540,33 +548,33 @@ void MainPass::execute(const ExecuteInfo& info) {
         (terrainTr && !terrainTr->empty());
 
     if (hasTransparentStatic) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineTransparent_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipelineTransparent_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 0, 1,
                                   &info.frameSet, 0, nullptr);
         // S4-c: set=1 bindless texture array
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && meshTr)
-            drawMeshList(info.cmd, staticLayout_, info.mesh, *meshTr);
+            drawMeshList(info.cmd, staticLayout_.get(), info.mesh, *meshTr);
         if (staticTr)
-            drawStaticModelList(info.cmd, staticLayout_, *staticTr);
+            drawStaticModelList(info.cmd, staticLayout_.get(), *staticTr);
         if (terrainTr)
-            drawTerrainList(info.cmd, staticLayout_, *terrainTr);
+            drawTerrainList(info.cmd, staticLayout_.get(), *terrainTr);
     }
 
     if (modelTr && !modelTr->empty()) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineTransparent_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineTransparent_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 0, 1,
                                   &info.frameSet, 0, nullptr);
         // S5: set=1 bindless texture array
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_, info.skinAddress, *modelTr);
+        drawSkinnedList(info.cmd, skinnedLayout_.get(), info.skinAddress, *modelTr);
     }
 
     // ============================================================
@@ -609,9 +617,9 @@ void MainPass::execute(const ExecuteInfo& info) {
     //   can pick any texture by index, without any per-material descriptor
     //   set binding. Here we use index 5 (grass_field) on a cube.
     // ============================================================
-    if (bindlessPipelineOpaque_ != VK_NULL_HANDLE && info.bindlessSet != VK_NULL_HANDLE &&
+    if (bindlessPipelineOpaque_ && info.bindlessSet != VK_NULL_HANDLE &&
         info.mesh) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_);
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_.get());
 
         VkViewport vp{};
         vp.x = 0.f;
@@ -625,10 +633,10 @@ void MainPass::execute(const ExecuteInfo& info) {
         vkCmdSetScissor(info.cmd, 0, 1, &sc);
 
         // set=0 frame uniforms
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_, 0, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
         // set=1 bindless texture array (1024 capacity)
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_, 1, 1,
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 1, 1,
                                 &info.bindlessSet, 0, nullptr);
 
         // Cube geometry (already created in AssetRegistry::defaultMesh_)
@@ -640,7 +648,7 @@ void MainPass::execute(const ExecuteInfo& info) {
         pc.alpha = 1.0f;
         pc.albedoIdx = 5;  // grass_field
 
-        vkCmdPushConstants(info.cmd, bindlessLayout_,
+        vkCmdPushConstants(info.cmd, bindlessLayout_.get(),
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);
 
@@ -653,54 +661,21 @@ void MainPass::execute(const ExecuteInfo& info) {
 }
 
 void MainPass::shutdown() {
-    if (grassPipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), grassPipeline_, nullptr);
-        grassPipeline_ = VK_NULL_HANDLE;
-    }
-    if (grassLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), grassLayout_, nullptr);
-        grassLayout_ = VK_NULL_HANDLE;
-    }
+    grassPipeline_.reset();
+    grassLayout_.reset();
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
     destroyFramebuffers();
 
-    if (skinnedPipelineTransparent_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), skinnedPipelineTransparent_, nullptr);
-        skinnedPipelineTransparent_ = VK_NULL_HANDLE;
-    }
-    if (skinnedPipelineOpaque_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), skinnedPipelineOpaque_, nullptr);
-        skinnedPipelineOpaque_ = VK_NULL_HANDLE;
-    }
-    if (skinnedLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), skinnedLayout_, nullptr);
-        skinnedLayout_ = VK_NULL_HANDLE;
-    }
+    skinnedPipelineTransparent_.reset();
+    skinnedPipelineOpaque_.reset();
+    skinnedLayout_.reset();
     // Phase 1D: bindless pipeline cleanup
-    if (bindlessPipelineOpaque_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), bindlessPipelineOpaque_, nullptr);
-        bindlessPipelineOpaque_ = VK_NULL_HANDLE;
-    }
-    if (bindlessLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), bindlessLayout_, nullptr);
-        bindlessLayout_ = VK_NULL_HANDLE;
-    }
-    if (staticPipelineTransparent_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), staticPipelineTransparent_, nullptr);
-        staticPipelineTransparent_ = VK_NULL_HANDLE;
-    }
-    if (staticPipelineOpaque_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(ctx_->device(), staticPipelineOpaque_, nullptr);
-        staticPipelineOpaque_ = VK_NULL_HANDLE;
-    }
-    if (staticLayout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(ctx_->device(), staticLayout_, nullptr);
-        staticLayout_ = VK_NULL_HANDLE;
-    }
-    if (renderPass_ != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(ctx_->device(), renderPass_, nullptr);
-        renderPass_ = VK_NULL_HANDLE;
-    }
+    bindlessPipelineOpaque_.reset();
+    bindlessLayout_.reset();
+    staticPipelineTransparent_.reset();
+    staticPipelineOpaque_.reset();
+    staticLayout_.reset();
+    renderPass_.reset();
     ctx_ = nullptr;
     swapchain_ = nullptr;
 }
@@ -722,7 +697,9 @@ void MainPass::createBindlessLayout(VkDescriptorSetLayout frameSetLayout,
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pc;
 
-    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &bindlessLayout_) != VK_SUCCESS) {
+    VkPipelineLayout blay = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &lci, nullptr, &blay) != VK_SUCCESS) {
         throw std::runtime_error("MainPass::createBindlessLayout failed");
     }
+    bindlessLayout_ = VkUnique<VkPipelineLayout>(ctx_->device(), blay);
 }

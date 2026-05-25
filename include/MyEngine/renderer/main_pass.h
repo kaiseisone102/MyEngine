@@ -5,6 +5,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <cstdint>
 #include <glm/glm.hpp>
 #include "shaders/shared/types.h"
@@ -98,7 +100,7 @@ class MainPass {
     void onSwapchainResized();
     void setHdrColorView(VkImageView view) { hdrColorView_ = view; }  // Phase 1H-2
 
-    VkRenderPass renderPass() const { return renderPass_; }
+    VkRenderPass renderPass() const { return renderPass_.get(); }
 
    private:
     struct PipelineBuildArgs {
@@ -113,27 +115,27 @@ class MainPass {
     VulkanContext* ctx_ = nullptr;
     Swapchain* swapchain_ = nullptr;
 
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
+    VkUnique<VkRenderPass> renderPass_;
     // Phase 1H-2: cached HDR target info
     VkImageView hdrColorView_ = VK_NULL_HANDLE;
     VkFormat hdrColorFormat_ = VK_FORMAT_UNDEFINED;
-    std::vector<VkFramebuffer> framebuffers_;
+    std::vector<VkUnique<VkFramebuffer>> framebuffers_;
 
-    VkPipelineLayout staticLayout_ = VK_NULL_HANDLE;
-    VkPipeline staticPipelineOpaque_ = VK_NULL_HANDLE;
-    VkPipeline staticPipelineTransparent_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> staticLayout_;
+    VkUnique<VkPipeline> staticPipelineOpaque_;
+    VkUnique<VkPipeline> staticPipelineTransparent_;
 
-    VkPipelineLayout skinnedLayout_ = VK_NULL_HANDLE;
-    VkPipeline skinnedPipelineOpaque_ = VK_NULL_HANDLE;
-    VkPipeline skinnedPipelineTransparent_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> skinnedLayout_;
+    VkUnique<VkPipeline> skinnedPipelineOpaque_;
+    VkUnique<VkPipeline> skinnedPipelineTransparent_;
 
     // === Phase 1D: bindless pipeline (opaque only for now) ===
-    VkPipelineLayout bindlessLayout_ = VK_NULL_HANDLE;
-    VkPipeline bindlessPipelineOpaque_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> bindlessLayout_;
+    VkUnique<VkPipeline> bindlessPipelineOpaque_;
     // === Phase 1E: instanced pipeline (opaque) ===
     // === Phase 1F: grass pipeline (alpha-tested, bindless, no cull) ===
-    VkPipelineLayout grassLayout_ = VK_NULL_HANDLE;
-    VkPipeline grassPipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> grassLayout_;
+    VkUnique<VkPipeline> grassPipeline_;
 
     void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
