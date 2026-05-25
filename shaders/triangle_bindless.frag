@@ -14,6 +14,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
+#include "shared/shadow_sampling.glsl"
 
 layout(location = 1) in vec2 fragTexCoord;
 layout(location = 2) in vec3 fragNormal;
@@ -57,25 +58,9 @@ float sampleShadow(vec4 lightPos) {
     vec3 proj = lightPos.xyz / lightPos.w;
     proj.xy = proj.xy * 0.5 + 0.5;
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
-    float currentDepth = proj.z;
     float bias = 0.005;
-    int pcfR = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=3x3,2=5x5
-    float shadow = 0.0;
-    if (pcfR <= 0) {
-        float d = texture(shadowMap, proj.xy).r;
-        shadow = (currentDepth - bias > d) ? 1.0 : 0.0;
-    } else {
-        vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
-        float cnt = 0.0;
-        for (int sx = -pcfR; sx <= pcfR; ++sx) {
-            for (int sy = -pcfR; sy <= pcfR; ++sy) {
-                float d = texture(shadowMap, proj.xy + vec2(sx, sy) * texelSize).r;
-                shadow += (currentDepth - bias > d) ? 1.0 : 0.0;
-                cnt += 1.0;
-            }
-        }
-        shadow /= cnt;
-    }
+    int quality = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=Soft(PCF),2=High(PCSS)
+    float shadow = sampleShadowFactor(shadowMap, proj.xy, proj.z, bias, quality);
     return 1.0 - shadow * ubo.frame.shadowParams.x;
 }
 

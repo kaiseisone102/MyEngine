@@ -8,6 +8,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
+#include "shared/shadow_sampling.glsl"
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -96,23 +97,8 @@ void main() {
     float shadow = 0.0;
     if (proj.x >= 0.0 && proj.x <= 1.0 && proj.y >= 0.0 && proj.y <= 1.0 &&
         proj.z >= 0.0 && proj.z <= 1.0) {
-        float currentDepth = proj.z;
-        int pcfR = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=3x3,2=5x5
-        if (pcfR <= 0) {
-            float d = texture(shadowMap, proj.xy).r;
-            shadow = (currentDepth - kShadowBias > d) ? 1.0 : 0.0;
-        } else {
-            vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
-            float cnt = 0.0;
-            for (int sx = -pcfR; sx <= pcfR; ++sx) {
-                for (int sy = -pcfR; sy <= pcfR; ++sy) {
-                    float d = texture(shadowMap, proj.xy + vec2(sx, sy) * texelSize).r;
-                    shadow += (currentDepth - kShadowBias > d) ? 1.0 : 0.0;
-                    cnt += 1.0;
-                }
-            }
-            shadow /= cnt;
-        }
+        int quality = int(ubo.frame.shadowParams.y + 0.5);  // 0=hard,1=Soft(PCF),2=High(PCSS)
+        shadow = sampleShadowFactor(shadowMap, proj.xy, proj.z, kShadowBias, quality);
     }
 
     float litFactor = 1.0 - shadow * ubo.frame.shadowParams.x;
