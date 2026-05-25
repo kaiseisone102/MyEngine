@@ -54,6 +54,10 @@ class BloomPass {
     void shutdown();
     void onSwapchainResized(const InitInfo& info);  // rebuild mips + descriptors
     void execute(const ExecuteInfo& info);
+    // When bloom is disabled the caller skips execute(); this clears mip0 to black
+    // and leaves it in SHADER_READ_ONLY so PostPass can still sample it (zero bloom
+    // contribution) without a layout mismatch. No compute dispatches.
+    void clearToReadable(VkCommandBuffer cmd);
 
     // Final bloom output (= mip0) for PostPass.
     VkImageView bloomView() const { return mipViews_.empty() ? VK_NULL_HANDLE : mipViews_[0].get(); }

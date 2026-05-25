@@ -100,7 +100,8 @@ void BloomPass::createMipsAndViews() {
     mips_.reserve(sizes.size());
     mipViews_.reserve(sizes.size());
 
-    const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                    VK_IMAGE_USAGE_TRANSFER_DST_BIT;  // TRANSFER_DST: clearToReadable (bloom off)
     for (const auto& s : sizes) {
         VmaImage img = VmaImage::createAttachment(ctx_, s.w, s.h, bloomFormat_, usage);
 
@@ -370,4 +371,21 @@ void BloomPass::execute(const ExecuteInfo& info) {
     transitionMip0(info.cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+void BloomPass::clearToReadable(VkCommandBuffer cmd) {
+    if (mips_.empty()) return;
+    // mip0 -> TRANSFER_DST (old contents don't matter), clear to black, then
+    // -> SHADER_READ_ONLY for PostPass. No dispatches, so bloom contributes 0.
+    transitionMip0(cmd, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkClearColorValue black{};
+    black.float32[3] = 1.0f;
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, mips_[0].image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         &black, 1, &range);
+    transitionMip0(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }

@@ -435,6 +435,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         BloomPass::ExecuteInfo be{};
         be.cmd = info.cmd;
         bloomPass_.execute(be);
+    } else {
+        // Bloom off: still make mip0 black + SHADER_READ_ONLY so PostPass can
+        // sample it (zero contribution) without a layout mismatch.
+        bloomPass_.clearToReadable(info.cmd);
     }
 
     // Phase 1H-3: tonemap HDR target -> swapchain
