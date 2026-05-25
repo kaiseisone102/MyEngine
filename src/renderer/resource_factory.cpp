@@ -94,43 +94,6 @@ void ResourceFactory::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     vkBindBufferMemory(ctx_->device(), buffer, bufferMemory, 0);
 }
 
-// =============================================================================
-// createImage
-// =============================================================================
-
-void ResourceFactory::createImage(uint32_t width, uint32_t height, VkFormat format,
-                                  VkImageTiling tiling, VkImageUsageFlags usage,
-                                  VkMemoryPropertyFlags properties, VkImage& image,
-                                  VkDeviceMemory& imageMemory) const {
-    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = format;
-    ci.extent = {width, height, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = tiling;
-    ci.usage = usage;
-    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (vkCreateImage(ctx_->device(), &ci, nullptr, &image) != VK_SUCCESS) {
-        throw std::runtime_error("ResourceFactory::createImage: vkCreateImage failed");
-    }
-
-    VkMemoryRequirements req{};
-    vkGetImageMemoryRequirements(ctx_->device(), image, &req);
-
-    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    ai.allocationSize = req.size;
-    ai.memoryTypeIndex = findMemoryType(req.memoryTypeBits, properties);
-    if (vkAllocateMemory(ctx_->device(), &ai, nullptr, &imageMemory) != VK_SUCCESS) {
-        // リーク防止: 先に作った image を破棄してから throw
-        vkDestroyImage(ctx_->device(), image, nullptr);
-        image = VK_NULL_HANDLE;
-        throw std::runtime_error("ResourceFactory::createImage: vkAllocateMemory failed");
-    }
-    vkBindImageMemory(ctx_->device(), image, imageMemory, 0);
-}
 
 // =============================================================================
 // One-time commands
@@ -263,30 +226,3 @@ void ResourceFactory::createBufferVMA(VkDeviceSize size, VkBufferUsageFlags usag
     }
 }
 
-void ResourceFactory::createImageVMA(uint32_t width, uint32_t height, VkFormat format,
-                                      VkImageTiling tiling, VkImageUsageFlags usage,
-                                      VmaMemoryUsage memoryUsage,
-                                      VmaAllocationCreateFlags flags,
-                                      VkImage& image, VmaAllocation& allocation) const {
-    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.extent.width = width;
-    ci.extent.height = height;
-    ci.extent.depth = 1;
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.format = format;
-    ci.tiling = tiling;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ci.usage = usage;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo ai{};
-    ai.usage = memoryUsage;
-    ai.flags = flags;
-
-    if (vmaCreateImage(ctx_->allocator(), &ci, &ai, &image, &allocation, nullptr) != VK_SUCCESS) {
-        throw std::runtime_error("ResourceFactory::createImageVMA: vmaCreateImage failed");
-    }
-}

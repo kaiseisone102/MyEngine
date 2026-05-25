@@ -4,8 +4,9 @@
 // =============================================================================
 // ResourceFactory - Phase 1B-3: VMA-based helpers added alongside legacy API.
 // =============================================================================
-// New: createBufferVMA / createImageVMA use VMA allocator with BDA support.
-// Legacy createBuffer / createImage remain for backward compatibility.
+// New: createBufferVMA uses the VMA allocator with BDA support.
+// Legacy createBuffer remains for backward compatibility (buffer only).
+// (Legacy createImage / createImageVMA removed; all images now use VmaImage.)
 //
 // Migration path (per call site):
 //   Old: VkBuffer buf; VkDeviceMemory mem;
@@ -38,11 +39,6 @@ class ResourceFactory {
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
                       VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
 
-    // ┌─ Legacy image creation. DO NOT use for new code.
-    [[deprecated("Use createImageVMA instead. Will be removed after Phase 1B migration.")]]
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                     VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image,
-                     VkDeviceMemory& imageMemory) const;
 
     // ┌─ Memory type lookup (legacy path only).
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
@@ -58,11 +54,6 @@ class ResourceFactory {
                          VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags flags,
                          VkBuffer& buffer, VmaAllocation& allocation) const;
 
-    /// Create image via VMA. memoryUsage = VMA_MEMORY_USAGE_AUTO is recommended.
-    void createImageVMA(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-                        VkImageUsageFlags usage, VmaMemoryUsage memoryUsage,
-                        VmaAllocationCreateFlags flags,
-                        VkImage& image, VmaAllocation& allocation) const;
 
     // ─── Transfer helpers (unchanged) ─────────────────────────────────────
     void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) const;
