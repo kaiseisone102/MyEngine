@@ -249,6 +249,30 @@ int resolveNormalTextureIndex(const aiScene* scene, const aiMaterial* mat) {
     return -1;
 }
 
+// Metallic-roughness index (embedded *N). glTF packs roughness in G and metalness
+// in B of one linear texture. assimp exposes it via aiTextureType_METALNESS (and
+// aiTextureType_DIFFUSE_ROUGHNESS, usually the same image). External refs unsupported.
+int resolveMRTextureIndex(const aiScene* scene, const aiMaterial* mat) {
+    (void)scene;
+    aiString path;
+    aiReturn r = mat->GetTexture(aiTextureType_METALNESS, 0, &path);
+    if (r != AI_SUCCESS) {
+        r = mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &path);
+    }
+    if (r != AI_SUCCESS) return -1;
+    const std::string s = path.C_Str();
+    if (s.empty()) return -1;
+    if (s[0] == '*') {
+        try {
+            return std::stoi(s.substr(1));
+        } catch (...) {
+            return -1;
+        }
+    }
+    std::cerr << "[ModelLoader] external MR texture reference not supported: " << s << "\n";
+    return -1;
+}
+
 int resolveBaseColorTextureIndex(const aiScene* scene, const aiMaterial* mat) {
     aiString path;
     aiReturn r = mat->GetTexture(aiTextureType_BASE_COLOR, 0, &path);
@@ -416,13 +440,15 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
     // Collect embedded texture indices used as normal maps so they are read as
     // linear (sRGB would skew the encoded normals). Built before extraction so
     // the textures vector is sized once and never regrown.
-    std::set<int> normalTexIndices;
+    std::set<int> linearTexIndices;
     for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
         const int ni = resolveNormalTextureIndex(scene, scene->mMaterials[i]);
-        if (ni >= 0) normalTexIndices.insert(ni);
+        if (ni >= 0) linearTexIndices.insert(ni);
+        const int mi = resolveMRTextureIndex(scene, scene->mMaterials[i]);
+        if (mi >= 0) linearTexIndices.insert(mi);
     }
     if (scene->mNumTextures > 0) {
-        extractEmbeddedTextures(ctx, resources, scene, outModel.textures_, normalTexIndices);
+        extractEmbeddedTextures(ctx, resources, scene, outModel.textures_, linearTexIndices);
     }
 
     const Texture& fallbackTex = assets.defaultTexture();
@@ -432,6 +458,7 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
     for (unsigned i = 0; i < matCount; ++i) {
         const Texture* useTex = &fallbackTex;
         const Texture* normalTex = nullptr;
+        const Texture* mrTex = nullptr;
         if (scene->mNumMaterials > 0 && i < scene->mNumMaterials) {
             const aiMaterial* aimat = scene->mMaterials[i];
             const int texIdx = resolveBaseColorTextureIndex(scene, aimat);
@@ -441,6 +468,10 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
             const int normalIdx = resolveNormalTextureIndex(scene, aimat);
             if (normalIdx >= 0 && static_cast<size_t>(normalIdx) < outModel.textures_.size()) {
                 normalTex = &outModel.textures_[normalIdx];
+            }
+            const int mrIdx = resolveMRTextureIndex(scene, aimat);
+            if (mrIdx >= 0 && static_cast<size_t>(mrIdx) < outModel.textures_.size()) {
+                mrTex = &outModel.textures_[mrIdx];
             }
         }
         // S6-c: model materials go through materialId+bindless only (no descriptor set)
@@ -461,6 +492,13 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
                 normalIdx = static_cast<int>(nidx);
             }
         }
+        int mrIdx = -1;
+        if (assets.bindless() && mrTex && mrTex->view() != VK_NULL_HANDLE) {
+            uint32_t midx = assets.bindless()->registerTexture(mrTex->view(), mrTex->sampler());
+            if (midx != UINT32_MAX) {
+                mrIdx = static_cast<int>(midx);
+            }
+        }
         myengine::shared::GpuMaterial gm{};
         gm.baseColorFactor = glm::vec4(1.0f);
         gm.metallic = 0.0f;
@@ -468,7 +506,7 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
         gm.emissiveStrength = 0.0f;
         gm.albedoIdx = albedoIdx;
         gm.normalIdx = normalIdx;
-        gm.mrIdx = -1;
+        gm.mrIdx = mrIdx;
         gm.aoIdx = -1;
         gm.emissiveIdx = -1;
         const std::string matName = path + "#mat" + std::to_string(i);
