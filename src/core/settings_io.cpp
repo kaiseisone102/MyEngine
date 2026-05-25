@@ -139,6 +139,7 @@ GameSettings load(const std::string& path) {
         readInt(doc, "shadowQuality", settings.shadowQuality);
         if (settings.shadowQuality < 0 || settings.shadowQuality > 2) settings.shadowQuality = 1;
         readBool(doc, "bloom", settings.bloom);
+        readBool(doc, "normalMapping", settings.normalMapping);
         {
             int ti = static_cast<int>(settings.tonemapMode);
             if (readInt(doc, "tonemapMode", ti)) {
@@ -219,6 +220,8 @@ bool save(const GameSettings& settings, const std::string& path) {
         w.Int(settings.shadowQuality);
         w.Key("bloom");
         w.Bool(settings.bloom);
+        w.Key("normalMapping");
+        w.Bool(settings.normalMapping);
 
         w.Key("keyMapping");
         w.StartObject();

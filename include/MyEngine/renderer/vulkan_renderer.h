@@ -93,6 +93,7 @@ class VulkanRenderer {
     void setReflectShadows(bool b) { reflectShadows_ = b; }
     void setGrassWind(bool b) { passChain_.setGrassWind(b); }
     void setShadowQuality(int q) { shadowQuality_ = q; }
+    void setNormalMapping(bool b) { normalMapping_ = b; }
 
    private:
     // Build the single, fully-populated frame UBO from currentLighting_ plus
@@ -148,6 +149,7 @@ class VulkanRenderer {
     float waterTime_ = 0.f;
     bool reflectShadows_ = true;
     int shadowQuality_ = 1;  // 0=hard(1tap), 1=PCF3x3, 2=PCF5x5
+    bool normalMapping_ = true;  // Phase 1K-5: normal-map detail (FrameUBO.shadowParams.z)
     float lastDt_ = 0.f;     // last frame delta-time, for the frame UBO time field
 
     void recreateSwapchain();

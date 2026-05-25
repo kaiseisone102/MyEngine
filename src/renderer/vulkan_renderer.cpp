@@ -81,6 +81,7 @@ FrameUniforms::LightingUBO VulkanRenderer::buildCompleteFrameUBO() const {
     // then fill every per-frame field here so the result is complete in one place.
     FrameUniforms::LightingUBO ubo = currentLighting_;
     ubo.shadowParams.y = float(shadowQuality_);  // PCF quality
+    ubo.shadowParams.z = normalMapping_ ? 1.f : 0.f;  // Phase 1K-5: normal-map toggle
 
     const VkExtent2D ext = swapchain_.extent();
     const float fw = static_cast<float>(ext.width);

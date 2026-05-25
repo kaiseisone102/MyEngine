@@ -40,6 +40,7 @@ std::vector<MenuItem> GraphicsSettingsLayer::menuItems() const {
         MenuItem("Grass Wind", s.grassWind ? "On" : "Off"),
         MenuItem("Shadow Quality", shadowQualityName(s.shadowQuality)),
         MenuItem("Bloom", s.bloom ? "On" : "Off"),
+        MenuItem("Normal Mapping", s.normalMapping ? "On" : "Off"),
         MenuItem(saveLabel),
         MenuItem("Back"),
     };
@@ -77,6 +78,13 @@ void GraphicsSettingsLayer::handleConfirm(int selectedIndex, LayerCommands& cmds
             auto& s = state_.settings;
             s.bloom = !s.bloom;
             vulkan().setBloomEnabled(s.bloom);
+            hasUnsavedChanges_ = true;
+            break;
+        }
+        case kIdxNormalMapping: {
+            auto& s = state_.settings;
+            s.normalMapping = !s.normalMapping;
+            vulkan().setNormalMapping(s.normalMapping);
             hasUnsavedChanges_ = true;
             break;
         }
@@ -155,6 +163,13 @@ void GraphicsSettingsLayer::handleAdjust(int selectedIndex, int direction, Layer
             (void)direction;
             s.bloom = !s.bloom;
             vulkan().setBloomEnabled(s.bloom);
+            changed = true;
+            break;
+        }
+        case kIdxNormalMapping: {
+            (void)direction;
+            s.normalMapping = !s.normalMapping;
+            vulkan().setNormalMapping(s.normalMapping);
             changed = true;
             break;
         }

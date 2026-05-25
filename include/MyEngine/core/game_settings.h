@@ -68,6 +68,7 @@ struct GameSettings {
     bool grassWind = true;        // Phase 1F: grass wind sway (toggle)
     int shadowQuality = 1;        // Phase 1G: 0=hard, 1=PCF3x3, 2=PCF5x5
     bool bloom = true;            // Phase 1I: HDR bloom on/off
+    bool normalMapping = true;    // Phase 1K-5: normal-map surface detail on/off
     TonemapMode tonemapMode = TonemapMode::ACES;
 
     KeyMapping keyMapping;

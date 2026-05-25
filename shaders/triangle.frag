@@ -71,7 +71,7 @@ void main() {
     }
     #endif
     // Real normal map path (active once a material sets normalIdx >= 0).
-    if (m.normalIdx >= 0) {
+    if (m.normalIdx >= 0 && ubo.frame.shadowParams.z > 0.5) {
         vec3 nTan = texture(bindlessTextures[nonuniformEXT(m.normalIdx)], fragTexCoord).xyz * 2.0 - 1.0;
         surfGrad += pbrSurfaceGradFromTangentNormal(N, fragWorldPos, fragTexCoord, nTan);
     }
