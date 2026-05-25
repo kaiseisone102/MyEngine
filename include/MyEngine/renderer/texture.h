@@ -33,7 +33,7 @@ class Texture {
     void loadFromFileOrCheckerboard(const VulkanContext* ctx, const ResourceFactory* resources,
                                     const std::string& path);
     void loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
-                        const uint8_t* encodedData, size_t size);
+                        const uint8_t* encodedData, size_t size, bool srgb = true);
     // Phase 1F: build directly from raw RGBA8 pixels (w*h*4 bytes, no decoding).
     void loadFromRawRGBA(const VulkanContext* ctx, const ResourceFactory* resources,
                          const uint8_t* rgba, int width, int height);
@@ -58,8 +58,8 @@ class Texture {
     uint32_t bindlessIndex_ = UINT32_MAX;
 
     void createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
-                            int height);
+                            int height, bool srgb);
     void createSampler();
-    void buildFromRgbaPixels(const ResourceFactory* resources, const uint8_t* pixels, int w, int h);
+    void buildFromRgbaPixels(const ResourceFactory* resources, const uint8_t* pixels, int w, int h, bool srgb);
     static void generateCheckerboard(uint8_t* dst, int w, int h);
 };

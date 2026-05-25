@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 #include "renderer/asset_registry.h"
@@ -201,21 +202,51 @@ void uploadSubMeshToGpu(const VulkanContext* ctx, const ResourceFactory* resourc
                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, gpu.indexBuffer, gpu.indexBufferMemory);
 }
 
+// linearIndices: embedded texture indices that are DATA maps (normal/MR/AO) and
+// must be read as linear (UNORM); everything else is color (sRGB). Reading them
+// up front in one resize avoids growing the vector later (which would force the
+// caller to rely on vector reallocation not moving GPU handles).
 void extractEmbeddedTextures(const VulkanContext* ctx, const ResourceFactory* resources,
-                             const aiScene* scene, std::vector<Texture>& outTextures) {
+                             const aiScene* scene, std::vector<Texture>& outTextures,
+                             const std::set<int>& linearIndices) {
     outTextures.resize(scene->mNumTextures);
     for (unsigned i = 0; i < scene->mNumTextures; ++i) {
         const aiTexture* aitex = scene->mTextures[i];
+        const bool srgb = (linearIndices.count(static_cast<int>(i)) == 0);
         if (aitex->mHeight == 0) {
             const auto* data = reinterpret_cast<const uint8_t*>(aitex->pcData);
             const size_t size = aitex->mWidth;
-            outTextures[i].loadFromMemory(ctx, resources, data, size);
+            outTextures[i].loadFromMemory(ctx, resources, data, size, srgb);
         } else {
             std::cerr << "[ModelLoader] uncompressed embedded texture not supported (idx=" << i
                       << "), checkerboard fallback\n";
-            outTextures[i].loadFromMemory(ctx, resources, nullptr, 0);
+            outTextures[i].loadFromMemory(ctx, resources, nullptr, 0, srgb);
         }
     }
+}
+
+// Normal map index (embedded *N). glTF stores it under aiTextureType_NORMALS;
+// OBJ/Assimp quirk: many OBJ exporters put it under aiTextureType_HEIGHT, so we
+// fall back to that. External (non-embedded) references are not supported yet.
+int resolveNormalTextureIndex(const aiScene* scene, const aiMaterial* mat) {
+    (void)scene;
+    aiString path;
+    aiReturn r = mat->GetTexture(aiTextureType_NORMALS, 0, &path);
+    if (r != AI_SUCCESS) {
+        r = mat->GetTexture(aiTextureType_HEIGHT, 0, &path);
+    }
+    if (r != AI_SUCCESS) return -1;
+    const std::string s = path.C_Str();
+    if (s.empty()) return -1;
+    if (s[0] == '*') {
+        try {
+            return std::stoi(s.substr(1));
+        } catch (...) {
+            return -1;
+        }
+    }
+    std::cerr << "[ModelLoader] external normal texture reference not supported: " << s << "\n";
+    return -1;
 }
 
 int resolveBaseColorTextureIndex(const aiScene* scene, const aiMaterial* mat) {
@@ -382,8 +413,16 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
 
     outModel.ctx_ = ctx;
 
+    // Collect embedded texture indices used as normal maps so they are read as
+    // linear (sRGB would skew the encoded normals). Built before extraction so
+    // the textures vector is sized once and never regrown.
+    std::set<int> normalTexIndices;
+    for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
+        const int ni = resolveNormalTextureIndex(scene, scene->mMaterials[i]);
+        if (ni >= 0) normalTexIndices.insert(ni);
+    }
     if (scene->mNumTextures > 0) {
-        extractEmbeddedTextures(ctx, resources, scene, outModel.textures_);
+        extractEmbeddedTextures(ctx, resources, scene, outModel.textures_, normalTexIndices);
     }
 
     const Texture& fallbackTex = assets.defaultTexture();
@@ -392,11 +431,16 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
     outModel.materials_.resize(matCount);
     for (unsigned i = 0; i < matCount; ++i) {
         const Texture* useTex = &fallbackTex;
+        const Texture* normalTex = nullptr;
         if (scene->mNumMaterials > 0 && i < scene->mNumMaterials) {
             const aiMaterial* aimat = scene->mMaterials[i];
             const int texIdx = resolveBaseColorTextureIndex(scene, aimat);
             if (texIdx >= 0 && static_cast<size_t>(texIdx) < outModel.textures_.size()) {
                 useTex = &outModel.textures_[texIdx];
+            }
+            const int normalIdx = resolveNormalTextureIndex(scene, aimat);
+            if (normalIdx >= 0 && static_cast<size_t>(normalIdx) < outModel.textures_.size()) {
+                normalTex = &outModel.textures_[normalIdx];
             }
         }
         // S6-c: model materials go through materialId+bindless only (no descriptor set)
@@ -410,13 +454,20 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
                 albedoIdx = static_cast<int>(bidx);
             }
         }
+        int normalIdx = -1;
+        if (assets.bindless() && normalTex && normalTex->view() != VK_NULL_HANDLE) {
+            uint32_t nidx = assets.bindless()->registerTexture(normalTex->view(), normalTex->sampler());
+            if (nidx != UINT32_MAX) {
+                normalIdx = static_cast<int>(nidx);
+            }
+        }
         myengine::shared::GpuMaterial gm{};
         gm.baseColorFactor = glm::vec4(1.0f);
         gm.metallic = 0.0f;
         gm.roughness = 0.5f;
         gm.emissiveStrength = 0.0f;
         gm.albedoIdx = albedoIdx;
-        gm.normalIdx = -1;
+        gm.normalIdx = normalIdx;
         gm.mrIdx = -1;
         gm.aoIdx = -1;
         gm.emissiveIdx = -1;

@@ -44,12 +44,12 @@ void Texture::loadFromFileOrCheckerboard(const VulkanContext* ctx, const Resourc
         std::cout << "[Texture] loaded from file: " << path << " (" << texW << "x" << texH
                   << ")\n";
     }
-    buildFromRgbaPixels(resources, pixels, texW, texH);
+    buildFromRgbaPixels(resources, pixels, texW, texH, true);
     if (stbiPix) stbi_image_free(stbiPix);
 }
 
 void Texture::loadFromMemory(const VulkanContext* ctx, const ResourceFactory* resources,
-                             const uint8_t* encodedData, size_t size) {
+                             const uint8_t* encodedData, size_t size, bool srgb) {
     ctx_ = ctx;
     int texW = 0, texH = 0, texCh = 0;
     uint8_t* stbiPix = nullptr;
@@ -67,13 +67,13 @@ void Texture::loadFromMemory(const VulkanContext* ctx, const ResourceFactory* re
         generateCheckerboard(owned.data(), texW, texH);
         pixels = owned.data();
     }
-    buildFromRgbaPixels(resources, pixels, texW, texH);
+    buildFromRgbaPixels(resources, pixels, texW, texH, srgb);
     if (stbiPix) stbi_image_free(stbiPix);
 }
 
 void Texture::buildFromRgbaPixels(const ResourceFactory* resources, const uint8_t* pixels, int w,
-                                  int h) {
-    createImageAndView(resources, pixels, w, h);
+                                  int h, bool srgb) {
+    createImageAndView(resources, pixels, w, h, srgb);
     createSampler();
 }
 
@@ -85,16 +85,18 @@ void Texture::loadFromRawRGBA(const VulkanContext* ctx, const ResourceFactory* r
         int texW = 64, texH = 64;
         std::vector<uint8_t> owned(static_cast<size_t>(texW) * texH * 4);
         generateCheckerboard(owned.data(), texW, texH);
-        createImageAndView(resources, owned.data(), texW, texH);
+        createImageAndView(resources, owned.data(), texW, texH, true);
         createSampler();
         return;
     }
-    createImageAndView(resources, rgba, width, height);
+    createImageAndView(resources, rgba, width, height, true);
     createSampler();
 }
 
 void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t* pixels, int width,
-                                 int height) {
+                                 int height, bool srgb) {
+    // Color textures (albedo) are sRGB; data textures (normal/MR/AO) must be linear.
+    const VkFormat fmt = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * 4);
 
     VkBuffer staging{};
@@ -115,7 +117,7 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     // ctx_ is const here; createAttachment needs non-const (allocator()), so cast.
     image_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
                                         static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                                        VK_FORMAT_R8G8B8A8_SRGB,
+                                        fmt,
                                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
     resources->transitionImageLayout(image_.image(), VK_IMAGE_LAYOUT_UNDEFINED,
@@ -131,7 +133,7 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = image_.image();
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.format = fmt;
     ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkImageView view = VK_NULL_HANDLE;
     if (vkCreateImageView(ctx_->device(), &ci, nullptr, &view) != VK_SUCCESS)
