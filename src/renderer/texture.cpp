@@ -111,7 +111,7 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
 
     // Create image + memory into raw locals, then take ownership via VkUnique.
     // Move-assign frees any previous handle first, so re-loading a Texture is safe.
-    // image memory is now VMA-managed via VmaImage (createImageVMA path).
+    // image memory is now VMA-managed via VmaImage::createAttachment.
     // ctx_ is const here; createAttachment needs non-const (allocator()), so cast.
     image_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
                                         static_cast<uint32_t>(width), static_cast<uint32_t>(height),

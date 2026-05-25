@@ -24,6 +24,7 @@
 #include <vulkan/vulkan.h>
 
 #include "renderer/vk_unique.h"
+#include "renderer/vma_image.h"
 
 #include <cstdint>
 #include <vector>
@@ -61,8 +62,7 @@ class Swapchain {
     std::vector<VkUnique<VkImageView>> views_;
 
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
-    VkUnique<VkImage> depthImage_;
-    VkUnique<VkDeviceMemory> depthImageMemory_;
+    VmaImage depthImage_;  // VkImage + VmaAllocation (memory is now VMA-managed)
     VkUnique<VkImageView> depthView_;
 
     // ─── 内部ヘルパ ───────────────────────────────────────────

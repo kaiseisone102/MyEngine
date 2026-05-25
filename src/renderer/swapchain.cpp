@@ -216,12 +216,11 @@ void Swapchain::createImageViews() {
 
 void Swapchain::createDepthResources() {
     VkImage di = VK_NULL_HANDLE;
-    VkDeviceMemory dm = VK_NULL_HANDLE;
-    resources_->createImage(extent_.width, extent_.height, depthFormat_, VK_IMAGE_TILING_OPTIMAL,
-                            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, di, dm);
-    depthImage_ = VkUnique<VkImage>(ctx_->device(), di);
-    depthImageMemory_ = VkUnique<VkDeviceMemory>(ctx_->device(), dm);
+    // depth image memory is now VMA-managed via VmaImage::createAttachment.
+    // ctx_ is const; createAttachment needs non-const (allocator()), so cast.
+    depthImage_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
+                                             extent_.width, extent_.height, depthFormat_,
+                                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
     // depth view: フォーマットに stencil 成分があれば STENCIL_BIT も追加 (安全側)
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -231,7 +230,7 @@ void Swapchain::createDepthResources() {
     }
 
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    ci.image = depthImage_.get();
+    ci.image = depthImage_.image();
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = depthFormat_;
     ci.subresourceRange = {aspect, 0, 1, 0, 1};
@@ -255,5 +254,4 @@ void Swapchain::destroyImageViewsAndSwapchain() {
 void Swapchain::destroyDepthResources() {
     depthView_.reset();
     depthImage_.reset();
-    depthImageMemory_.reset();
 }
