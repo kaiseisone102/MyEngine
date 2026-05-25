@@ -51,6 +51,32 @@ void main() {
 
 
     vec3 N = normalize(fragNormal);
+
+    // ─── Normal mapping via surface gradient framework (Phase 1K-5) ───
+    // Accumulate bump contributions as surface gradients (they sum linearly),
+    // then resolve once against the geometric normal. Detail maps / terrain
+    // blends / decals will just add more terms here later.
+    vec3 surfGrad = vec3(0.0);
+    // PBR_NORMAL_TEST: temporary procedural bump to validate the surface-gradient
+    // math before the loader supplies real normal maps (Phase 1K-5 PART C).
+    // Set to 0 to disable; the real path below kicks in once normalIdx >= 0.
+    #define PBR_NORMAL_TEST 0  // 1 to re-validate surface-gradient math procedurally
+    #if PBR_NORMAL_TEST
+    {
+        // A clearly visible tangent-space ripple from UV; nz kept dominant so
+        // the perturbation is moderate. This is NOT shipping content.
+        vec2 w = fragTexCoord * 40.0;
+        vec3 nTan = normalize(vec3(sin(w.x) * 0.6, sin(w.y) * 0.6, 1.0));
+        surfGrad += pbrSurfaceGradFromTangentNormal(N, fragWorldPos, fragTexCoord, nTan);
+    }
+    #endif
+    // Real normal map path (active once a material sets normalIdx >= 0).
+    if (m.normalIdx >= 0) {
+        vec3 nTan = texture(bindlessTextures[nonuniformEXT(m.normalIdx)], fragTexCoord).xyz * 2.0 - 1.0;
+        surfGrad += pbrSurfaceGradFromTangentNormal(N, fragWorldPos, fragTexCoord, nTan);
+    }
+    N = pbrResolveNormal(N, surfGrad);
+
     vec3 V = normalize(ubo.frame.viewPos.xyz - fragWorldPos);
     // lightDir is the direction the light TRAVELS; flip for "to-light"
     vec3 L = normalize(-ubo.frame.lightDir.xyz);

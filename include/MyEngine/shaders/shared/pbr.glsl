@@ -80,4 +80,66 @@ vec3 pbrAmbient(vec3 ambientColor, vec3 albedo) {
     return ambientColor * albedo;
 }
 
+// =============================================================================
+// Surface gradient bump mapping framework (Mikkelsen 2020; used by Unreal).
+//
+// WHY this and not classic per-vertex tangents or a one-off derivative TBN:
+// the modern, open-world-correct way to apply normal detail is to express each
+// bump contribution as a SURFACE GRADIENT (a vector in the surface tangent
+// plane). Surface gradients ADD LINEARLY, so a base normal map, a detail normal
+// map, terrain-layer blends, and decals can all be summed in gradient space and
+// resolved ONCE against the interpolated vertex normal. Blending world/tangent
+// normals directly is mathematically wrong; summing gradients is correct. We
+// build this on screen-space derivatives so no per-vertex tangent attribute is
+// needed (the mesh vertex format stays position/color/uv/normal).
+//
+// Usage in a frag:
+//   vec3 grad = vec3(0.0);
+//   if (hasBaseNormalMap)  grad += pbrSurfaceGradFromTangentNormal(N, P, uv, nTan);
+//   // + detail / terrain / decal contributions here later (just keep adding)
+//   vec3 perturbedN = pbrResolveNormal(N, grad);
+// where N = normalize(interpolated world normal), P = world position,
+//       uv = texcoords, nTan = sampled tangent-space normal in [-1,1].
+// =============================================================================
+
+// Cotangent frame from screen-space derivatives (Mikkelsen / thetenthplanet).
+// Returns tangent (T) and bitangent (B) in world space for the given UV set,
+// already consistent with the interpolated normal N. Sign-correct and robust on
+// double-sided / procedural geometry (the failure case Unreal's DeriveTangentBasis
+// omits). dp1/dp2 are world-pos derivatives, duv1/duv2 are uv derivatives.
+void pbrCotangentFrame(vec3 N, vec3 dp1, vec3 dp2, vec2 duv1, vec2 duv2,
+                       out vec3 T, out vec3 B) {
+    // Solve the linear system for the tangent directions (perp-trick form).
+    vec3 dp2perp = cross(dp2, N);
+    vec3 dp1perp = cross(N, dp1);
+    T = dp2perp * duv1.x + dp1perp * duv2.x;
+    B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+    T *= invmax;
+    B *= invmax;
+}
+
+// One bump contribution -> surface gradient, in the tangent plane of N.
+// nTan is the tangent-space normal already remapped to [-1,1]. The returned
+// gradient can be summed with other contributions before pbrResolveNormal().
+vec3 pbrSurfaceGradFromTangentNormal(vec3 N, vec3 P, vec2 uv, vec3 nTan) {
+    vec3 dp1 = dFdx(P);
+    vec3 dp2 = dFdy(P);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    vec3 T, B;
+    pbrCotangentFrame(N, dp1, dp2, duv1, duv2, T, B);
+    // Surface gradient of a tangent-space normal (nz>0): project the xy tilt
+    // onto (T,B), scaled so that resolving against N reproduces the tangent
+    // normal exactly. Guard nz away from 0 for grazing/degenerate samples.
+    float nz = max(nTan.z, 1e-5);
+    return (nTan.x * T + nTan.y * B) / nz;
+}
+
+// Resolve accumulated surface gradient against the geometric (interpolated)
+// normal and renormalize. With zero gradient this returns N unchanged.
+vec3 pbrResolveNormal(vec3 N, vec3 surfGrad) {
+    return normalize(N - surfGrad);
+}
+
 #endif  // MYENGINE_SHARED_PBR_GLSL
