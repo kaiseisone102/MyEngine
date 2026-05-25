@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <iostream>
 
+#include "scene/scene_data.h"  // SceneData::cullObjects() for the cull pass
+
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
@@ -70,6 +72,14 @@ void PassChain::init(const InitInfo& info) {
 
     // Phase 1E: instance matrix pool
     instancePool_.init(info.ctx, info.resources);
+
+    // Phase 2B PART2: GPU frustum culling compute pass (BDA-only, no sets)
+    {
+        CullingPass::InitInfo ci{};
+        ci.ctx = info.ctx;
+        ci.shaderDir = info.shaderDir;
+        cullingPass_.init(ci);
+    }
     {
         // Phase 1I: compute mip-chain bloom (HDR -> mip chain -> mip0 = bloom)
         BloomPass::InitInfo bi{};
@@ -185,6 +195,7 @@ void PassChain::shutdown() {
     debugLinePass_.shutdown();
     postPass_.shutdown();  // Phase 1H-3
     bloomPass_.shutdown();  // was leaking: init'd but never shut down
+    cullingPass_.shutdown();   // Phase 2B PART2
     instancePool_.shutdown();  // Phase 1E
     mainPass_.shutdown();
     shadowPass_.shutdown();
@@ -308,6 +319,29 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
         reflectVP = info.normalLighting.proj * reflectView;
         waterUseReflection = true;
+    }
+
+    // ─── 2.5 CullingPass (Phase 2B PART2): GPU frustum cull BEFORE MainPass ──
+    {
+        CullingPass::ExecuteInfo ce{};
+        ce.cmd = info.cmd;
+        ce.frameIndex = info.frameIndex;
+        ce.cullObjects = &info.scene->cullObjects();
+        ce.drawTemplates = nullptr;  // PART2: no real draw yet (instanceCount only)
+        ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
+        cullingPass_.execute(ce);
+
+        // temporary [Cull2B] verify: compare GPU visible count vs CPU total.
+        // Reads this frameIndex's buffer from the PREVIOUS time it was used (its
+        // GPU work has completed via the frame fence), so it's safe to read.
+        static int s_cullGpuLogFrames = 0;
+        if (!info.scene->cullObjects().empty() && s_cullGpuLogFrames < 30) {
+            ++s_cullGpuLogFrames;
+            std::cout << "[Cull2B] frame=" << info.frameIndex
+                      << " gpu(prev)=" << cullingPass_.lastGpuVisible(info.frameIndex)
+                      << " cpu=" << cullingPass_.lastCpuVisible()
+                      << " / total=" << info.scene->cullObjects().size() << "\n";
+        }
     }
 
     // ─── 3. MainPass ────────────────────────────────────────────

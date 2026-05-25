@@ -7,12 +7,14 @@
 
 #include "renderer/vulkan_context.h"
 
-VmaBuffer VmaBuffer::createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize size) {
+VmaBuffer VmaBuffer::createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize size,
+                                            VkBufferUsageFlags extraUsage) {
     if (!ctx) throw std::runtime_error("VmaBuffer::createMappedStorageBDA: null ctx");
 
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = size;
-    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+               extraUsage;
     bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo ai{};

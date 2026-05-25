@@ -46,10 +46,12 @@ class VmaBuffer {
     }
 
     // Create a persistently-mapped, BDA-enabled storage buffer (the recipe used
-    // by every pool here). usage is OR'd with STORAGE_BUFFER | SHADER_DEVICE_
-    // ADDRESS; vmaFlags is OR'd with HOST_ACCESS_SEQUENTIAL_WRITE | MAPPED.
+    // by every pool here). usage is STORAGE_BUFFER | SHADER_DEVICE_ADDRESS, OR'd
+    // with extraUsage (e.g. INDIRECT_BUFFER for a GPU-written draw command buffer);
+    // vmaFlags is OR'd with HOST_ACCESS_SEQUENTIAL_WRITE | MAPPED.
     // Throws std::runtime_error if mapping or the device address fails.
-    static VmaBuffer createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize size);
+    static VmaBuffer createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize size,
+                                            VkBufferUsageFlags extraUsage = 0);
 
     // Create a persistently-mapped host-visible buffer with arbitrary usage and
     // no buffer device address (for vertex/index/uniform data the CPU writes each

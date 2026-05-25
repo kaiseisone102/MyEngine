@@ -145,6 +145,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/skeleton.cpp
     src/renderer/skin_buffer_pool.cpp
     src/renderer/instance_buffer_pool.cpp
+    src/renderer/culling_pass.cpp
     src/renderer/material_registry.cpp
     src/renderer/vma_buffer.cpp
     src/renderer/vma_image.cpp
