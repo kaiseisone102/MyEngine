@@ -5,6 +5,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "renderer/vk_unique.h"
+
 #include <string>
 #include <vector>
 
@@ -57,15 +59,15 @@ class ReflectionPass {
 
     void rebuild(ReflectionQuality quality, uint32_t baseWidth, uint32_t baseHeight);
 
-    VkRenderPass renderPass() const { return renderPass_; }
+    VkRenderPass renderPass() const { return renderPass_.get(); }
     const ReflectionTarget& target() const { return target_; }
     bool enabled() const { return quality_ != ReflectionQuality::Off; }
     ReflectionQuality quality() const { return quality_; }
 
-    VkPipeline staticPipeline() const { return staticPipeline_; }
-    VkPipelineLayout staticLayout() const { return staticLayout_; }
-    VkPipeline skinnedPipeline() const { return skinnedPipeline_; }
-    VkPipelineLayout skinnedLayout() const { return skinnedLayout_; }
+    VkPipeline staticPipeline() const { return staticPipeline_.get(); }
+    VkPipelineLayout staticLayout() const { return staticLayout_.get(); }
+    VkPipeline skinnedPipeline() const { return skinnedPipeline_.get(); }
+    VkPipelineLayout skinnedLayout() const { return skinnedLayout_.get(); }
 
    private:
     VulkanContext* ctx_ = nullptr;
@@ -76,13 +78,13 @@ class ReflectionPass {
     ReflectionQuality quality_ = ReflectionQuality::Half;
 
     ReflectionTarget target_;
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-    VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
+    VkUnique<VkRenderPass> renderPass_;
+    VkUnique<VkFramebuffer> framebuffer_;
 
-    VkPipelineLayout staticLayout_ = VK_NULL_HANDLE;
-    VkPipeline staticPipeline_ = VK_NULL_HANDLE;
-    VkPipelineLayout skinnedLayout_ = VK_NULL_HANDLE;
-    VkPipeline skinnedPipeline_ = VK_NULL_HANDLE;
+    VkUnique<VkPipelineLayout> staticLayout_;
+    VkUnique<VkPipeline> staticPipeline_;
+    VkUnique<VkPipelineLayout> skinnedLayout_;
+    VkUnique<VkPipeline> skinnedPipeline_;
 
     void createRenderPass();
     void createFramebuffer();
