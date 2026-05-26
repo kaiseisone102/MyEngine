@@ -53,25 +53,25 @@ constexpr float kPlayerInvincBlinkHz = 5.f;
 constexpr int kActiveEdgeLayerCount = 5;
 constexpr float kActiveEdgeStepMeters = 0.01f;
 
-DebugOverlayData buildDebugOverlayData(GameState& s) {
+DebugOverlayData buildDebugOverlayData(GameState& gameState) {
     int entityCount = 0;
-    s.worldState.data.world.each([&](const CTransform&) { ++entityCount; });
+    gameState.worldState.data.world.each([&](const CTransform&) { ++entityCount; });
 
-    const CHealth& hp = s.worldState.data.player.get<CHealth>();
-    const CAttack& atk = s.worldState.data.player.get<CAttack>();
-    const CShield& sh = s.worldState.data.player.has<CShield>()
-                            ? s.worldState.data.player.get<CShield>()
+    const CHealth& hp = gameState.worldState.data.player.get<CHealth>();
+    const CAttack& atk = gameState.worldState.data.player.get<CAttack>();
+    const CShield& sh = gameState.worldState.data.player.has<CShield>()
+                            ? gameState.worldState.data.player.get<CShield>()
                             : CShield{};
 
-    const SkinBufferPool& pool = s.worldState.data.vulkan.skinBufferPool();
+    const SkinBufferPool& pool = gameState.worldState.data.vulkan.skinBufferPool();
 
     DebugOverlayData d{};
     d.entityCount = entityCount;
-    d.fps = s.runtime.fps;
-    d.playerPos = s.worldState.data.player.get<CTransform>().pos;
-    d.velY = s.worldState.data.player.get<CVelocity>().y;
-    d.onGround = s.worldState.data.player.get<CPhysics>().onGround;
-    d.isTps = s.runtime.camera.mode == CameraMode::TPS;
+    d.fps = gameState.runtime.fps;
+    d.playerPos = gameState.worldState.data.player.get<CTransform>().pos;
+    d.velY = gameState.worldState.data.player.get<CVelocity>().y;
+    d.onGround = gameState.worldState.data.player.get<CPhysics>().onGround;
+    d.isTps = gameState.runtime.camera.mode == CameraMode::TPS;
     d.attackActive = atk.isActive();
     d.attackTime = atk.elapsed;
     d.hpSegments = hp.segmentCount;
@@ -82,11 +82,11 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
     d.shieldDurability = sh.durability;
     d.skinnedAllocated = static_cast<int>(pool.allocatedCount());
     d.skinnedCapacity = static_cast<int>(SkinBufferPool::MAX_ENTITIES);
-    d.instancedVisible = s.worldState.data.vulkan.instancedVisible();
-    d.instancedTotal = s.worldState.data.vulkan.instancedTotal();
+    d.instancedVisible = gameState.worldState.data.vulkan.instancedVisible();
+    d.instancedTotal = gameState.worldState.data.vulkan.instancedTotal();
 
-    if (s.worldState.data.player.has<CGrip>()) {
-        const CGrip& g = s.worldState.data.player.get<CGrip>();
+    if (gameState.worldState.data.player.has<CGrip>()) {
+        const CGrip& g = gameState.worldState.data.player.get<CGrip>();
         d.gripType = g.type;
         d.gripDurability = g.durability;
         d.gripMaxDurability = grip::def(g.type).maxDurability;
@@ -96,8 +96,8 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
         d.gripMaxDurability = 0;
     }
 
-    if (s.worldState.data.player.has<CKeyInventory>()) {
-        const CKeyInventory& inv = s.worldState.data.player.get<CKeyInventory>();
+    if (gameState.worldState.data.player.has<CKeyInventory>()) {
+        const CKeyInventory& inv = gameState.worldState.data.player.get<CKeyInventory>();
         d.goldKeys = inv.goldKeys;
         d.silverKeys = inv.silverKeys;
     } else {
@@ -105,13 +105,13 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
         d.silverKeys = 0;
     }
 
-    if (s.worldState.data.player.has<CMoney>()) {
-        d.money = s.worldState.data.player.get<CMoney>().amount;
+    if (gameState.worldState.data.player.has<CMoney>()) {
+        d.money = gameState.worldState.data.player.get<CMoney>().amount;
     } else {
         d.money = 0;
     }
 
-    const KeyMapping& m = s.settings.keyMapping;
+    const KeyMapping& m = gameState.settings.keyMapping;
     d.moveKeysLabel = m.moveForward.shortName() + "/" + m.moveLeft.shortName() + "/" +
                       m.moveBack.shortName() + "/" + m.moveRight.shortName();
     d.jumpKeyLabel = m.jump.shortName();
@@ -119,14 +119,14 @@ DebugOverlayData buildDebugOverlayData(GameState& s) {
     d.strongAttackKeyLabel = m.strongAttack.shortName();
     d.toggleCameraKeyLabel = m.toggleCamera.shortName();
 
-    d.topLayerName = s.runtime.topLayerName;
-    d.layerStackDepth = s.runtime.layerStackDepth;
+    d.topLayerName = gameState.runtime.topLayerName;
+    d.layerStackDepth = gameState.runtime.layerStackDepth;
 
     return d;
 }
 
-void debugSpawnBurst(GameState& s, int count) {
-    auto& wd = s.worldState.data;
+void debugSpawnBurst(GameState& gameState, int count) {
+    auto& wd = gameState.worldState.data;
     const glm::vec3& playerPos = wd.player.get<CTransform>().pos;
 
     int spawned = 0;
@@ -181,8 +181,8 @@ void debugSpawnBurst(GameState& s, int count) {
               << SkinBufferPool::MAX_ENTITIES << ")\n";
 }
 
-void debugClearEnemies(GameState& s) {
-    auto& wd = s.worldState.data;
+void debugClearEnemies(GameState& gameState) {
+    auto& wd = gameState.worldState.data;
     const size_t before = wd.enemies.size();
     for (flecs::entity e : wd.enemies) {
         if (e.is_alive()) e.destruct();
@@ -193,21 +193,21 @@ void debugClearEnemies(GameState& s) {
               << SkinBufferPool::MAX_ENTITIES << ")\n";
 }
 
-void debugLogPoolStatus(GameState& s) {
-    const SkinBufferPool& pool = s.worldState.data.vulkan.skinBufferPool();
+void debugLogPoolStatus(GameState& gameState) {
+    const SkinBufferPool& pool = gameState.worldState.data.vulkan.skinBufferPool();
     int entityCount = 0;
-    s.worldState.data.world.each([&](const CTransform&) { ++entityCount; });
+    gameState.worldState.data.world.each([&](const CTransform&) { ++entityCount; });
 
     std::cout << "[Debug F10] SkinBufferPool: " << pool.allocatedCount() << " / "
               << SkinBufferPool::MAX_ENTITIES << " | Entities: " << entityCount
-              << " | Enemies: " << s.worldState.data.enemies.size() << " | FPS: " << s.runtime.fps
+              << " | Enemies: " << gameState.worldState.data.enemies.size() << " | FPS: " << gameState.runtime.fps
               << "\n";
 }
 
-void debugDumpAnimators(GameState& s) {
+void debugDumpAnimators(GameState& gameState) {
     std::cout << "\n[Debug F9] === Animator State Dump ===\n";
     int count = 0;
-    s.worldState.data.world.each([&](flecs::entity e, CSkeletalAnim& sa) {
+    gameState.worldState.data.world.each([&](flecs::entity e, CSkeletalAnim& sa) {
         const char* name = e.name().c_str();
         if (!name || name[0] == '\0') name = "(unnamed)";
 
@@ -250,8 +250,8 @@ const char* cornerName(RenderDebugSystem::Corner c) {
     return "?";
 }
 
-void cancelGuard(GameState& s) {
-    auto& player = s.worldState.data.player;
+void cancelGuard(GameState& gameState) {
+    auto& player = gameState.worldState.data.player;
     if (player && player.is_alive() && player.has<CShield>()) {
         player.ensure<CShield>().guarding = false;
     }
@@ -501,9 +501,9 @@ void GameplayLayer::pushPauseMenu(LayerCommands& cmds) {
 }
 
 void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
-    auto& s = state_;
-    auto& ws = s.worldState;
-    DebugFlags& dbg = s.runtime.debug;
+    auto& gameState = state_;
+    auto& ws = gameState.worldState;
+    DebugFlags& dbg = gameState.runtime.debug;
 
     if (findEvent<MenuBackRequested>(events)) {
         pushPauseMenu(cmds);
@@ -520,11 +520,11 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
             continue;
         }
         if (std::holds_alternative<ToggleCameraRequested>(ev)) {
-            ws.systems.cameraSystem.toggleMode(s.runtime.camera);
+            ws.systems.cameraSystem.toggleMode(gameState.runtime.camera);
             continue;
         }
         if (std::holds_alternative<JumpRequested>(ev)) {
-            cancelGuard(s);
+            cancelGuard(gameState);
             if (!ws.systems.combatSystem.isInputLocked(ws.data.player)) {
                 ws.data.player.ensure<CPhysics>().jumpReq = true;
             }
@@ -554,17 +554,17 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
                 requestWarpToStage(nearbyWarpTarget_);
                 return;
             }
-            cancelGuard(s);
+            cancelGuard(gameState);
             ws.systems.combatSystem.requestAttack(ws.data.player, ws.systems.sound);
             continue;
         }
         if (std::holds_alternative<StrongAttackRequested>(ev)) {
-            cancelGuard(s);
+            cancelGuard(gameState);
             ws.systems.combatSystem.requestStrongAttack(ws.data.player, ws.systems.sound);
             continue;
         }
         if (const auto* look = std::get_if<MouseLookDelta>(&ev)) {
-            ws.systems.cameraSystem.applyMouseLook(s.runtime.camera, s.runtime.mouseCapture,
+            ws.systems.cameraSystem.applyMouseLook(gameState.runtime.camera, gameState.runtime.mouseCapture,
                                                    look->xrel, look->yrel);
             continue;
         }
@@ -586,16 +586,16 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
                               << (dbg.showHitboxes ? "ON" : "OFF") << "\n";
                     break;
                 case SDL_SCANCODE_F9:
-                    debugDumpAnimators(s);
+                    debugDumpAnimators(gameState);
                     break;
                 case SDL_SCANCODE_F10:
-                    debugLogPoolStatus(s);
+                    debugLogPoolStatus(gameState);
                     break;
                 case SDL_SCANCODE_F11:
-                    debugClearEnemies(s);
+                    debugClearEnemies(gameState);
                     break;
                 case SDL_SCANCODE_F12:
-                    debugSpawnBurst(s, 20);
+                    debugSpawnBurst(gameState, 20);
                     break;
                 default:
                     break;
@@ -670,25 +670,25 @@ void GameplayLayer::update(float dt, bool isTop, const ActionState& input) {
         warpToStage(target);
     }
 
-    auto& s = state_;
-    auto& ws = s.worldState;
+    auto& gameState = state_;
+    auto& ws = gameState.worldState;
 
-    sim_.updateEnemy(s, dt, gravity_);
+    sim_.updateEnemy(gameState, dt, gravity_);
 
     ws.systems.spinAnimationSystem.update(ws.data, dt);
     ws.systems.particleSystem.update(ws.data, dt);
 
     if (isTop) {
-        sim_.updatePlayer(s, input, dt, gravity_, jumpSpeed_);
+        sim_.updatePlayer(gameState, input, dt, gravity_, jumpSpeed_);
     } else {
         static const ActionState kZeroInput{};
-        sim_.updatePlayer(s, kZeroInput, dt, gravity_, jumpSpeed_);
+        sim_.updatePlayer(gameState, kZeroInput, dt, gravity_, jumpSpeed_);
     }
 
     int winW = 1280, winH = 720;
-    SDL_GetWindowSize(s.runtime.window, &winW, &winH);
+    SDL_GetWindowSize(gameState.runtime.window, &winW, &winH);
     ws.systems.cameraSystem.applyViewProjectionAndLighting(
-        ws.data.vulkan, s.runtime.camera, ws.data.player.get<CTransform>().pos, winW, winH);
+        ws.data.vulkan, gameState.runtime.camera, ws.data.player.get<CTransform>().pos, winW, winH);
 
     if (!gameOverPushed_ && ws.data.player && ws.data.player.is_alive() &&
         ws.data.player.has<CHealth>()) {
