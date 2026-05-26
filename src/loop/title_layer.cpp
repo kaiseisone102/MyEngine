@@ -25,6 +25,7 @@
 #include "renderer/frame_uniforms.h"
 #include "renderer/model.h"
 #include "renderer/vulkan_renderer.h"
+#include "core/game_state.h"
 #include "scene/scene_data.h"
 #include "scene/scene_renderer.h"
 
