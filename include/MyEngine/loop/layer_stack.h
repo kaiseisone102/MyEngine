@@ -53,6 +53,5 @@ class LayerStack : public LayerCommands {
     std::vector<PendingOp> pending_;
     bool quitRequested_ = false;
 
-    size_t findUpdateStartIndex() const;
-    size_t findRenderStartIndex() const;
+    size_t findStartIndex(bool (ILayer::*blocks)() const) const;
 };

@@ -88,21 +88,11 @@ void LayerStack::handleEvents(const EventBus& events) {
     layers_.back()->handleEvents(events, *this);
 }
 
-size_t LayerStack::findUpdateStartIndex() const {
+size_t LayerStack::findStartIndex(bool (ILayer::*blocks)() const) const {
     if (layers_.empty()) return 0;
     size_t start = layers_.size() - 1;
     while (start > 0) {
-        if (layers_[start]->blocksUpdate()) break;
-        --start;
-    }
-    return start;
-}
-
-size_t LayerStack::findRenderStartIndex() const {
-    if (layers_.empty()) return 0;
-    size_t start = layers_.size() - 1;
-    while (start > 0) {
-        if (layers_[start]->blocksRender()) break;
+        if ((layers_[start].get()->*blocks)()) break;
         --start;
     }
     return start;
@@ -110,7 +100,7 @@ size_t LayerStack::findRenderStartIndex() const {
 
 void LayerStack::update(float dt, const ActionState& input) {
     if (layers_.empty()) return;
-    const size_t start = findUpdateStartIndex();
+    const size_t start = findStartIndex(&ILayer::blocksUpdate);
     const size_t topIndex = layers_.size() - 1;
     for (size_t i = start; i < layers_.size(); ++i) {
         layers_[i]->update(dt, i == topIndex, input);
@@ -119,7 +109,7 @@ void LayerStack::update(float dt, const ActionState& input) {
 
 void LayerStack::render() {
     if (layers_.empty()) return;
-    const size_t start = findRenderStartIndex();
+    const size_t start = findStartIndex(&ILayer::blocksRender);
     const size_t end   = layers_.size();
 
     // ─── Phase 1C: 1 フレームの描画 (2 ステップに分解) ─────────────
