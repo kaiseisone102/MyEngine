@@ -3,11 +3,22 @@
     "configurePresets": [
         {
             "name": "windows-vcpkg",
-            "displayName": "Windows + vcpkg",
+            "displayName": "Windows + vcpkg (VS generator)",
             "generator": "Visual Studio 18 2026",
-            "binaryDir": "${sourceDir}/build",
+            "binaryDir": "${sourceDir}/build-vs",
             "cacheVariables": {
                 "CMAKE_TOOLCHAIN_FILE": "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "windows-vcpkg-ninja",
+            "displayName": "Windows + vcpkg (Ninja, for clangd)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "CMAKE_MAKE_PROGRAM": "C:/dev/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe",
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         }
     ],
@@ -15,6 +26,10 @@
         {
             "name": "windows-vcpkg",
             "configurePreset": "windows-vcpkg"
+        },
+        {
+            "name": "ninja-debug",
+            "configurePreset": "windows-vcpkg-ninja"
         }
     ]
 }
