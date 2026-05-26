@@ -1,4 +1,4 @@
-# cover build-prefixed dirs (build-vs, retired build-*-old, etc.)
+# Build directories
 build/
 build-ninja/
 build-vs/
