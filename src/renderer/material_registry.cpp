@@ -40,10 +40,10 @@ void MaterialRegistry::createBuffer(ResourceFactory* resources) {
     buffer_ = VmaBuffer::createMappedStorageBDA(ctx_, bufferSize_);
 }
 
-uint32_t MaterialRegistry::add(const std::string& name, const GpuMaterial& m) {
+uint32_t MaterialRegistry::add(const std::string& name, const GpuMaterial& material) {
     auto it = nameToId_.find(name);
     if (it != nameToId_.end()) {
-        cpuMaterials_[it->second] = m;  // update in place
+        cpuMaterials_[it->second] = material;  // update in place
         dirty_ = true;
         return it->second;
     }
@@ -53,7 +53,7 @@ uint32_t MaterialRegistry::add(const std::string& name, const GpuMaterial& m) {
         return kDefaultMaterialId;
     }
     uint32_t id = static_cast<uint32_t>(cpuMaterials_.size());
-    cpuMaterials_.push_back(m);
+    cpuMaterials_.push_back(material);
     nameToId_[name] = id;
     dirty_ = true;
     return id;

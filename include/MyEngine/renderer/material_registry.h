@@ -38,7 +38,7 @@ class MaterialRegistry {
 
     // Register a material under a name, returning its stable id. If the name
     // already exists, updates it in place and returns the existing id.
-    uint32_t add(const std::string& name, const myengine::shared::GpuMaterial& m);
+    uint32_t add(const std::string& name, const myengine::shared::GpuMaterial& material);
 
     // Resolve a name to its id; returns kDefaultMaterialId if not found.
     uint32_t getId(const std::string& name) const;

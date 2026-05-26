@@ -74,40 +74,40 @@ const char* KeyConfigLayer::actionLabel(Action a) {
     return "?";
 }
 
-InputBinding* KeyConfigLayer::bindingPtr(KeyMapping& m, Action a) {
+InputBinding* KeyConfigLayer::bindingPtr(KeyMapping& mapping, Action a) {
     switch (a) {
         case Action::MoveForward:
-            return &m.moveForward;
+            return &mapping.moveForward;
         case Action::MoveBack:
-            return &m.moveBack;
+            return &mapping.moveBack;
         case Action::MoveLeft:
-            return &m.moveLeft;
+            return &mapping.moveLeft;
         case Action::MoveRight:
-            return &m.moveRight;
+            return &mapping.moveRight;
         case Action::MoveUp:
-            return &m.moveUp;
+            return &mapping.moveUp;
         case Action::MoveDown:
-            return &m.moveDown;
+            return &mapping.moveDown;
         case Action::Sprint:
-            return &m.sprint;
+            return &mapping.sprint;
         case Action::Jump:
-            return &m.jump;
+            return &mapping.jump;
         case Action::ToggleCamera:
-            return &m.toggleCamera;
+            return &mapping.toggleCamera;
         case Action::Attack:
-            return &m.attack;
+            return &mapping.attack;
         case Action::StrongAttack:
-            return &m.strongAttack;
+            return &mapping.strongAttack;
         case Action::Guard:
-            return &m.guard;
+            return &mapping.guard;
         case Action::Count:
             return nullptr;
     }
     return nullptr;
 }
 
-const InputBinding* KeyConfigLayer::bindingPtr(const KeyMapping& m, Action a) const {
-    return const_cast<KeyConfigLayer*>(this)->bindingPtr(const_cast<KeyMapping&>(m), a);
+const InputBinding* KeyConfigLayer::bindingPtr(const KeyMapping& mapping, Action a) const {
+    return const_cast<KeyConfigLayer*>(this)->bindingPtr(const_cast<KeyMapping&>(mapping), a);
 }
 
 std::vector<MenuItem> KeyConfigLayer::menuItems() const {
