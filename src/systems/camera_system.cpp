@@ -15,6 +15,7 @@
 
 #include "core/action_state.h"
 #include "renderer/frame_uniforms.h"
+#include "renderer/shadow_light.h"
 #include "renderer/vulkan_renderer.h"
 
 void CameraSystem::toggleMode(Camera& camera) const { camera.toggleMode(); }
@@ -55,8 +56,7 @@ void CameraSystem::applyViewProjectionAndLighting(VulkanRenderer& renderer, cons
     const glm::vec3 lightPos{8.f, 15.f, 8.f};
     const glm::vec3 target = playerPos;
     const glm::mat4 lightView = glm::lookAt(lightPos, target, glm::vec3(0.f, 1.f, 0.f));
-    glm::mat4 lightProj = glm::ortho(-15.f, 15.f, -15.f, 15.f, 0.1f, 50.f);
-    lightProj[1][1] *= -1.f;
+    const glm::mat4 lightProj = shadow_light::directionalLightProj();
     l.lightVP = lightProj * lightView;
 
     // ─── shader が参照する追加項目 (Phase 1C 整合) ─────────────

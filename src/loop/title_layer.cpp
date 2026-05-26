@@ -24,6 +24,7 @@
 #include "renderer/asset_registry.h"
 #include "renderer/frame_uniforms.h"
 #include "renderer/model.h"
+#include "renderer/shadow_light.h"
 #include "renderer/vulkan_renderer.h"
 #include "core/game_state.h"
 #include "scene/scene_data.h"
@@ -106,8 +107,7 @@ void TitleLayer::buildScene(SceneData& scene) {
     const glm::vec3 lightPos = lightTarget + lightOffset;
     const glm::mat4 lightView =
         glm::lookAt(lightPos, lightTarget, glm::vec3(0.f, 1.f, 0.f));
-    glm::mat4 lightProj = glm::ortho(-15.f, 15.f, -15.f, 15.f, 0.1f, 50.f);
-    lightProj[1][1] *= -1.f;
+    const glm::mat4 lightProj = shadow_light::directionalLightProj();
 
     // ----- 3. Build LightingUBO and submit -----
     FrameUniforms::LightingUBO ubo{};
