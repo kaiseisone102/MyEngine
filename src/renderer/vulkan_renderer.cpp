@@ -26,6 +26,7 @@ void VulkanRenderer::init(SDL_Window* window) {
     swapchain_.init(&ctx_, &resources_, window, ctx_.findDepthFormat());
 
     frameSync_.init(&ctx_, swapchain_.imageCount());
+    deletionQueue_.init(&ctx_);
 
     // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
     bindlessTextures_.init(&ctx_);
@@ -63,6 +64,10 @@ void VulkanRenderer::destroyRenderTargets() {
 }
 
 void VulkanRenderer::recreateSwapchain() {
+    // Pending deletions may reference resources tied to the old swapchain; the
+    // GPU must be idle before we rebuild, so flush everything here.
+    vkDeviceWaitIdle(ctx_.device());
+    deletionQueue_.flushAll();
     swapchain_.recreate();
     // HDR target must be recreated BEFORE MainPass framebuffers (which use its view).
     // Bloom mip chain is owned by BloomPass and rebuilt inside onSwapchainResized.
@@ -106,6 +111,11 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
         recreateSwapchain();
         return;
     }
+    // The fence for acq.frameIndex was just waited on, so anything enqueued under
+    // this frameIndex one cycle ago is no longer in use by the GPU: free it now.
+    // Then charge new enqueues this frame to the same frameIndex bucket.
+    deletionQueue_.collectFrame(acq.frameIndex);
+    deletionQueue_.setCurrentFrame(acq.frameIndex);
 
     // Phase 1C: 旧 scene_.toLightingData() を廃止。 camera_system が
     // setLighting() で渡した currentLighting_ をそのまま使う。
@@ -176,6 +186,8 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
 void VulkanRenderer::shutdown() {
     if (ctx_.device() == VK_NULL_HANDLE) return;
     vkDeviceWaitIdle(ctx_.device());
+    deletionQueue_.flushAll();  // GPU idle: safe to free everything still pending
+    deletionQueue_.shutdown();
 
     passChain_.shutdown();
     destroyRenderTargets();  // HDR + bloom A/B (was leaking bloom targets)

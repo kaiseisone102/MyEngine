@@ -17,6 +17,7 @@
 #include "core/particle.h"
 #include "frame_sync.h"
 #include "frame_uniforms.h"
+#include "renderer/deletion_queue.h"
 #include "bindless_texture_registry.h"
 #include "renderer/asset_registry.h"
 #include "renderer/debug_line_renderer.h"
@@ -119,6 +120,7 @@ class VulkanRenderer {
     ResourceFactory resources_;
     Swapchain swapchain_;
     FrameSync frameSync_;
+    DeletionQueue deletionQueue_;  // deferred destruction (frameIndex-ringed)
     FrameUniforms frameUniforms_;
 
     AssetRegistry assets_;
