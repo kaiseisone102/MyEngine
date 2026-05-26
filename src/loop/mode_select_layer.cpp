@@ -1,5 +1,6 @@
 // =============================================================================
-// mode_select_layer.cpp  EGame Start で Terminal スチE�Eジを開ぁE// =============================================================================
+// mode_select_layer.cpp — Game Start で Terminal ステージを開く
+// =============================================================================
 #define NOMINMAX
 #include "loop/mode_select_layer.h"
 
@@ -24,7 +25,8 @@ void ModeSelectLayer::onExit() { std::cout << "[ModeSelectLayer] exit\n"; }
 
 void ModeSelectLayer::handleConfirm(int selectedIndex, LayerCommands& cmds) {
     switch (selectedIndex) {
-        case 0:  // Game Start ↁETerminal スチE�Eジから開姁E            std::cout << "[ModeSelectLayer] Game Start ↁEreplace with GameplayLayer (Terminal)\n";
+        case 0:  // Game Start → Terminal ステージから開始
+            std::cout << "[ModeSelectLayer] Game Start -> replace with GameplayLayer (Terminal)\n";
             cmds.requestReplace(factory_.createGameplayLayer(StageId::Terminal));
             return;
         case 1:  // Settings

@@ -79,7 +79,7 @@ class KeyConfigLayer : public MenuLayerBase {
     GameState& state_;
     ILayerFactory& factory_;
 
-    // 編雁E��のスナップショチE��
+    // 編集中のスナップショット
     GameSettings snapshot_;
     bool hasUnsavedChanges_ = false;
 

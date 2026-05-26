@@ -535,7 +535,7 @@ void GameplayLayer::handleEvents(const EventBus& events, LayerCommands& cmds) {
         }
         if (std::holds_alternative<AttackRequested>(ev)) {
             // 優先度: Chest > Gate > WarpPad > 通常攻撁E            // Chest/Gate
-            // 鍵不足の場合�E通常攻撁E��フォールスルー
+            // 鍵不足の場合は通常攻撃へフォールスルー
             if (nearbyChest_ && nearbyChest_.is_alive()) {
                 const auto result =
                     ws.systems.chestSystem.tryOpenNearestChest(ws.data, ws.systems.sound);

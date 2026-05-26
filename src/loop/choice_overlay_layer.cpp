@@ -12,7 +12,7 @@
 
 namespace {
 
-// プロセス冁E�Eインスタンスごとに一意な ID を生戁E(ImGui Window 名�E衝突回避)
+// プロセス内のインスタンスごとに一意な ID を生成 (ImGui Window 名の衝突回避)
 int generateInstanceId() {
     static int s_counter = 0;
     return ++s_counter;
@@ -175,7 +175,7 @@ void ChoiceOverlayLayer::drawVertical(const ImVec2& viewport) {
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
 
-    // タイトル (中央揁E��)
+    // タイトル (中央揃え)
     ImGui::SetWindowFontScale(kHeaderFontScale);
     const float promptW = ImGui::CalcTextSize(prompt_.c_str()).x;
     const float windowW = ImGui::GetWindowSize().x;
@@ -185,7 +185,7 @@ void ChoiceOverlayLayer::drawVertical(const ImVec2& viewport) {
     ImGui::Spacing();
     ImGui::Spacing();
 
-    // 選択肢 (縦並び、E吁E��E��中央揁E��)
+    // 選択肢 (縦並び、各項目を中央揃え)
     ImGui::SetWindowFontScale(kItemFontScale);
     for (int i = 0; i < static_cast<int>(choices_.size()); ++i) {
         const bool selected = (i == selectedIndex());

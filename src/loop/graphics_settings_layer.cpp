@@ -217,9 +217,10 @@ void GraphicsSettingsLayer::doSave() {
 
     // Draw distance (SceneRenderer に即時適用、EParticleSystem は GameplayLayer
     // 経由で毎フレーム反映)
-    // Phase 1C: setCullingDistance �p�~ (layer_stack �� state.settings.drawDistance ��Q��)
+    // setCullingDistance は廃止 (layer_stack が state.settings.drawDistance を参照)
 
-    // Reflection quality: orchestrator 経由で VulkanRenderer に伝えめE    // (snapshot と差刁E��あるときだぁEdirty フラグ立てる、E無駁E�� rebuild 防止)
+    // Reflection quality: orchestrator 経由で VulkanRenderer に伝える
+    // (snapshot と差分があるときだけ dirty フラグを立てる。無駄な rebuild 防止)
     if (s.reflectionQuality != snapshot_.reflectionQuality) {
         s.reflectionDirty = true;
         std::cout << "[GraphicsSettingsLayer] reflectionQuality changed: "
