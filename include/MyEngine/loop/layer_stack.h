@@ -1,9 +1,8 @@
 #pragma once
 // =============================================================================
 // layer_stack.h — Layer のスタック管理 (オーバーレイ対応)
-// + Phase 1C: SceneRenderer& + VulkanRenderer& を保持
-//   render() は SceneRenderer::buildSceneData + VulkanRenderer::drawFrame の
-//   2 ステップに分解
+//   render() は VulkanRenderer の SceneData を clear し、可視 Layer の buildScene
+//   を積んで drawFrame に渡す 2 ステップ。
 // =============================================================================
 #include <memory>
 #include <vector>
@@ -11,15 +10,13 @@
 
 class EventBus;
 struct ActionState;
-class SceneRenderer;
 class VulkanRenderer;
 struct GameState;
 
 class LayerStack : public LayerCommands {
    public:
-    // Phase 1C: SceneRenderer (buildSceneData 用) + VulkanRenderer (drawFrame/scene 用)
-    //           + GameState (cameraPos と settings.drawDistance の参照用) を保持
-    LayerStack(SceneRenderer& sceneRenderer, VulkanRenderer& vulkan, GameState& state);
+    // VulkanRenderer (drawFrame / SceneData) + GameState (settings.drawDistance) を保持
+    LayerStack(VulkanRenderer& vulkan, GameState& state);
     ~LayerStack() override;
 
     void push(std::unique_ptr<ILayer> layer);
@@ -46,7 +43,6 @@ class LayerStack : public LayerCommands {
         std::unique_ptr<ILayer> layer;
     };
 
-    SceneRenderer& sceneRenderer_;
     VulkanRenderer& vulkan_;
     GameState& state_;
     std::vector<std::unique_ptr<ILayer>> layers_;

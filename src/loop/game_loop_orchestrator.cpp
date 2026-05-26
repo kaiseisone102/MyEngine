@@ -1,10 +1,7 @@
 // =============================================================================
-// game_loop_orchestrator.cpp - InputSystem + ActionState
-// + Phase 1C: LayerStack 3-arg, inputSystem.poll(dt)
-// + Phase 1C fix: top layer's mouseCapturePolicy drives:
-//                 - KeyboardMouseDevice::setGameInputMode
-//                 - SDL relative mouse mode (cursor capture)
-//                 - state_.runtime.mouseCapture flag
+// game_loop_orchestrator.cpp — InputSystem + ActionState + LayerStack 駆動
+//   top layer の mouseCapturePolicy が KeyboardMouseDevice の入力モード /
+//   SDL relative mouse mode / state_.runtime.mouseCapture を駆動する。
 // =============================================================================
 #define NOMINMAX
 #include "loop/game_loop_orchestrator.h"
@@ -19,14 +16,10 @@
 #include "loop/layer_factory.h"
 #include "loop/layer_stack.h"
 #include "renderer/vulkan_renderer.h"
-#include "scene/scene_renderer.h"
 #include "systems/input_system.h"
 #include "systems/keyboard_mouse_device.h"
 
-void GameLoopOrchestrator::run(GameState& s, ILayerFactory& layerFactory,
-                               SceneRenderer& sceneRenderer, float gravity, float jumpSpeed) const {
-    (void)gravity;
-    (void)jumpSpeed;
+void GameLoopOrchestrator::run(GameState& s, ILayerFactory& layerFactory) const {
 
     // ─── InputSystem setup ────────────────────────
     InputSystem inputSystem;
@@ -34,7 +27,7 @@ void GameLoopOrchestrator::run(GameState& s, ILayerFactory& layerFactory,
         std::make_unique<KeyboardMouseDevice>(s.runtime.window, s.settings.keyMapping));
 
     // ─── LayerStack ─────────────────────────────
-    LayerStack stack(sceneRenderer, s.worldState.data.vulkan, s);
+    LayerStack stack(s.worldState.data.vulkan, s);
     stack.push(layerFactory.createTitleLayer());
 
     bool prevMouseCapture = false;

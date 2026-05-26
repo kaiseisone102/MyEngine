@@ -1,7 +1,5 @@
 // =============================================================================
 // layer_stack.cpp — Layer のスタック管理 (オーバーレイ対応)
-// + Phase 1C: render() を SceneRenderer::buildSceneData + VulkanRenderer::drawFrame
-//   の 2 ステップに分解。 旧 renderer.renderFrame(builder, ui) は廃止。
 // =============================================================================
 #include "loop/layer_stack.h"
 
@@ -11,10 +9,9 @@
 #include "core/game_state.h"
 #include "renderer/vulkan_renderer.h"
 #include "scene/scene_data.h"
-#include "scene/scene_renderer.h"
 
-LayerStack::LayerStack(SceneRenderer& sceneRenderer, VulkanRenderer& vulkan, GameState& state)
-    : sceneRenderer_(sceneRenderer), vulkan_(vulkan), state_(state) {}
+LayerStack::LayerStack(VulkanRenderer& vulkan, GameState& state)
+    : vulkan_(vulkan), state_(state) {}
 
 LayerStack::~LayerStack() = default;
 

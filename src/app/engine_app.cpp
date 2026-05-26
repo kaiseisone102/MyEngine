@@ -175,5 +175,5 @@ void EngineApp::run() {
         ~CleanupGuard() { app.cleanup(); }
     } guard{*this};
     initGame();
-    orchestrator_.run(state_, *layerFactory_, *sceneRenderer_, kGravity, kJumpSpeed);
+    orchestrator_.run(state_, *layerFactory_);
 }
