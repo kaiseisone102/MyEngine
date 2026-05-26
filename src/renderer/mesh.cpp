@@ -10,9 +10,10 @@
 
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
+#include "renderer/geometry_buffer.h"
 
 void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resources,
-                       const std::string& path) {
+                       const std::string& path, GeometryBuffer* geom) {
     ctx_ = ctx;
 
     // 1) OBJ をパースして CPU 側データを組み立てる
@@ -60,13 +61,20 @@ void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resource
         }
     }
 
-    indexCount_ = static_cast<uint32_t>(indices.size());
-
-    // 2) GPU バッファに転送
-    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    // 2) GPU 転送: geom があれば共有 megabuffer に alloc、無ければ従来の private buffer。
+    if (geom) {
+        const MeshHandle h = geom->alloc(vertices, indices);
+        geom_ = geom;
+        firstIndex_ = h.firstIndex;
+        vertexOffset_ = h.vertexOffset;
+        indexCount_ = h.indexCount;
+    } else {
+        indexCount_ = static_cast<uint32_t>(indices.size());
+        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    }
 }
 
 // =============================================================================
@@ -89,7 +97,8 @@ void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resource
 //   Vulkan の規約 (front face = CCW、 cullMode=BACK) に合わせて、
 //   外側から見て CCW になるように頂点順を選ぶ。
 // =============================================================================
-void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources) {
+void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources,
+                      GeometryBuffer* geom) {
     ctx_ = ctx;
 
     // 立方体の 8 隅 (足元基準: Y は [0, 1])
@@ -148,18 +157,26 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
         indices.push_back(baseIdx + 3);
     }
 
-    indexCount_ = static_cast<uint32_t>(indices.size());
-
-    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    if (geom) {
+        const MeshHandle h = geom->alloc(vertices, indices);
+        geom_ = geom;
+        firstIndex_ = h.firstIndex;
+        vertexOffset_ = h.vertexOffset;
+        indexCount_ = h.indexCount;
+    } else {
+        indexCount_ = static_cast<uint32_t>(indices.size());
+        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    }
 }
 
 // =============================================================================
 // createCrossQuad - Phase 1F: 2 vertical quads crossed at 90 deg, for grass
 // =============================================================================
-void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources) {
+void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources,
+                           GeometryBuffer* geom) {
     ctx_ = ctx;
     const float h = 0.5f;  // half-width in X/Z
 
@@ -201,11 +218,19 @@ void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* reso
             indices.push_back(a); indices.push_back(d); indices.push_back(b);
         }
     }
-    indexCount_ = static_cast<uint32_t>(indices.size());
-    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    if (geom) {
+        const MeshHandle h = geom->alloc(vertices, indices);
+        geom_ = geom;
+        firstIndex_ = h.firstIndex;
+        vertexOffset_ = h.vertexOffset;
+        indexCount_ = h.indexCount;
+    } else {
+        indexCount_ = static_cast<uint32_t>(indices.size());
+        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    }
 }
 
 void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
@@ -237,6 +262,10 @@ void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDev
 }
 
 void Mesh::bind(VkCommandBuffer cmd) const {
+    if (geom_) {
+        geom_->bind(cmd);  // shared megabuffer; draw uses firstIndex()/vertexOffset()
+        return;
+    }
     const VkDeviceSize offset = 0;
     VkBuffer vb = vertexBuffer_.get();
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);

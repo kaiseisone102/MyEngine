@@ -23,6 +23,7 @@
 
 class VulkanContext;
 class ResourceFactory;
+class GeometryBuffer;
 
 struct Vertex {
     glm::vec3  pos;                              // location=0
@@ -60,21 +61,27 @@ struct hash<Vertex> {
 
 class Mesh {
    public:
+    // Phase 2B PART3a: if `geom` is given, the geometry is uploaded into the shared
+    // GeometryBuffer megabuffer (returns a MeshHandle range) instead of a private
+    // vertex/index buffer. If `geom` is null, the legacy private-buffer path is
+    // used (kept during migration; removed once all meshes are on the megabuffer).
     void loadFromObj(const VulkanContext* ctx, const ResourceFactory* resources,
-                     const std::string& path);
-
-    // 足元基準の 1x1x1 cube をコードで生成 (ファイル不要)。
-    // 頂点座標: X[-0.5, +0.5], Y[0, 1], Z[-0.5, +0.5]
-    // scale 適用後の AABB は AABB::fromBottomCenter と完全に一致する。
-    void createCube(const VulkanContext* ctx, const ResourceFactory* resources);
-    // Phase 1F: cross-quad for grass (2 vertical quads crossed at 90 deg)
-    void createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources);
+                     const std::string& path, GeometryBuffer* geom = nullptr);
+    void createCube(const VulkanContext* ctx, const ResourceFactory* resources,
+                    GeometryBuffer* geom = nullptr);
+    void createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources,
+                         GeometryBuffer* geom = nullptr);
 
     // Free GPU buffers now. Kept for explicit shutdown ordering; the auto
     // destructor (VkUnique members) frees too, so calling twice is a no-op.
     void destroy();
-    void bind(VkCommandBuffer cmd) const;
+    void bind(VkCommandBuffer cmd) const;  // hybrid: megabuffer bind if on geom, else private
     uint32_t indexCount() const { return indexCount_; }
+    // Phase 2B PART3a: megabuffer range. When on the GeometryBuffer these are the
+    // handle's offsets; on the legacy private path both are 0 (draw from buffer start).
+    uint32_t firstIndex() const { return firstIndex_; }
+    int32_t vertexOffset() const { return vertexOffset_; }
+    bool onGeometryBuffer() const { return geom_ != nullptr; }
 
    private:
     const VulkanContext* ctx_ = nullptr;
@@ -84,6 +91,13 @@ class Mesh {
     VkUnique<VkBuffer> indexBuffer_;
     VkUnique<VkDeviceMemory> indexBufferMemory_;
     uint32_t indexCount_ = 0;
+
+    // Phase 2B PART3a: when uploaded into the shared GeometryBuffer, geom_ is set
+    // and firstIndex_/vertexOffset_ locate this mesh inside the megabuffers. The
+    // private VkUnique buffers above stay empty in that case.
+    GeometryBuffer* geom_ = nullptr;
+    uint32_t firstIndex_ = 0;
+    int32_t vertexOffset_ = 0;
 
     void uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
                       VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,

@@ -314,7 +314,7 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout,
         pc.materialId = 0;  // reflection uses default for now
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(MainPass::StaticPushConstants), &pc);
-        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
+        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, mesh->firstIndex(), mesh->vertexOffset(), 0);
     }
 }
 

@@ -38,7 +38,7 @@ void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout,
         pc.materialId = item.material ? item.material->materialId() : 0u;  // S4-d
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                             sizeof(MainPass::StaticPushConstants), &pc);
-        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, 0, 0, 0);
+        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, mesh->firstIndex(), mesh->vertexOffset(), 0);
     }
 }
 
@@ -500,7 +500,7 @@ void MainPass::execute(const ExecuteInfo& info) {
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(InstancedPushConstants), &pc);
             const uint32_t count = static_cast<uint32_t>(item.instances.size());
-            vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, 0, 0, item.instanceOffset);
+            vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, item.mesh->firstIndex(), item.mesh->vertexOffset(), item.instanceOffset);
         }
     }
 
