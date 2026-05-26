@@ -21,8 +21,8 @@ constexpr float kEnemyFallKillY = -30.f;
 bool SimulationSystem::isGroundEnemy(flecs::entity e) {
     return e.has<SkeletonTag>() || e.has<SoldierTag>();
 }
-void SimulationSystem::applyDamageToPlayer(GameState& s, int amount) {
-    flecs::entity player = s.worldState.data.player;
+void SimulationSystem::applyDamageToPlayer(GameState& gameState, int amount) {
+    flecs::entity player = gameState.worldState.data.player;
     CHealth& hp = player.ensure<CHealth>();
     if (hp.isInvincible()) return;
     if (player.has<CShield>()) {
@@ -33,7 +33,7 @@ void SimulationSystem::applyDamageToPlayer(GameState& s, int amount) {
             std::cout << "[Shield] guarded! durability=" << sh.durability << "/"
                       << CShield::maxDurability(sh.type) << "\n";
             if (sh.durability <= 0) {
-                AssetRegistry& assets = s.worldState.data.vulkan.assets();
+                AssetRegistry& assets = gameState.worldState.data.vulkan.assets();
                 equipment::applyShieldChange(player, assets, ShieldType::None);
                 std::cout << "[Shield] broken! shield lost\n";
                 sh.guarding = false;
@@ -43,18 +43,18 @@ void SimulationSystem::applyDamageToPlayer(GameState& s, int amount) {
     }
     hp.takeDamage(amount);
 }
-void SimulationSystem::doRespawn(GameState& s) {
-    s.worldState.data.player.ensure<CTransform>().pos = {0.f, 0.f, 0.f};
-    s.worldState.data.player.ensure<CVelocity>().y = 0.f;
-    s.worldState.data.player.ensure<CVelocity>().xz = glm::vec2{0.f};
-    s.worldState.data.player.ensure<CHealth>().respawn();
-    AssetRegistry& assets = s.worldState.data.vulkan.assets();
-    equipment::applyShieldChange(s.worldState.data.player, assets, ShieldType::Iron);
+void SimulationSystem::doRespawn(GameState& gameState) {
+    gameState.worldState.data.player.ensure<CTransform>().pos = {0.f, 0.f, 0.f};
+    gameState.worldState.data.player.ensure<CVelocity>().y = 0.f;
+    gameState.worldState.data.player.ensure<CVelocity>().xz = glm::vec2{0.f};
+    gameState.worldState.data.player.ensure<CHealth>().respawn();
+    AssetRegistry& assets = gameState.worldState.data.vulkan.assets();
+    equipment::applyShieldChange(gameState.worldState.data.player, assets, ShieldType::Iron);
     std::cout << "[Player Dead] Respawn (shield restored: Iron)\n";
 }
-void SimulationSystem::updateEnemy(GameState& s, float dt, float gravity) {
-    auto& wd = s.worldState.data;
-    auto& ws = s.worldState.systems;
+void SimulationSystem::updateEnemy(GameState& gameState, float dt, float gravity) {
+    auto& wd = gameState.worldState.data;
+    auto& ws = gameState.worldState.systems;
     ws.spawnSystem.update(wd.spawnTriggers, wd.player, wd.enemies, wd.world, wd.vulkan);
     ws.enemySystem.update(wd.enemies, wd.player, dt);
     for (flecs::entity e : wd.enemies) {
@@ -83,7 +83,7 @@ void SimulationSystem::updateEnemy(GameState& s, float dt, float gravity) {
                                             if (!e.has<GhostTag>()) return false;
                                             const Cylinder gcyl = physics::entityCylinder(e);
                                             if (!cylinder::overlap(pcyl, gcyl)) return false;
-                                            applyDamageToPlayer(s, 1);
+                                            applyDamageToPlayer(gameState, 1);
                                             e.destruct();
                                             return true;
                                         }),
@@ -100,7 +100,7 @@ void SimulationSystem::updateEnemy(GameState& s, float dt, float gravity) {
             const auto ph = enemy_hitbox::makeGroundPunch(et, ai, skel);
             const AABB hitbox = AABB::fromCenterHalf(ph.center, ph.half);
             if (!cylinder::overlap(pcyl, hitbox)) continue;
-            applyDamageToPlayer(s, 1);
+            applyDamageToPlayer(gameState, 1);
             break;
         }
     }
@@ -118,14 +118,14 @@ void SimulationSystem::updateEnemy(GameState& s, float dt, float gravity) {
                          wd.enemies.end());
     }
 }
-void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, float dt, float gravity,
+void SimulationSystem::updatePlayer(GameState& gameState, const ActionState& input, float dt, float gravity,
                                     float jumpSpeed) {
-    auto& wd = s.worldState.data;
-    auto& ws = s.worldState.systems;
-    ws.animStateSystem.update(s, dt, input);
-    ws.skeletalAnimSystem.update(s, dt);
+    auto& wd = gameState.worldState.data;
+    auto& ws = gameState.worldState.systems;
+    ws.animStateSystem.update(gameState, dt, input);
+    ws.skeletalAnimSystem.update(gameState, dt);
     ws.itemPhysicsSystem.update(wd, dt, gravity);
-    // ─── アイチE��拾ぁE(SoundManager 注入) ────
+    // ─── アイチE��拾ぁE(SoundManager 注入) ────
     ws.itemPickupSystem.update(wd.shieldItems, wd.armorItems, wd.gripItems, wd.keyItems,
                                wd.moneyItems, wd.potionItems, wd.spiritItems,
                                wd.player, wd.vulkan.assets(), ws.sound);
@@ -171,7 +171,7 @@ void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, floa
     }
     ws.spiritSystem.update(wd, dt);
     if (!inputLocked) {
-        ws.movementSystem.updateTpsPlayerMove(wd.player, s.runtime.camera, input, &wd.terrains, dt);
+        ws.movementSystem.updateTpsPlayerMove(wd.player, gameState.runtime.camera, input, &wd.terrains, dt);
     }
     ws.movementSystem.resolveHorizontalCollisions(wd.player, wd.platforms);
     ws.movementSystem.resolveObstacleCollisions(wd.player, wd.obstacles);
@@ -181,5 +181,5 @@ void SimulationSystem::updatePlayer(GameState& s, const ActionState& input, floa
         ws.combatSystem.cancelAerialOnLanding(wd.player, wd);
     }
     ws.audioEventSystem.onPostPhysics(wd.player, ws.sound);
-    ws.cameraSystem.updateFpsMove(s.runtime.camera, inputLocked, input, dt);
+    ws.cameraSystem.updateFpsMove(gameState.runtime.camera, inputLocked, input, dt);
 }

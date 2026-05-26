@@ -14,16 +14,16 @@ struct ActionState;
 
 class SimulationSystem {
    public:
-    void updateEnemy(GameState& s, float dt, float gravity);
+    void updateEnemy(GameState& gameState, float dt, float gravity);
 
-    // updatePlayer(s, input, dt, gravity, jumpSpeed)
+    // updatePlayer(gameState, input, dt, gravity, jumpSpeed)
     // input: ActionState (moveX/moveZ/sprint 等を読む)
-    void updatePlayer(GameState& s, const ActionState& input, float dt, float gravity,
+    void updatePlayer(GameState& gameState, const ActionState& input, float dt, float gravity,
                       float jumpSpeed);
 
    private:
-    void applyDamageToPlayer(GameState& s, int amount);
-    void doRespawn(GameState& s);
+    void applyDamageToPlayer(GameState& gameState, int amount);
+    void doRespawn(GameState& gameState);
 
     static bool isGroundEnemy(flecs::entity e);
 };
