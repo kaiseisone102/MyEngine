@@ -96,11 +96,11 @@ void applyTransition(CAnimState& as, AnimState desired, const char* entityLabel)
 
 }  // namespace
 
-void AnimStateSystem::update(GameState& s, float dt, const ActionState& input) const {
+void AnimStateSystem::update(GameState& gameState, float dt, const ActionState& input) const {
     // =========================================================================
     // 1. Player の AnimState 判定
     // =========================================================================
-    flecs::entity player = s.worldState.data.player;
+    flecs::entity player = gameState.worldState.data.player;
     if (player.has<CAnimState>()) {
         const CPhysics& phys = player.get<CPhysics>();
         const CVelocity& vel = player.get<CVelocity>();
@@ -116,7 +116,7 @@ void AnimStateSystem::update(GameState& s, float dt, const ActionState& input) c
             as.airTime += dt;
         }
 
-        AssetRegistry& assets = s.worldState.data.vulkan.assets();
+        AssetRegistry& assets = gameState.worldState.data.vulkan.assets();
         const AnimationClip* landClip = assets.getAnimation("land");
         const float landDuration = landClip ? landClip->duration : 0.3f;
         const AnimationClip* deathClip = assets.getAnimation("death");
@@ -166,7 +166,7 @@ void AnimStateSystem::update(GameState& s, float dt, const ActionState& input) c
     // =========================================================================
     // 2. 敵の AnimState 判定 (入力に依存しない)
     // =========================================================================
-    s.worldState.data.world.each([&](flecs::entity e, CEnemyAI& ai, CAnimState& as) {
+    gameState.worldState.data.world.each([&](flecs::entity e, CEnemyAI& ai, CAnimState& as) {
         if (!e.has<EnemyTag>()) return;
 
         const float velSq =

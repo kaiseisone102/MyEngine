@@ -80,10 +80,10 @@ const AnimationClip* resolveClipForEntity(AssetRegistry& assets, AnimState state
 
 }  // namespace
 
-void SkeletalAnimSystem::update(GameState& s, float dt) const {
-    AssetRegistry& assets = s.worldState.data.vulkan.assets();
+void SkeletalAnimSystem::update(GameState& gameState, float dt) const {
+    AssetRegistry& assets = gameState.worldState.data.vulkan.assets();
 
-    s.worldState.data.world.each([&](flecs::entity e, CAnimState& as, CSkeletalAnim& sa) {
+    gameState.worldState.data.world.each([&](flecs::entity e, CAnimState& as, CSkeletalAnim& sa) {
         const bool needNewClip =
             (as.current != as.previous) || (sa.animator.currentClip() == nullptr);
 
@@ -110,7 +110,7 @@ void SkeletalAnimSystem::update(GameState& s, float dt) const {
         }
     });
 
-    s.worldState.data.world.each([dt](CSkeletalAnim& sa) {
+    gameState.worldState.data.world.each([dt](CSkeletalAnim& sa) {
         if (!sa.playing) return;
         if (!sa.animator.ready()) return;
 

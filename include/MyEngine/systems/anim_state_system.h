@@ -15,5 +15,5 @@ class AnimStateSystem {
     static constexpr float kJumpVelThreshold = 0.5f;
     static constexpr float kFallVelThreshold = -0.5f;
 
-    void update(GameState& s, float dt, const ActionState& input) const;
+    void update(GameState& gameState, float dt, const ActionState& input) const;
 };

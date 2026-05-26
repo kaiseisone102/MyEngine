@@ -13,5 +13,5 @@ class GameState;
 
 class SkeletalAnimSystem {
    public:
-    void update(GameState& s, float dt) const;
+    void update(GameState& gameState, float dt) const;
 };
