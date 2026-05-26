@@ -69,6 +69,17 @@ class VmaBuffer {
     static VmaBuffer createDeviceLocal(VulkanContext* ctx, VkDeviceSize size,
                                        VkBufferUsageFlags usage);
     void reset() noexcept;  // vmaDestroyBuffer (no-op if empty)
+    // Relinquish ownership WITHOUT destroying: the caller has handed the raw
+    // (buffer, allocation) to something else (e.g. DeletionQueue) that will free
+    // it later. After release() this VmaBuffer is empty; the destructor is a no-op.
+    void release() noexcept {
+        allocator_ = VK_NULL_HANDLE;
+        buffer_ = VK_NULL_HANDLE;
+        allocation_ = VK_NULL_HANDLE;
+        mapped_ = nullptr;
+        address_ = 0;
+        size_ = 0;
+    }
 
     VkBuffer buffer() const noexcept { return buffer_; }
     VmaAllocation allocation() const noexcept { return allocation_; }
