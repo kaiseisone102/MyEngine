@@ -60,6 +60,14 @@ class VmaBuffer {
     // stays 0.
     static VmaBuffer createMappedHostVisible(VulkanContext* ctx, VkDeviceSize size,
                                              VkBufferUsageFlags usage);
+
+    // Create a DEVICE-LOCAL buffer with arbitrary usage and NO persistent mapping
+    // (for large GPU-resident geometry/storage written via staging copies, e.g.
+    // the GeometryBuffer megabuffers). mapped() stays nullptr. If usage includes
+    // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, deviceAddress() is populated;
+    // otherwise it stays 0. Throws std::runtime_error on failure.
+    static VmaBuffer createDeviceLocal(VulkanContext* ctx, VkDeviceSize size,
+                                       VkBufferUsageFlags usage);
     void reset() noexcept;  // vmaDestroyBuffer (no-op if empty)
 
     VkBuffer buffer() const noexcept { return buffer_; }

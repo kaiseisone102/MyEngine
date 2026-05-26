@@ -57,6 +57,9 @@ class ResourceFactory {
 
     // ─── Transfer helpers (unchanged) ─────────────────────────────────────
     void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) const;
+    // Copy a sub-range into dst at a byte offset (for packing into a megabuffer).
+    void copyBufferRegion(VkBuffer src, VkBuffer dst, VkDeviceSize srcOffset,
+                          VkDeviceSize dstOffset, VkDeviceSize size) const;
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const;
     void transitionImageLayout(VkImage image, VkImageLayout oldLayout,
                                VkImageLayout newLayout) const;

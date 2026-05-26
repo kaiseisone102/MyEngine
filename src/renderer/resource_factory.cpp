@@ -138,6 +138,17 @@ void ResourceFactory::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) 
     endOneTimeCommands(cmd);
 }
 
+void ResourceFactory::copyBufferRegion(VkBuffer src, VkBuffer dst, VkDeviceSize srcOffset,
+                                       VkDeviceSize dstOffset, VkDeviceSize size) const {
+    VkCommandBuffer cmd = beginOneTimeCommands();
+    VkBufferCopy region{};
+    region.srcOffset = srcOffset;
+    region.dstOffset = dstOffset;
+    region.size = size;
+    vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+    endOneTimeCommands(cmd);
+}
+
 // =============================================================================
 // copyBufferToImage
 // =============================================================================

@@ -82,6 +82,43 @@ VmaBuffer VmaBuffer::createMappedHostVisible(VulkanContext* ctx, VkDeviceSize si
     return out;
 }
 
+VmaBuffer VmaBuffer::createDeviceLocal(VulkanContext* ctx, VkDeviceSize size,
+                                       VkBufferUsageFlags usage) {
+    if (!ctx) throw std::runtime_error("VmaBuffer::createDeviceLocal: null ctx");
+
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = usage;
+    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    // Device-local, no host access, no persistent mapping. VMA_MEMORY_USAGE_AUTO
+    // with no HOST_ACCESS flag selects DEVICE_LOCAL on a discrete/typical GPU.
+    VmaAllocationCreateInfo ai{};
+    ai.usage = VMA_MEMORY_USAGE_AUTO;
+    ai.flags = 0;
+
+    VmaBuffer out;
+    out.allocator_ = ctx->allocator();
+    out.size_ = size;
+
+    if (vmaCreateBuffer(out.allocator_, &bi, &ai, &out.buffer_, &out.allocation_, nullptr) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("VmaBuffer::createDeviceLocal: vmaCreateBuffer failed");
+    }
+
+    // mapped_ stays nullptr (device-local). Populate address only if requested.
+    if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+        VkBufferDeviceAddressInfo bai{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+        bai.buffer = out.buffer_;
+        out.address_ = vkGetBufferDeviceAddress(ctx->device(), &bai);
+        if (out.address_ == 0) {
+            out.reset();
+            throw std::runtime_error("VmaBuffer::createDeviceLocal: device address is 0");
+        }
+    }
+    return out;
+}
+
 void VmaBuffer::reset() noexcept {
     if (buffer_ != VK_NULL_HANDLE && allocator_ != VK_NULL_HANDLE) {
         vmaDestroyBuffer(allocator_, buffer_, allocation_);
