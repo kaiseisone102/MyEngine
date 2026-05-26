@@ -81,6 +81,7 @@ class Mesh {
     // handle's offsets; on the legacy private path both are 0 (draw from buffer start).
     uint32_t firstIndex() const { return firstIndex_; }
     int32_t vertexOffset() const { return vertexOffset_; }
+    uint32_t blockIndex() const { return blockIndex_; }
     bool onGeometryBuffer() const { return geom_ != nullptr; }
 
    private:
@@ -98,6 +99,7 @@ class Mesh {
     GeometryBuffer* geom_ = nullptr;
     uint32_t firstIndex_ = 0;
     int32_t vertexOffset_ = 0;
+    uint32_t blockIndex_ = 0;
 
     void uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
                       VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,

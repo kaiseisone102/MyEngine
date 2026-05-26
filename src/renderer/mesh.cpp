@@ -67,6 +67,7 @@ void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resource
         geom_ = geom;
         firstIndex_ = h.firstIndex;
         vertexOffset_ = h.vertexOffset;
+        blockIndex_ = h.blockIndex;
         indexCount_ = h.indexCount;
     } else {
         indexCount_ = static_cast<uint32_t>(indices.size());
@@ -162,6 +163,7 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
         geom_ = geom;
         firstIndex_ = h.firstIndex;
         vertexOffset_ = h.vertexOffset;
+        blockIndex_ = h.blockIndex;
         indexCount_ = h.indexCount;
     } else {
         indexCount_ = static_cast<uint32_t>(indices.size());
@@ -223,6 +225,7 @@ void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* reso
         geom_ = geom;
         firstIndex_ = h.firstIndex;
         vertexOffset_ = h.vertexOffset;
+        blockIndex_ = h.blockIndex;
         indexCount_ = h.indexCount;
     } else {
         indexCount_ = static_cast<uint32_t>(indices.size());
@@ -263,7 +266,7 @@ void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDev
 
 void Mesh::bind(VkCommandBuffer cmd) const {
     if (geom_) {
-        geom_->bind(cmd);  // shared megabuffer; draw uses firstIndex()/vertexOffset()
+        geom_->bindBlock(cmd, blockIndex_);  // shared megabuffer; draw uses firstIndex()/vertexOffset()
         return;
     }
     const VkDeviceSize offset = 0;

@@ -7,6 +7,9 @@
 // =============================================================================
 #include "renderer/model_loader.h"
 
+#include "renderer/geometry_buffer.h"
+#include "renderer/asset_registry.h"
+
 #include <assimp/DefaultLogger.hpp>
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -191,9 +194,19 @@ void uploadBuffer(const VulkanContext* ctx, const ResourceFactory* resources, co
 }
 
 void uploadSubMeshToGpu(const VulkanContext* ctx, const ResourceFactory* resources,
-                        const SubMeshCpuData& cpu, SubMesh& gpu) {
+                        const SubMeshCpuData& cpu, SubMesh& gpu, GeometryBuffer* geom) {
     if (cpu.vertices.empty() || cpu.indices.empty()) {
         std::cerr << "[ModelLoader] empty submesh, skipping upload\n";
+        return;
+    }
+    if (geom) {
+        const MeshHandle h = geom->alloc(cpu.vertices, cpu.indices);
+        gpu.geom = geom;
+        gpu.firstIndex = h.firstIndex;
+        gpu.vertexOffset = h.vertexOffset;
+        gpu.blockIndex = h.blockIndex;
+        // gpu.indexCount is set by the caller; keep it consistent with the handle.
+        gpu.indexCount = h.indexCount;
         return;
     }
     uploadBuffer(ctx, resources, cpu.vertices.data(), sizeof(Vertex) * cpu.vertices.size(),
@@ -537,7 +550,7 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
         gpu.materialIndex =
             (cpuData[i].materialIndex < matCount) ? cpuData[i].materialIndex : 0;
         gpu.indexCount = static_cast<uint32_t>(cpuData[i].indices.size());
-        uploadSubMeshToGpu(ctx, resources, cpuData[i], gpu);
+        uploadSubMeshToGpu(ctx, resources, cpuData[i], gpu, &assets.geometry());
     }
 
     extractAnimationsByName(scene, outAnimations);

@@ -304,7 +304,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
                 for (const SubMesh& sm : curModel->subMeshes()) {
                     if (sm.indexCount == 0) continue;
                     sm.bind(info.cmd);
-                    vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, 0, 0, 0);
+                    vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
                 }
             }
         }
@@ -334,7 +334,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
             for (const SubMesh& sm : curModel->subMeshes()) {
                 if (sm.indexCount == 0) continue;
                 sm.bind(info.cmd);
-                vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, 0, 0, 0);
+                vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
             }
         }
     }

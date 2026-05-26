@@ -68,7 +68,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
             vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(MainPass::StaticPushConstants), &pc);
             sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
         }
     }
 }
@@ -116,7 +116,7 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
             vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(MainPass::SkinnedPushConstants), &pc);
             sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
         }
     }
 }

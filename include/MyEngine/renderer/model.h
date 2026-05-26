@@ -19,6 +19,7 @@
 class VulkanContext;
 class ResourceFactory;
 class AssetRegistry;
+class GeometryBuffer;
 
 struct SubMesh {
     VkUnique<VkBuffer> vertexBuffer;
@@ -27,6 +28,15 @@ struct SubMesh {
     VkUnique<VkDeviceMemory> indexBufferMemory;
     uint32_t indexCount = 0;
     uint32_t materialIndex = 0;
+
+    // Phase 2B PART3a: when uploaded into the shared GeometryBuffer, geom is set and
+    // firstIndex/vertexOffset locate this submesh in the megabuffers (the private
+    // VkUnique buffers above stay empty). bind() is hybrid: megabuffer if on geom,
+    // else the legacy private buffers. Draw sites use firstIndex()/vertexOffset().
+    GeometryBuffer* geom = nullptr;
+    uint32_t firstIndex = 0;
+    int32_t vertexOffset = 0;
+    uint32_t blockIndex = 0;
 
     void bind(VkCommandBuffer cmd) const;
 };

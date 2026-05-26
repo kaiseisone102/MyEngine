@@ -342,7 +342,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
             if (sm.indexCount == 0) continue;
             // S4-c: no per-material bind; set=1 is the bindless array
             sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
         }
     }
 }
@@ -393,7 +393,7 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
             vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(MainPass::SkinnedPushConstants), &pc);
             sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
         }
     }
 }
