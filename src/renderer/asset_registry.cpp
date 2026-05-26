@@ -1,5 +1,7 @@
 // src/renderer/asset_registry.cpp
 #include "renderer/asset_registry.h"
+
+#include "renderer/deletion_queue.h"
 #include "renderer/bindless_texture_registry.h"
 
 #include <cstdio>
@@ -15,11 +17,16 @@ namespace {
 
 void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
                          const std::string& assetDir,
-                         BindlessTextureRegistry* bindless) {
+                         BindlessTextureRegistry* bindless,
+                         DeletionQueue* deletionQueue) {
     bindless_ = bindless;
     ctx_ = ctx;
     resources_ = resources;
     assetDir_ = assetDir;
+
+    // Phase 2B PART3a: stand up the shared geometry megabuffer BEFORE any mesh is
+    // created, so cube/grass/Models can allocate their geometry into it.
+    if (deletionQueue) geometry_.init(ctx, resources, deletionQueue);
 
     createDefaultMesh();
     createGrass();  // Phase 1F
@@ -396,6 +403,7 @@ void AssetRegistry::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
     materialRegistry_.shutdown();  // Phase 1K-2
+    geometry_.shutdown();          // Phase 2B PART3a
 
     for (auto& [k, mptr] : models_) {
         if (mptr) mptr->destroy();

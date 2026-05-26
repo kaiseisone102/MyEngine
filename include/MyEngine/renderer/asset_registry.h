@@ -29,17 +29,19 @@
 #include "renderer/material_registry.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
+#include "renderer/geometry_buffer.h"
 #include "renderer/terrain_mesh.h"
 #include "renderer/texture.h"
 
 class VulkanContext;
 class ResourceFactory;
 class BindlessTextureRegistry;
+class DeletionQueue;
 
 class AssetRegistry {
    public:
     void init(VulkanContext* ctx, ResourceFactory* resources, const std::string& assetDir,
-              BindlessTextureRegistry* bindless = nullptr);
+              BindlessTextureRegistry* bindless = nullptr, DeletionQueue* deletionQueue = nullptr);
     void shutdown();
 
     // ─── Phase 2 段階G-1 API ─────────────────────────────────
@@ -84,6 +86,9 @@ class AssetRegistry {
     BindlessTextureRegistry* bindless() { return bindless_; }  // S4-d
     MaterialRegistry& materialRegistry() { return materialRegistry_; }
     const MaterialRegistry& materialRegistry() const { return materialRegistry_; }
+    // Phase 2B PART3a: consolidated geometry megabuffer shared by all static meshes
+    GeometryBuffer& geometry() { return geometry_; }
+    const GeometryBuffer& geometry() const { return geometry_; }
 
    private:
     VulkanContext* ctx_ = nullptr;
@@ -111,6 +116,9 @@ class AssetRegistry {
 
     // Phase 1K-2: unified PBR material registry (SSBO + BDA, bindless)
     MaterialRegistry materialRegistry_;
+
+    // Phase 2B PART3a: all static geometry lives here (vertex/index megabuffers).
+    GeometryBuffer geometry_;
 
     // 互換性: 最初にloadModelFromFileされたモデルの名前
     std::string activeModelName_;

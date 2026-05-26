@@ -31,7 +31,7 @@ void VulkanRenderer::init(SDL_Window* window) {
     // Phase 1D: bindless must be initialized BEFORE assets so textures can be registered
     bindlessTextures_.init(&ctx_);
     createHdrTarget();
-    assets_.init(&ctx_, &resources_, assetDir_, &bindlessTextures_);
+    assets_.init(&ctx_, &resources_, assetDir_, &bindlessTextures_, &deletionQueue_);
 
     frameUniforms_.init(&ctx_, &resources_);
 
