@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 #include "loop/layer.h"
+#include "loop/layer_context.h"
 
 class SceneRenderer;
 class VulkanRenderer;
@@ -26,7 +27,7 @@ class MenuLayerBase : public ILayer {
    public:
     enum class MenuLayout { Vertical, Horizontal };
 
-    MenuLayerBase(SceneRenderer& renderer, VulkanRenderer& vulkan);
+    explicit MenuLayerBase(const LayerContext& ctx);
     ~MenuLayerBase() override;
 
     void handleEvents(const EventBus& events, LayerCommands& cmds) override;

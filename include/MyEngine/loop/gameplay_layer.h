@@ -25,8 +25,7 @@ struct CTransform;
 
 class GameplayLayer : public ILayer {
    public:
-    GameplayLayer(GameState& state, SceneRenderer& renderer, VulkanRenderer& vulkan,
-                    ILayerFactory& factory, float gravity, float jumpSpeed,
+    GameplayLayer(const LayerContext& ctx, float gravity, float jumpSpeed,
                     StageId initialStage);
     ~GameplayLayer() override;
 

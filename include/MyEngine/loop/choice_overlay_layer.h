@@ -17,7 +17,7 @@ class ChoiceOverlayLayer : public MenuLayerBase {
    public:
     using OnChoice = std::function<void(int idx, LayerCommands& cmds)>;
 
-    ChoiceOverlayLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, std::string prompt,
+    ChoiceOverlayLayer(const LayerContext& ctx, std::string prompt,
                         std::vector<std::string> choices, OnChoice onChoice,
                         MenuLayout layout = MenuLayout::Horizontal);
     ~ChoiceOverlayLayer() override;

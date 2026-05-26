@@ -17,54 +17,47 @@
 #include "loop/settings_layer.h"
 #include "loop/title_layer.h"
 #include "renderer/skin_buffer_pool.h"
+#include "loop/layer_context.h"
 #include "renderer/vulkan_renderer.h"
 #include "scene/scene_renderer.h"
 
+LayerContext DefaultLayerFactory::context() {
+    return LayerContext{state_, renderer_, state_.worldState.data.vulkan, *this};
+}
+
 std::unique_ptr<ILayer> DefaultLayerFactory::createTitleLayer() {
-    return std::make_unique<TitleLayer>(
-        renderer_,
-        state_.worldState.data.vulkan,
-        state_.worldState.data.vulkan.assets(),
-        state_.worldState.data.vulkan.skinBufferPool(),
-        state_.runtime.window,
-        *this);
+    return std::make_unique<TitleLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createModeSelectLayer() {
-    return std::make_unique<ModeSelectLayer>(renderer_, state_.worldState.data.vulkan, *this);
+    return std::make_unique<ModeSelectLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createGameplayLayer(StageId initialStage) {
-    return std::make_unique<GameplayLayer>(state_, renderer_,
-                                             state_.worldState.data.vulkan, *this,
-                                             gravity_, jumpSpeed_, initialStage);
+    return std::make_unique<GameplayLayer>(context(), gravity_, jumpSpeed_, initialStage);
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createGameOverLayer() {
-    return std::make_unique<GameOverLayer>(renderer_, state_.worldState.data.vulkan,
-                                             *this, state_);
+    return std::make_unique<GameOverLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createSettingsLayer() {
-    return std::make_unique<SettingsLayer>(renderer_, state_.worldState.data.vulkan,
-                                             state_, *this);
+    return std::make_unique<SettingsLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createKeyConfigLayer() {
-    return std::make_unique<KeyConfigLayer>(renderer_, state_.worldState.data.vulkan,
-                                              state_, *this);
+    return std::make_unique<KeyConfigLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createGraphicsSettingsLayer() {
-    return std::make_unique<GraphicsSettingsLayer>(renderer_, state_.worldState.data.vulkan,
-                                                     state_, *this);
+    return std::make_unique<GraphicsSettingsLayer>(context());
 }
 
 std::unique_ptr<ILayer> DefaultLayerFactory::createChoiceOverlay(
     std::string prompt, std::vector<std::string> choices,
     std::function<void(int idx, LayerCommands& cmds)> onChoice,
     MenuLayerBase::MenuLayout layout) {
-    return std::make_unique<ChoiceOverlayLayer>(renderer_, state_.worldState.data.vulkan,
+    return std::make_unique<ChoiceOverlayLayer>(context(),
                                                   std::move(prompt), std::move(choices),
                                                   std::move(onChoice), layout);
 }

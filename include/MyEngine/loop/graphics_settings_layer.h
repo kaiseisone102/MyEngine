@@ -14,8 +14,7 @@ class ILayerFactory;
 
 class GraphicsSettingsLayer : public MenuLayerBase {
    public:
-    GraphicsSettingsLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, GameState& state,
-                          ILayerFactory& factory);
+    explicit GraphicsSettingsLayer(const LayerContext& ctx);
     ~GraphicsSettingsLayer() override;
 
     void onEnter() override;

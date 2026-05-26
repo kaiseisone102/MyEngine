@@ -22,8 +22,7 @@ struct SDL_Window;
 
 class TitleLayer : public MenuLayerBase {
    public:
-    TitleLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, AssetRegistry& assets,
-                SkinBufferPool& skinPool, SDL_Window* window, ILayerFactory& factory);
+    explicit TitleLayer(const LayerContext& ctx);
     ~TitleLayer() override;
 
     void onEnter() override;

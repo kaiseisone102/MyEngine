@@ -405,13 +405,12 @@ glm::vec3 tiltStartDir(const glm::vec3& startDir, const glm::vec3& rotationAxis,
 
 }  // namespace
 
-GameplayLayer::GameplayLayer(GameState& state, SceneRenderer& renderer, VulkanRenderer& vulkan,
-                             ILayerFactory& factory, float gravity, float jumpSpeed,
+GameplayLayer::GameplayLayer(const LayerContext& ctx, float gravity, float jumpSpeed,
                              StageId initialStage)
-    : state_(state),
-      renderer_(renderer),
-      vulkan_(vulkan),
-      factory_(factory),
+    : state_(ctx.state),
+      renderer_(ctx.sceneRenderer),
+      vulkan_(ctx.vulkan),
+      factory_(ctx.factory),
       gravity_(gravity),
       jumpSpeed_(jumpSpeed),
       currentStage_(initialStage) {}

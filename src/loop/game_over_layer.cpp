@@ -20,9 +20,8 @@
 #include "scene/scene_renderer.h"
 #include "world/stage_id.h"
 
-GameOverLayer::GameOverLayer(SceneRenderer& renderer, VulkanRenderer& vulkan,
-                              ILayerFactory& factory, GameState& state)
-    : MenuLayerBase(renderer, vulkan), factory_(factory), state_(state) {}
+GameOverLayer::GameOverLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx), factory_(ctx.factory), state_(ctx.state) {}
 
 GameOverLayer::~GameOverLayer() = default;
 

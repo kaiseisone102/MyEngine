@@ -13,9 +13,8 @@
 #include "core/game_state.h"
 #include "loop/layer_factory.h"
 
-SettingsLayer::SettingsLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, GameState& state,
-                              ILayerFactory& factory)
-    : MenuLayerBase(renderer, vulkan), state_(state), factory_(factory) {}
+SettingsLayer::SettingsLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx), state_(ctx.state), factory_(ctx.factory) {}
 
 SettingsLayer::~SettingsLayer() = default;
 

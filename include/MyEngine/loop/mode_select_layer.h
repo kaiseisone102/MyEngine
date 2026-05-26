@@ -9,7 +9,7 @@ class ILayerFactory;
 
 class ModeSelectLayer : public MenuLayerBase {
    public:
-    ModeSelectLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, ILayerFactory& factory);
+    explicit ModeSelectLayer(const LayerContext& ctx);
     ~ModeSelectLayer() override;
 
     void onEnter() override;

@@ -13,8 +13,8 @@
 #include "renderer/vulkan_renderer.h"
 #include "scene/scene_renderer.h"
 
-MenuLayerBase::MenuLayerBase(SceneRenderer& renderer, VulkanRenderer& vulkan)
-    : renderer_(renderer), vulkan_(vulkan) {}
+MenuLayerBase::MenuLayerBase(const LayerContext& ctx)
+    : renderer_(ctx.sceneRenderer), vulkan_(ctx.vulkan) {}
 
 MenuLayerBase::~MenuLayerBase() = default;
 

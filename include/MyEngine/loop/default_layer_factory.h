@@ -10,6 +10,7 @@
 
 class GameState;
 class SceneRenderer;
+struct LayerContext;
 
 class DefaultLayerFactory : public ILayerFactory {
    public:
@@ -31,6 +32,8 @@ class DefaultLayerFactory : public ILayerFactory {
         MenuLayerBase::MenuLayout layout) override;
 
    private:
+    LayerContext context();
+
     GameState& state_;
     SceneRenderer& renderer_;
     float gravity_;

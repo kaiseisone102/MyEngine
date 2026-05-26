@@ -1,5 +1,5 @@
 // =============================================================================
-// mode_select_layer.cpp  EGame Start で Terminal スチE�Eジを開ぁE// =============================================================================
+// mode_select_layer.cpp  EGame Start で Terminal スチE�Eジを開ぁE// =============================================================================
 #define NOMINMAX
 #include "loop/mode_select_layer.h"
 
@@ -10,8 +10,8 @@
 #include "loop/layer_factory.h"
 #include "world/stage_id.h"
 
-ModeSelectLayer::ModeSelectLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, ILayerFactory& factory)
-    : MenuLayerBase(renderer, vulkan), factory_(factory) {}
+ModeSelectLayer::ModeSelectLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx), factory_(ctx.factory) {}
 
 ModeSelectLayer::~ModeSelectLayer() = default;
 
@@ -24,7 +24,7 @@ void ModeSelectLayer::onExit() { std::cout << "[ModeSelectLayer] exit\n"; }
 
 void ModeSelectLayer::handleConfirm(int selectedIndex, LayerCommands& cmds) {
     switch (selectedIndex) {
-        case 0:  // Game Start ↁETerminal スチE�Eジから開姁E            std::cout << "[ModeSelectLayer] Game Start ↁEreplace with GameplayLayer (Terminal)\n";
+        case 0:  // Game Start ↁETerminal スチE�Eジから開姁E            std::cout << "[ModeSelectLayer] Game Start ↁEreplace with GameplayLayer (Terminal)\n";
             cmds.requestReplace(factory_.createGameplayLayer(StageId::Terminal));
             return;
         case 1:  // Settings

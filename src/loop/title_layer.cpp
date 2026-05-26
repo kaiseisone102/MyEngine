@@ -28,14 +28,12 @@
 #include "scene/scene_data.h"
 #include "scene/scene_renderer.h"
 
-TitleLayer::TitleLayer(SceneRenderer& renderer, VulkanRenderer& vulkan,
-                          AssetRegistry& assets, SkinBufferPool& skinPool,
-                          SDL_Window* window, ILayerFactory& factory)
-    : MenuLayerBase(renderer, vulkan),
-      assets_(assets),
-      skinPool_(skinPool),
-      window_(window),
-      factory_(factory) {}
+TitleLayer::TitleLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx),
+      assets_(ctx.vulkan.assets()),
+      skinPool_(ctx.vulkan.skinBufferPool()),
+      window_(ctx.state.runtime.window),
+      factory_(ctx.factory) {}
 
 TitleLayer::~TitleLayer() {
     if (skinSlot_.valid()) {

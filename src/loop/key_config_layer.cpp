@@ -25,9 +25,8 @@ constexpr int kBackIndex = kActionCount + 2;
 
 }  // namespace
 
-KeyConfigLayer::KeyConfigLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, GameState& state,
-                               ILayerFactory& factory)
-    : MenuLayerBase(renderer, vulkan), state_(state), factory_(factory) {}
+KeyConfigLayer::KeyConfigLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx), state_(ctx.state), factory_(ctx.factory) {}
 
 KeyConfigLayer::~KeyConfigLayer() = default;
 

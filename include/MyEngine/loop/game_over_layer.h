@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// game_over_layer.h  EPlayer 死亡時�Eメニュー画面
+// game_over_layer.h  EPlayer 死亡時�Eメニュー画面
 // =============================================================================
 
 #include <cstdint>
@@ -13,7 +13,7 @@ class SceneData;
 
 class GameOverLayer : public MenuLayerBase {
    public:
-    GameOverLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, ILayerFactory& factory, GameState& state);
+    explicit GameOverLayer(const LayerContext& ctx);
     ~GameOverLayer() override;
 
     void onEnter() override;

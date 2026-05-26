@@ -11,9 +11,8 @@
 #include "loop/layer_factory.h"
 #include "scene/scene_renderer.h"
 #include "renderer/vulkan_renderer.h"
-GraphicsSettingsLayer::GraphicsSettingsLayer(SceneRenderer& renderer, VulkanRenderer& vulkan, GameState& state,
-                                                ILayerFactory& factory)
-    : MenuLayerBase(renderer, vulkan), state_(state), factory_(factory) {}
+GraphicsSettingsLayer::GraphicsSettingsLayer(const LayerContext& ctx)
+    : MenuLayerBase(ctx), state_(ctx.state), factory_(ctx.factory) {}
 GraphicsSettingsLayer::~GraphicsSettingsLayer() = default;
 void GraphicsSettingsLayer::onEnter() {
     std::cout << "[GraphicsSettingsLayer] enter\n";
