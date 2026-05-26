@@ -1,10 +1,13 @@
 #pragma once
 // =============================================================================
-// graphics_settings_layer.h  EグラフィチE��設定画面 Layer
+// graphics_settings_layer.h — グラフィック設定画面 Layer
 // =============================================================================
-// 仕槁E
-//   - 全頁E�� Save するまでファイルにもシスチE��にも反映しなぁE//   - Save 頁E��で永続化 + 反映 (drawDistance ↁESceneRenderer、E//     reflectionQuality ↁEVulkanRenderer::setReflectionQuality)
-//   - Back 時に未保存変更あれば ChoiceOverlay で破棁E��誁E// =============================================================================
+// 仕様:
+//   - 全項目、Save するまでファイルにもシステムにも反映しない
+//   - Save 時に永続化 + 反映 (drawDistance → SceneRenderer、
+//     reflectionQuality → VulkanRenderer::setReflectionQuality)
+//   - Back 時に未保存変更があれば ChoiceOverlay で破棄確認
+// =============================================================================
 
 #include "core/game_settings.h"
 #include "loop/menu_layer_base.h"
