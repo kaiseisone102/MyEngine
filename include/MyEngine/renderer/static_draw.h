@@ -87,7 +87,9 @@ inline void drawTerrainList(VkCommandBuffer cmd, DrawDataPool& pool, uint32_t fr
         const uint32_t slot = pool.pushOne(frameIndex, d);
         if (slot == UINT32_MAX) return;
         item.terrain->bind(cmd);
-        vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1, 0, 0, slot);
+        // PART3c: terrain may live in the shared megabuffer now -> draw its range.
+        vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1,
+                         item.terrain->firstIndex(), item.terrain->vertexOffset(), slot);
     }
 }
 

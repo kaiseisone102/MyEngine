@@ -73,7 +73,8 @@ void AssetRegistry::createSharedFlatTerrain() {
     const TerrainMesh::HeightFunc flat = [](float, float) { return 0.f; };
     const Material* grassMat = getMaterial("grass_field");
     sharedFlatTerrain_.init(ctx_, resources_, rect, 0.f, flat,
-                            /*cellSize=*/2.0f, /*uvScale=*/3.0f, grassMat);
+                            /*cellSize=*/2.0f, /*uvScale=*/3.0f, grassMat,
+                            /*geom=*/&geometry_);  // PART3c: terrain on megabuffer
 }
 
 void AssetRegistry::createGrass() {

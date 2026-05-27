@@ -12,6 +12,7 @@
 
 #include <vulkan/vulkan.h>
 #include "renderer/vk_unique.h"
+#include "renderer/geometry_buffer.h"  // MeshHandle (PART3c: terrain on megabuffer)
 
 #include <cstdint>
 #include <functional>
@@ -24,6 +25,7 @@
 class VulkanContext;
 class ResourceFactory;
 class Material;
+class GeometryBuffer;
 
 class TerrainMesh {
    public:
@@ -32,12 +34,18 @@ class TerrainMesh {
     void init(const VulkanContext* ctx, const ResourceFactory* resources,
               const std::vector<glm::vec2>& polygonXZ, float baseY,
               const HeightFunc& heightFunc, float cellSize = 1.5f,
-              float uvScale = 1.f, const Material* material = nullptr);
+              float uvScale = 1.f, const Material* material = nullptr,
+              GeometryBuffer* geom = nullptr);  // PART3c: non-null -> megabuffer
 
     void destroy();
 
     void bind(VkCommandBuffer cmd) const;
     uint32_t indexCount() const { return indexCount_; }
+    // PART3c: megabuffer range (0 on the legacy private-buffer path).
+    uint32_t firstIndex() const { return firstIndex_; }
+    int32_t vertexOffset() const { return vertexOffset_; }
+    uint32_t blockIndex() const { return blockIndex_; }
+    bool onGeometryBuffer() const { return geom_ != nullptr; }
 
     const Material* material() const { return material_; }
 
@@ -59,6 +67,15 @@ class TerrainMesh {
     VkUnique<VkBuffer> indexBuffer_;
     VkUnique<VkDeviceMemory> indexBufferMemory_;
     uint32_t indexCount_ = 0;
+
+    // PART3c: when uploaded into the shared GeometryBuffer, geom_ is set and
+    // firstIndex_/vertexOffset_/blockIndex_ locate this terrain in the megabuffers
+    // (the private VkUnique buffers above stay empty). bind() is hybrid.
+    GeometryBuffer* geom_ = nullptr;
+    MeshHandle handle_{};
+    uint32_t firstIndex_ = 0;
+    int32_t vertexOffset_ = 0;
+    uint32_t blockIndex_ = 0;
 
     std::vector<glm::vec2> polygon_;
     glm::vec2 bboxMin_{0.f};

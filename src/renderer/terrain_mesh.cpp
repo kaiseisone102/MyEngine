@@ -2,6 +2,7 @@
 // terrain_mesh.cpp — 多角形ベース + spatial hash 最適化
 // =============================================================================
 #include "renderer/terrain_mesh.h"
+#include "renderer/geometry_buffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -149,7 +150,8 @@ void TerrainMesh::buildSpatialHash() {
 void TerrainMesh::init(const VulkanContext* ctx, const ResourceFactory* resources,
                         const std::vector<glm::vec2>& polygonXZ, float baseY,
                         const HeightFunc& heightFunc, float cellSize,
-                        float uvScale, const Material* material) {
+                        float uvScale, const Material* material,
+                        GeometryBuffer* geom) {
     if (!ctx || !resources) throw std::runtime_error("TerrainMesh::init: null ctx/resources");
     if (polygonXZ.size() < 3) throw std::runtime_error("TerrainMesh::init: polygon must have >= 3 vertices");
     if (cellSize <= 0.f) cellSize = 1.0f;
@@ -319,10 +321,21 @@ void TerrainMesh::init(const VulkanContext* ctx, const ResourceFactory* resource
     gridCellsZ_ = std::max(1, static_cast<int>(std::ceil(bboxH / gridCellSize_)));
     buildSpatialHash();
 
-    uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-    uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    // PART3c: if a GeometryBuffer is supplied, upload into the shared megabuffer
+    // (same path as cube/model) and keep the handle's offsets; otherwise the
+    // legacy private vertex/index buffers (kept during migration).
+    if (geom) {
+        geom_ = geom;
+        handle_ = geom_->alloc(vertices, indices);
+        firstIndex_ = handle_.firstIndex;
+        vertexOffset_ = handle_.vertexOffset;
+        blockIndex_ = handle_.blockIndex;
+    } else {
+        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
+                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
+                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+    }
 
     for (p2t::Point* p : p2tBoundary) delete p;
     for (p2t::Point* p : p2tInterior) delete p;
@@ -361,6 +374,10 @@ void TerrainMesh::uploadBuffer(const ResourceFactory* resources, const void* src
 }
 
 void TerrainMesh::bind(VkCommandBuffer cmd) const {
+    if (geom_) {  // PART3c: megabuffer block bind (draw uses firstIndex/vertexOffset)
+        geom_->bindBlock(cmd, blockIndex_);
+        return;
+    }
     const VkDeviceSize offset = 0;
     VkBuffer vb = vertexBuffer_.get();
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
