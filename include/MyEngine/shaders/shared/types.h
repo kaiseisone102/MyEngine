@@ -207,6 +207,25 @@ struct InstanceData {
 };
 
 // -----------------------------------------------------------------------------
+// DrawData: Phase 2B PART3b - per-draw data for non-skinned static draws,
+//   moved OUT of push constants into a per-frame SSBO indexed by gl_InstanceIndex
+//   (vkCmdDrawIndexed's firstInstance carries the draw slot). This is THE
+//   precondition for indirect draw: a CPU loop can no longer update a push
+//   constant per draw command, so model / materialId / alpha live here instead.
+//   Same modern BDA style as InstanceData. PART3c lets the cull/indirect path
+//   index this very array via firstInstance = drawId.
+//   mat4(64) + uint + float + 2*float pad = 80 bytes, std430 16-byte aligned.
+//   No BDA inside, so one definition serves both C++ and GLSL.
+// -----------------------------------------------------------------------------
+struct DrawData {
+    mat4 model;
+    uint materialId;
+    float alpha;
+    float _pad0;
+    float _pad1;
+};
+
+// -----------------------------------------------------------------------------
 // CullObject: Phase 2B - one cullable draw item for GPU frustum culling.
 //   A conservative bounding sphere (from the world-space AABB) plus the AABB
 //   half-extent (kept for future precise AABB-vs-plane culling) and a drawId

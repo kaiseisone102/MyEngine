@@ -72,6 +72,7 @@ void PassChain::init(const InitInfo& info) {
 
     // Phase 1E: instance matrix pool
     instancePool_.init(info.ctx, info.resources);
+    drawDataPool_.init(info.ctx);  // Phase 2B PART3b
 
     // Phase 2B PART2: GPU frustum culling compute pass (BDA-only, no sets)
     {
@@ -196,6 +197,7 @@ void PassChain::shutdown() {
     postPass_.shutdown();  // Phase 1H-3
     bloomPass_.shutdown();  // was leaking: init'd but never shut down
     cullingPass_.shutdown();   // Phase 2B PART2
+    drawDataPool_.shutdown();  // Phase 2B PART3b
     instancePool_.shutdown();  // Phase 1E
     mainPass_.shutdown();
     shadowPass_.shutdown();
@@ -384,6 +386,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
         // === Phase 1F: instanced grass scattered on the ground, frustum-culled ===
         instancePool_.beginFrame(info.frameIndex);
+        drawDataPool_.beginFrame(info.frameIndex);  // Phase 2B PART3b
         static std::vector<InstancedMeshDrawItem> grassDraw;
         grassDraw.clear();
 

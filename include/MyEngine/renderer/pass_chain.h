@@ -17,6 +17,7 @@
 #include "imgui_layer.h"
 #include "main_pass.h"
 #include "instance_buffer_pool.h"
+#include "draw_data_pool.h"
 #include "culling_pass.h"
 #include "frustum.h"
 #include "post_pass.h"
@@ -114,6 +115,7 @@ class PassChain {
     ShadowPass shadowPass_;
     MainPass mainPass_;
     InstanceBufferPool instancePool_;  // Phase 1E
+    DrawDataPool drawDataPool_;          // Phase 2B PART3b: per-draw SSBO for static draws
     CullingPass cullingPass_;           // Phase 2B PART2: GPU frustum culling
     bool grassColorVariation_ = true;  // Phase 1F: grass color variation toggle
     bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
