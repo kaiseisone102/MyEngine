@@ -57,6 +57,11 @@ class VulkanContext {
     const VkPhysicalDeviceMemoryProperties& memoryProperties() const { return memoryProperties_; }
     VmaAllocator allocator() const { return allocator_; }
 
+    // Phase 2B PART3c-2: GPU-driven indirect-draw capabilities. Queried at device
+    // creation; enabled only if the physical device supports them (else false).
+    bool multiDrawIndirect() const { return multiDrawIndirect_; }
+    bool drawIndirectFirstInstance() const { return drawIndirectFirstInstance_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -76,6 +81,10 @@ class VulkanContext {
 
     VkPhysicalDeviceMemoryProperties memoryProperties_{};
     VmaAllocator allocator_ = VK_NULL_HANDLE;
+
+    // Phase 2B PART3c-2: queried indirect-draw capability flags.
+    bool multiDrawIndirect_ = false;
+    bool drawIndirectFirstInstance_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

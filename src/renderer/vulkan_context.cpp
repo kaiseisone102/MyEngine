@@ -377,6 +377,21 @@ void VulkanContext::createDevice() {
 
     // 必要なデバイス機能を有効化
     VkPhysicalDeviceFeatures features{};
+
+    // Phase 2B PART3c-2: GPU-driven indirect-draw capabilities (Roadmap §3:
+    // capability-check + fallback). Query the device and enable only what it
+    // supports. drawIndirectFirstInstance is REQUIRED for our design: each
+    // indirect command carries its DrawData slot in firstInstance, and a
+    // non-zero firstInstance in an indirect draw needs this feature. Without it
+    // we keep the CPU draw loop (firstInstance is unrestricted for direct draws).
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physical_, &supportedFeatures);
+    multiDrawIndirect_ = (supportedFeatures.multiDrawIndirect == VK_TRUE);
+    drawIndirectFirstInstance_ = (supportedFeatures.drawIndirectFirstInstance == VK_TRUE);
+    features.multiDrawIndirect = multiDrawIndirect_ ? VK_TRUE : VK_FALSE;
+    features.drawIndirectFirstInstance = drawIndirectFirstInstance_ ? VK_TRUE : VK_FALSE;
+    std::cout << "[Caps] multiDrawIndirect=" << (multiDrawIndirect_ ? 1 : 0)
+              << " drawIndirectFirstInstance=" << (drawIndirectFirstInstance_ ? 1 : 0) << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
