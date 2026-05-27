@@ -69,6 +69,8 @@ class VulkanRenderer {
     // Phase 1F: instanced culling stats (relayed from PassChain)
     int instancedVisible() const { return passChain_.lastInstancedVisible(); }
     int instancedTotal() const { return passChain_.lastInstancedTotal(); }
+    int cullGpuVisible() const { return passChain_.lastCullGpuVisible(); }  // Phase 2B PART3c-2
+    int cullTotal() const { return passChain_.lastCullTotal(); }
     BindlessTextureRegistry& bindlessTextures() { return bindlessTextures_; }
     const BindlessTextureRegistry& bindlessTextures() const { return bindlessTextures_; }
     RenderTarget& hdrTarget() { return hdrTarget_; }

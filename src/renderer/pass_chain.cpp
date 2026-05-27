@@ -477,6 +477,11 @@ void PassChain::recordFrame(const RecordInfo& info) {
         }
         lastInstancedVisible_ = visible;
         lastInstancedTotal_ = total;
+        // Phase 2B PART3c-2: capture GPU-driven prop cull verification (safe to read
+        // after cull execute; lastGpuVisible/lastCpuVisible are the prev same-frame
+        // dispatch result confirmed by the frame fence). total = this frame's draws.
+        lastCullGpuVisible_ = static_cast<int>(cullingPass_.lastGpuVisible(info.frameIndex));
+        lastCullTotal_ = static_cast<int>(built.draws.size());
         mi.grassDrawList = &grassDraw;
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);
         mi.drawDataPool = &drawDataPool_;                                  // Phase 2B PART3b
@@ -484,6 +489,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.preparedOpaque = &built.draws;            // Phase 2B PART3c: opaque static draws
         mi.geometry = &info.assets->geometry();      // Phase 2B PART3c: block bind
 
+
+        mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2: indirect draw source
 
         mainPass_.execute(mi);
     }

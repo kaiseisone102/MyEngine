@@ -415,18 +415,45 @@ void MainPass::execute(const ExecuteInfo& info) {
                                sizeof(StaticDrawPC), &dpc);
         }
 
-        // PART3c (3c-1): opaque static is pre-built (DrawData already pushed by the
-        // builder before the cull pass). Here we only bind each draw's block and
-        // issue the draw with firstInstance = its DrawData slot. STILL a CPU loop;
-        // 3c-2 replaces this with per-block vkCmdDrawIndexedIndirect.
-        if (info.preparedOpaque) {
-            uint32_t boundBlock = UINT32_MAX;
-            for (const static_cull::PreparedDraw& pd : *info.preparedOpaque) {
-                if (pd.blockIndex != boundBlock) {
-                    info.geometry->bindBlock(info.cmd, pd.blockIndex);
-                    boundBlock = pd.blockIndex;
+        // PART3c-2: opaque static is GPU-driven. CullingPass wrote instanceCount
+        // (0/1) into its per-frame indirect command buffer, built parallel to
+        // preparedOpaque (command index == drawId). We bind each GeometryBuffer
+        // block and issue an indirect draw over that block's CONTIGUOUS run of
+        // commands; the GPU skips instanceCount==0 (culled) draws. Capability path
+        // (Roadmap §3): multiDrawIndirect -> one MDI per run; else per-draw indirect
+        // loop. If drawIndirectFirstInstance is unsupported, a non-zero firstInstance
+        // (our DrawData slot) is illegal in an indirect command, so we fall back to
+        // the direct CPU draw loop (firstInstance is unrestricted for direct draws).
+        if (info.preparedOpaque && !info.preparedOpaque->empty() && info.geometry) {
+            const std::vector<static_cull::PreparedDraw>& draws = *info.preparedOpaque;
+            const bool useIndirect =
+                info.indirectCommandBuffer != VK_NULL_HANDLE && ctx_->drawIndirectFirstInstance();
+            if (useIndirect) {
+                const uint32_t stride = static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand));
+                const uint32_t drawCount = static_cast<uint32_t>(draws.size());
+                uint32_t runStart = 0;
+                while (runStart < drawCount) {
+                    const uint32_t block = draws[runStart].blockIndex;
+                    uint32_t runEnd = runStart + 1;
+                    while (runEnd < drawCount && draws[runEnd].blockIndex == block) ++runEnd;
+                    info.geometry->bindBlock(info.cmd, block);
+                    const uint32_t runLen = runEnd - runStart;
+                    const VkDeviceSize off = static_cast<VkDeviceSize>(runStart) * stride;
+                    if (ctx_->multiDrawIndirect()) {
+                        vkCmdDrawIndexedIndirect(info.cmd, info.indirectCommandBuffer, off, runLen, stride);
+                    } else {
+                        for (uint32_t k = 0; k < runLen; ++k)
+                            vkCmdDrawIndexedIndirect(info.cmd, info.indirectCommandBuffer,
+                                                     off + static_cast<VkDeviceSize>(k) * stride, 1, stride);
+                    }
+                    runStart = runEnd;
                 }
-                vkCmdDrawIndexed(info.cmd, pd.indexCount, 1, pd.firstIndex, pd.vertexOffset, pd.drawSlot);
+            } else {
+                uint32_t boundBlock = UINT32_MAX;
+                for (const static_cull::PreparedDraw& pd : draws) {
+                    if (pd.blockIndex != boundBlock) { info.geometry->bindBlock(info.cmd, pd.blockIndex); boundBlock = pd.blockIndex; }
+                    vkCmdDrawIndexed(info.cmd, pd.indexCount, 1, pd.firstIndex, pd.vertexOffset, pd.drawSlot);
+                }
             }
         }
 

@@ -98,6 +98,10 @@ class PassChain {
     // Phase 1F: instanced culling stats (for debug HUD)
     int lastInstancedVisible() const { return lastInstancedVisible_; }
     int lastInstancedTotal() const { return lastInstancedTotal_; }
+    // Phase 2B PART3c-2: GPU-driven prop cull stat (visible/total) for the HUD.
+    // visible is the previous same-frame dispatch, read after the frame fence.
+    int lastCullGpuVisible() const { return lastCullGpuVisible_; }
+    int lastCullTotal() const { return lastCullTotal_; }
     void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE,
                             uint32_t bloomBaseW = 0, uint32_t bloomBaseH = 0);  // Phase 1H-2/3 + 1I
 
@@ -121,6 +125,8 @@ class PassChain {
     bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
     int lastInstancedVisible_ = 0;  // Phase 1F
     int lastInstancedTotal_ = 0;
+    int lastCullGpuVisible_ = 0;  // Phase 2B PART3c-2: GPU-driven prop cull stat
+    int lastCullTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3
     BloomPass bloomPass_;  // Phase 1I
     bool bloomEnabled_ = true;

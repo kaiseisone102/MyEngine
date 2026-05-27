@@ -78,6 +78,15 @@ void RenderDebugSystem::draw(const DebugOverlayData& d, Corner corner) const {
         ImVec4 icol = {0.4f, 1.f, 0.6f, 1.f};
         ImGui::TextColored(icol, "Inst : %d / %d  (%.0f%%)", d.instancedVisible, d.instancedTotal, iratio * 100.f);
     }
+    {
+        // Phase 2B PART3c-2: GPU-driven prop cull stat. Shows visible/total props
+        // from the compute frustum cull (visible = instanceCount==1 in the indirect
+        // buffer, 1 frame behind). Turning the camera changes the numerator => the
+        // GPU cull is driving real draws. (GPU=CPU oracle check was removed: it gave
+        // false mismatches under fast motion due to the 1-frame lag; a precise same-
+        // frame check can be added at PART4/Hi-Z if needed.)
+        ImGui::TextColored(ImVec4{0.4f, 1.f, 0.6f, 1.f}, "Cull : %d / %d", d.cullGpuVisible, d.cullTotal);
+    }
     ImGui::Separator();
 
     ImGui::Text("Pos  : (%.2f, %.2f, %.2f)", d.playerPos.x, d.playerPos.y, d.playerPos.z);
