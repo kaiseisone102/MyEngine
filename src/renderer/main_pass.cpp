@@ -67,8 +67,7 @@ void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
                 : 0u;
             vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(MainPass::StaticPushConstants), &pc);
-            sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
+            sm.bindAndDraw(cmd);
         }
     }
 }
@@ -115,8 +114,7 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
                 : 0u;
             vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(MainPass::SkinnedPushConstants), &pc);
-            sm.bind(cmd);
-            vkCmdDrawIndexed(cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
+            sm.bindAndDraw(cmd);
         }
     }
 }
@@ -491,7 +489,6 @@ void MainPass::execute(const ExecuteInfo& info) {
                                 &info.bindlessSet, 0, nullptr);
         for (const InstancedMeshDrawItem& item : *info.grassDrawList) {
             if (!item.mesh || item.instances.empty()) continue;
-            item.mesh->bind(info.cmd);
             InstancedPushConstants pc{};
             pc.instanceBuffer = info.instanceBufferAddress;
             pc.materialId = item.material ? item.material->materialId() : 0u;  // S6-b: unified material path
@@ -500,7 +497,7 @@ void MainPass::execute(const ExecuteInfo& info) {
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(InstancedPushConstants), &pc);
             const uint32_t count = static_cast<uint32_t>(item.instances.size());
-            vkCmdDrawIndexed(info.cmd, item.mesh->indexCount(), count, item.mesh->firstIndex(), item.mesh->vertexOffset(), item.instanceOffset);
+            item.mesh->bindAndDraw(info.cmd, count, item.instanceOffset);
         }
     }
 

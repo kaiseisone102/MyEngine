@@ -303,8 +303,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
                                    sizeof(glm::mat4), &item.model);
                 for (const SubMesh& sm : curModel->subMeshes()) {
                     if (sm.indexCount == 0) continue;
-                    sm.bind(info.cmd);
-                    vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
+                    sm.bindAndDraw(info.cmd);
                 }
             }
         }
@@ -333,8 +332,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
                                sizeof(SkinnedPushConstants), &pc);
             for (const SubMesh& sm : curModel->subMeshes()) {
                 if (sm.indexCount == 0) continue;
-                sm.bind(info.cmd);
-                vkCmdDrawIndexed(info.cmd, sm.indexCount, 1, sm.firstIndex, sm.vertexOffset, 0);
+                sm.bindAndDraw(info.cmd);
             }
         }
     }

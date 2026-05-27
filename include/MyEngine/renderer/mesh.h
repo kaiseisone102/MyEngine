@@ -76,6 +76,11 @@ class Mesh {
     // destructor (VkUnique members) frees too, so calling twice is a no-op.
     void destroy();
     void bind(VkCommandBuffer cmd) const;  // hybrid: megabuffer bind if on geom, else private
+    // PART3b: bind this mesh's block + draw its range in one call so the block
+    // bind and firstIndex/vertexOffset can never desync (structural fix for the
+    // PART3a missed-bind device-lost). PART3c will pass firstInstance = drawId.
+    void bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount = 1,
+                     uint32_t firstInstance = 0) const;
     uint32_t indexCount() const { return indexCount_; }
     // Phase 2B PART3a: megabuffer range. When on the GeometryBuffer these are the
     // handle's offsets; on the legacy private path both are 0 (draw from buffer start).

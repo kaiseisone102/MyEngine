@@ -15,6 +15,13 @@ void SubMesh::bind(VkCommandBuffer cmd) const {
     vkCmdBindIndexBuffer(cmd, indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
 }
 
+void SubMesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
+                          uint32_t firstInstance) const {
+    bind(cmd);
+    vkCmdDrawIndexed(cmd, indexCount, instanceCount, firstIndex, vertexOffset,
+                     firstInstance);
+}
+
 void Model::destroy() {
     if (!ctx_) return;
     VkDevice device = ctx_->device();

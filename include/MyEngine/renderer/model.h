@@ -39,6 +39,11 @@ struct SubMesh {
     uint32_t blockIndex = 0;
 
     void bind(VkCommandBuffer cmd) const;
+    // PART3b: bind this submesh's block + draw its range in one call (block bind
+    // and firstIndex/vertexOffset stay paired -- structural fix for PART3a's
+    // missed-bind device-lost). PART3c will pass firstInstance = drawId.
+    void bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount = 1,
+                     uint32_t firstInstance = 0) const;
 };
 
 class Model {

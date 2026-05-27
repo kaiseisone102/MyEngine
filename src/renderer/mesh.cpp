@@ -275,6 +275,13 @@ void Mesh::bind(VkCommandBuffer cmd) const {
     vkCmdBindIndexBuffer(cmd, indexBuffer_.get(), 0, VK_INDEX_TYPE_UINT32);
 }
 
+void Mesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
+                       uint32_t firstInstance) const {
+    bind(cmd);
+    vkCmdDrawIndexed(cmd, indexCount(), instanceCount, firstIndex(), vertexOffset(),
+                     firstInstance);
+}
+
 void Mesh::destroy() {
     // VkUnique frees each handle (no-op if empty). The auto destructor would do
     // the same if destroy() were never called.
