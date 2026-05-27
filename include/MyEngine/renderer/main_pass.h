@@ -27,6 +27,7 @@ namespace particle { struct Particle; }
 class HudPass;
 class HudDrawList;
 class WaterPass;
+class DrawDataPool;
 
 class MainPass {
    public:
@@ -36,6 +37,7 @@ class MainPass {
     // Phase 1D: bindless static draw with texture index in push constant
     using StaticBindlessPushConstants = myengine::shared::StaticBindlessPushConstants;
     using InstancedPushConstants = myengine::shared::InstancedPushConstants;
+    using StaticDrawPC = myengine::shared::StaticDrawPushConstants;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
@@ -65,6 +67,8 @@ class MainPass {
 
         const std::vector<MeshDrawItem>* meshDrawListOpaque = nullptr;
         VkDeviceAddress instanceBufferAddress = 0;
+        VkDeviceAddress drawBufferAddress = 0;  // Phase 2B PART3b: DrawData SSBO (static draws)
+        DrawDataPool* drawDataPool = nullptr;   // Phase 2B PART3b: per-frame pushOne target
         const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;

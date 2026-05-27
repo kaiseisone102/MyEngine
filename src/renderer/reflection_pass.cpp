@@ -13,6 +13,7 @@
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/static_draw.h"
+#include "renderer/draw_data_pool.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/terrain_mesh.h"
@@ -119,9 +120,9 @@ void ReflectionPass::createRenderPass() {
 void ReflectionPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                                           VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S4-c: frag reads materialId
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;  // PART3b: only the DrawData SSBO address
     pc.offset = 0;
-    pc.size = sizeof(MainPass::StaticPushConstants);
+    pc.size = sizeof(myengine::shared::StaticDrawPushConstants);
 
     VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -378,18 +379,25 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         // S4-c: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 1, 1,
                                 &info.bindlessSet, 0, nullptr);
+        // PART3b: push the DrawData SSBO address once
+        if (info.drawDataPool) {
+            myengine::shared::StaticDrawPushConstants dpc{};
+            dpc.drawBuffer = info.drawBufferAddress;
+            vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(dpc), &dpc);
 
-        if (info.mesh && info.meshDrawListOpaque) {
-            static_draw::drawMeshList(info.cmd, staticLayout_.get(), info.mesh,
-                                      *info.meshDrawListOpaque, false);
-        }
-        if (info.staticModelDrawListOpaque) {
-            static_draw::drawStaticModelList(info.cmd, staticLayout_.get(),
-                                             *info.staticModelDrawListOpaque, false);
-        }
-        if (info.terrainDrawListOpaque) {
-            static_draw::drawTerrainList(info.cmd, staticLayout_.get(),
-                                         *info.terrainDrawListOpaque, false);
+            if (info.mesh && info.meshDrawListOpaque) {
+                static_draw::drawMeshList(info.cmd, *info.drawDataPool, info.frameIndex, info.mesh,
+                                          *info.meshDrawListOpaque, false);
+            }
+            if (info.staticModelDrawListOpaque) {
+                static_draw::drawStaticModelList(info.cmd, *info.drawDataPool, info.frameIndex,
+                                                 *info.staticModelDrawListOpaque, false);
+            }
+            if (info.terrainDrawListOpaque) {
+                static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex,
+                                             *info.terrainDrawListOpaque, false);
+            }
         }
     }
 

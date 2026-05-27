@@ -18,6 +18,7 @@
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/static_draw.h"
+#include "renderer/draw_data_pool.h"
 #include "renderer/particle_pass.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
@@ -161,9 +162,9 @@ void MainPass::createRenderPass() {
 void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                                      VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S4-b: frag reads materialId
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;  // PART3b: only the DrawData SSBO address
     pc.offset = 0;
-    pc.size = sizeof(StaticPushConstants);
+    pc.size = sizeof(myengine::shared::StaticDrawPushConstants);
 
     // S6-c: set=1 is the bindless texture array (call site already passes bindlessSetLayout)
     VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
@@ -405,13 +406,20 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S4-c: set=1 is the bindless texture array (bound once for all static draws)
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
+        // PART3b: push the DrawData SSBO address once (per-draw data via gl_InstanceIndex)
+        {
+            StaticDrawPC dpc{};
+            dpc.drawBuffer = info.drawBufferAddress;
+            vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(StaticDrawPC), &dpc);
+        }
 
         if (info.mesh && meshOp)
-            static_draw::drawMeshList(info.cmd, staticLayout_.get(), info.mesh, *meshOp, true);
+            static_draw::drawMeshList(info.cmd, *info.drawDataPool, info.frameIndex, info.mesh, *meshOp, true);
         if (staticOp)
-            static_draw::drawStaticModelList(info.cmd, staticLayout_.get(), *staticOp, true);
+            static_draw::drawStaticModelList(info.cmd, *info.drawDataPool, info.frameIndex, *staticOp, true);
         if (terrainOp)
-            static_draw::drawTerrainList(info.cmd, staticLayout_.get(), *terrainOp, true);
+            static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainOp, true);
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===
@@ -491,13 +499,20 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S4-c: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
+        // PART3b: push the DrawData SSBO address once
+        {
+            StaticDrawPC dpc{};
+            dpc.drawBuffer = info.drawBufferAddress;
+            vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               sizeof(StaticDrawPC), &dpc);
+        }
 
         if (info.mesh && meshTr)
-            static_draw::drawMeshList(info.cmd, staticLayout_.get(), info.mesh, *meshTr, true);
+            static_draw::drawMeshList(info.cmd, *info.drawDataPool, info.frameIndex, info.mesh, *meshTr, true);
         if (staticTr)
-            static_draw::drawStaticModelList(info.cmd, staticLayout_.get(), *staticTr, true);
+            static_draw::drawStaticModelList(info.cmd, *info.drawDataPool, info.frameIndex, *staticTr, true);
         if (terrainTr)
-            static_draw::drawTerrainList(info.cmd, staticLayout_.get(), *terrainTr, true);
+            static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainTr, true);
     }
 
     if (modelTr && !modelTr->empty()) {

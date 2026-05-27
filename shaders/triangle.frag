@@ -17,6 +17,7 @@ layout(location = 2) in vec3 fragNormal;
 layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
+layout(location = 6) flat in uint fragMaterialId;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -30,10 +31,6 @@ layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Ma
     GpuMaterial materials[];
 };
 
-// Phase 1K-2 S4-b: same push constant block as triangle.vert (VERTEX|FRAGMENT)
-layout(push_constant) uniform PC {
-    StaticPushConstants push;
-};
 
 layout(location = 0) out vec4 outColor;
 
@@ -42,7 +39,7 @@ const float kShadowBias = 0.0015;
 void main() {
     // Phase 1K-2 S4-c: fetch material from the SSBO by id
     MaterialBuffer matBuf = MaterialBuffer(ubo.frame.materialBuffer.xy);
-    GpuMaterial m = matBuf.materials[push.materialId];
+    GpuMaterial m = matBuf.materials[fragMaterialId];
     // albedo: sample bindless texture if present, else use the factor
     vec4 texel = (m.albedoIdx >= 0)
         ? texture(bindlessTextures[nonuniformEXT(m.albedoIdx)], fragTexCoord)

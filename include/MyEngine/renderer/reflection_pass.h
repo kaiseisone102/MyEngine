@@ -18,6 +18,7 @@ class VulkanContext;
 class ResourceFactory;
 class Mesh;
 class Model;
+class DrawDataPool;
 
 class ReflectionPass {
    public:
@@ -42,6 +43,9 @@ class ReflectionPass {
         // Phase 1B-4b: BDA address for skin matrices
         VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
+        VkDeviceAddress drawBufferAddress = 0;  // Phase 2B PART3b: DrawData SSBO (static draws)
+        uint32_t frameIndex = 0;
+        DrawDataPool* drawDataPool = nullptr;   // Phase 2B PART3b: per-frame pushOne target
 
         // 反射描画では opaque のみ使う (簡略化)
         const std::vector<MeshDrawItem>* meshDrawListOpaque = nullptr;

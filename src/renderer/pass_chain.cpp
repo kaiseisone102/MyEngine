@@ -285,6 +285,11 @@ void PassChain::recordFrame(const RecordInfo& info) {
         shadowPass_.execute(si);
     }
 
+    // PART3b: reset the per-draw SSBO cursor ONCE before any consumer. Reflection
+    // (below) fills slots [0..Nrefl), then MainPass continues from there. Must run
+    // whether or not reflection is enabled, so it sits before the reflection block.
+    drawDataPool_.beginFrame(info.frameIndex);
+
     // ─── 2. ReflectionPass (有効かつ water があれば) ───────────
     glm::mat4 reflectVP(1.0f);
     bool waterUseReflection = false;
@@ -317,6 +322,9 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ri.staticModelDrawListOpaque = &staticOpaque;
         ri.terrainDrawListOpaque = &terrainOpaque;
         ri.modelDrawListOpaque = &modelOpaque;
+        ri.drawDataPool = &drawDataPool_;                                 // Phase 2B PART3b
+        ri.drawBufferAddress = drawDataPool_.bufferAddress(info.frameIndex);
+        ri.frameIndex = info.frameIndex;
         reflectionPass_.execute(ri);
 
         reflectVP = info.normalLighting.proj * reflectView;
@@ -386,7 +394,6 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
         // === Phase 1F: instanced grass scattered on the ground, frustum-culled ===
         instancePool_.beginFrame(info.frameIndex);
-        drawDataPool_.beginFrame(info.frameIndex);  // Phase 2B PART3b
         static std::vector<InstancedMeshDrawItem> grassDraw;
         grassDraw.clear();
 
@@ -462,6 +469,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
         lastInstancedTotal_ = total;
         mi.grassDrawList = &grassDraw;
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);
+        mi.drawDataPool = &drawDataPool_;                                  // Phase 2B PART3b
+        mi.drawBufferAddress = drawDataPool_.bufferAddress(info.frameIndex);
 
 
         mainPass_.execute(mi);

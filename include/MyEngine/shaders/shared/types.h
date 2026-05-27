@@ -207,6 +207,22 @@ struct InstanceData {
 };
 
 // -----------------------------------------------------------------------------
+// StaticDrawPushConstants: Phase 2B PART3b - the ONLY per-draw push constant for
+//   static draws is now the BDA address of the DrawData SSBO (8 bytes, VERTEX).
+//   model/materialId/alpha moved into DrawData[gl_InstanceIndex] (firstInstance
+//   carries the slot). frag reads materialId via a flat varying from the vert.
+// -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct StaticDrawPushConstants {
+    VkDeviceAddress drawBuffer;  // 8: BDA to DrawData[]
+};
+#else
+struct StaticDrawPushConstants {
+    uvec2 drawBuffer;  // 64-bit GPU address (buffer_reference cast)
+};
+#endif
+
+// -----------------------------------------------------------------------------
 // DrawData: Phase 2B PART3b - per-draw data for non-skinned static draws,
 //   moved OUT of push constants into a per-frame SSBO indexed by gl_InstanceIndex
 //   (vkCmdDrawIndexed's firstInstance carries the draw slot). This is THE
