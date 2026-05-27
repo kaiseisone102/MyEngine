@@ -429,6 +429,12 @@ void MainPass::execute(const ExecuteInfo& info) {
                 vkCmdDrawIndexed(info.cmd, pd.indexCount, 1, pd.firstIndex, pd.vertexOffset, pd.drawSlot);
             }
         }
+
+        // PART3c scope: terrain is a separate bucket (own GeometryBuffer + cull +
+        // splat material, built in the streaming Phase). For now it stays on the
+        // legacy CPU loop, drawn after the GPU-driven props.
+        if (terrainOp)
+            static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainOp, true);
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===

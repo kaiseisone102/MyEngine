@@ -131,16 +131,11 @@ inline BuildResult build(DrawDataPool& pool, uint32_t frameIndex, const Mesh* cu
     }
 
     // --- terrain ---
-    for (const TerrainDrawItem& item : terrainList) {
-        if (!item.terrain) continue;
-        myengine::shared::CullObject cullObject{};
-        cullObject.centerRadius =
-            glm::vec4(item.terrain->worldCenter(), item.terrain->boundingRadius());
-        const uint32_t materialId = item.material ? item.material->materialId() : 0u;
-        emit(result, pool, frameIndex, item.model, item.alpha, materialId,
-             item.terrain->blockIndex(), item.terrain->indexCount(),
-             item.terrain->firstIndex(), item.terrain->vertexOffset(), cullObject);
-    }
+    // PART3c scope (per START_HERE roadmap): terrain is NOT a prop. It belongs to
+    // a SEPARATE GeometryBuffer bucket with its own cull + splat material path,
+    // built in the streaming Phase. It is intentionally NOT emitted here; main
+    // draws terrain via the legacy CPU loop (static_draw::drawTerrainList).
+    (void)terrainList;
 
     return result;
 }

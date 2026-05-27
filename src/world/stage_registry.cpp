@@ -130,10 +130,11 @@ void addTerrain(WorldData& data, const std::vector<glm::vec2>& polygonXZ, float 
     const Material* mat = nullptr;
     if (materialName) mat = data.vulkan.assets().getMaterial(materialName);
     auto mesh = std::make_unique<TerrainMesh>();
-    // PART3c: world terrain also lives in the shared GeometryBuffer (full static
-    // unification; multi-block is fine, the draw loop binds per block).
+    // PART3c scope: terrain is a separate bucket built in the streaming Phase, NOT
+    // the prop GeometryBuffer. Keep the legacy private-buffer path until the
+    // terrain bucket exists (own GeometryBuffer + cull + splat material).
     mesh->init(&data.vulkan.context(), &data.vulkan.resources(), polygonXZ, baseY,
-                heightFunc, cellSize, uvScale, mat, &data.vulkan.assets().geometry());
+                heightFunc, cellSize, uvScale, mat);
     data.terrains.add(std::move(mesh));
 }
 
