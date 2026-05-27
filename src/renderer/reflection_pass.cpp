@@ -12,6 +12,7 @@
 #include "renderer/material.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
+#include "renderer/static_draw.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/terrain_mesh.h"
@@ -302,67 +303,6 @@ void ReflectionPass::destroyTargetAndFramebuffer() {
 
 namespace {
 
-void drawMeshList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                  const Mesh* mesh, const std::vector<MeshDrawItem>& list) {
-    if (!mesh || list.empty()) return;
-    mesh->bind(cmd);
-    for (const MeshDrawItem& item : list) {
-        // S4-c: set=1 is the bindless array (bound in execute); no per-material bind
-        MainPass::StaticPushConstants pc{};
-        pc.model = item.model;
-        pc.alpha = item.alpha;
-        pc.materialId = 0;  // reflection uses default for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(MainPass::StaticPushConstants), &pc);
-        vkCmdDrawIndexed(cmd, mesh->indexCount(), 1, mesh->firstIndex(), mesh->vertexOffset(), 0);
-    }
-}
-
-void drawStaticModelList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                          const std::vector<StaticModelDrawItem>& list) {
-    if (list.empty()) return;
-    const Model* curModel = nullptr;
-    const std::vector<Material>* curMaterials = nullptr;
-
-    for (const StaticModelDrawItem& item : list) {
-        if (!item.sourceModel) continue;
-        if (item.sourceModel != curModel) {
-            curModel = item.sourceModel;
-            curMaterials = &curModel->materials();
-        }
-
-        MainPass::StaticPushConstants pc{};
-        pc.model = item.model;
-        pc.alpha = item.alpha;
-        pc.materialId = 0;  // reflection uses default for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(MainPass::StaticPushConstants), &pc);
-
-        for (const SubMesh& sm : curModel->subMeshes()) {
-            if (sm.indexCount == 0) continue;
-            // S4-c: no per-material bind; set=1 is the bindless array
-            sm.bindAndDraw(cmd);
-        }
-    }
-}
-
-void drawTerrainList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                      const std::vector<TerrainDrawItem>& list) {
-    if (list.empty()) return;
-    for (const TerrainDrawItem& item : list) {
-        if (!item.terrain) continue;
-        // S4-c: no per-material bind; set=1 is the bindless array
-        MainPass::StaticPushConstants pc{};
-        pc.model = item.model;
-        pc.alpha = item.alpha;
-        pc.materialId = 0;  // reflection uses default for now
-        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(MainPass::StaticPushConstants), &pc);
-        item.terrain->bind(cmd);
-        vkCmdDrawIndexed(cmd, item.terrain->indexCount(), 1, 0, 0, 0);
-    }
-}
-
 void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
                          VkDeviceAddress skinAddress,
                          const std::vector<SkinnedDrawItem>& list) {
@@ -440,16 +380,16 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
                                 &info.bindlessSet, 0, nullptr);
 
         if (info.mesh && info.meshDrawListOpaque) {
-            drawMeshList(info.cmd, staticLayout_.get(), info.mesh,
-                         *info.meshDrawListOpaque);
+            static_draw::drawMeshList(info.cmd, staticLayout_.get(), info.mesh,
+                                      *info.meshDrawListOpaque, false);
         }
         if (info.staticModelDrawListOpaque) {
-            drawStaticModelList(info.cmd, staticLayout_.get(),
-                                 *info.staticModelDrawListOpaque);
+            static_draw::drawStaticModelList(info.cmd, staticLayout_.get(),
+                                             *info.staticModelDrawListOpaque, false);
         }
         if (info.terrainDrawListOpaque) {
-            drawTerrainList(info.cmd, staticLayout_.get(),
-                            *info.terrainDrawListOpaque);
+            static_draw::drawTerrainList(info.cmd, staticLayout_.get(),
+                                         *info.terrainDrawListOpaque, false);
         }
     }
 
