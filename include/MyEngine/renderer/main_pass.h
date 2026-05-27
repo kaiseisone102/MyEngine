@@ -28,6 +28,8 @@ class HudPass;
 class HudDrawList;
 class WaterPass;
 class DrawDataPool;
+class GeometryBuffer;
+namespace static_cull { struct PreparedDraw; }
 
 class MainPass {
    public:
@@ -69,6 +71,8 @@ class MainPass {
         VkDeviceAddress instanceBufferAddress = 0;
         VkDeviceAddress drawBufferAddress = 0;  // Phase 2B PART3b: DrawData SSBO (static draws)
         DrawDataPool* drawDataPool = nullptr;   // Phase 2B PART3b: per-frame pushOne target
+        const GeometryBuffer* geometry = nullptr;  // Phase 2B PART3c: block bind for opaque static
+        const std::vector<static_cull::PreparedDraw>* preparedOpaque = nullptr;  // PART3c
         const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;

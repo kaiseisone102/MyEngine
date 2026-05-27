@@ -18,6 +18,7 @@
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/static_draw.h"
+#include "renderer/static_cull_build.h"
 #include "renderer/draw_data_pool.h"
 #include "renderer/particle_pass.h"
 #include "renderer/shader_util.h"
@@ -414,12 +415,20 @@ void MainPass::execute(const ExecuteInfo& info) {
                                sizeof(StaticDrawPC), &dpc);
         }
 
-        if (info.mesh && meshOp)
-            static_draw::drawMeshList(info.cmd, *info.drawDataPool, info.frameIndex, info.mesh, *meshOp, true);
-        if (staticOp)
-            static_draw::drawStaticModelList(info.cmd, *info.drawDataPool, info.frameIndex, *staticOp, true);
-        if (terrainOp)
-            static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainOp, true);
+        // PART3c (3c-1): opaque static is pre-built (DrawData already pushed by the
+        // builder before the cull pass). Here we only bind each draw's block and
+        // issue the draw with firstInstance = its DrawData slot. STILL a CPU loop;
+        // 3c-2 replaces this with per-block vkCmdDrawIndexedIndirect.
+        if (info.preparedOpaque) {
+            uint32_t boundBlock = UINT32_MAX;
+            for (const static_cull::PreparedDraw& pd : *info.preparedOpaque) {
+                if (pd.blockIndex != boundBlock) {
+                    info.geometry->bindBlock(info.cmd, pd.blockIndex);
+                    boundBlock = pd.blockIndex;
+                }
+                vkCmdDrawIndexed(info.cmd, pd.indexCount, 1, pd.firstIndex, pd.vertexOffset, pd.drawSlot);
+            }
+        }
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===

@@ -21,6 +21,7 @@
 #include "renderer/vulkan_context.h"
 #include "scene/scene_data.h"
 #include "renderer/terrain_mesh.h"
+#include "renderer/static_cull_build.h"
 
 namespace {
 
@@ -331,27 +332,22 @@ void PassChain::recordFrame(const RecordInfo& info) {
         waterUseReflection = true;
     }
 
-    // ─── 2.5 CullingPass (Phase 2B PART2): GPU frustum cull BEFORE MainPass ──
+    // ─── 2.5 PART3c: build per-SubMesh opaque-static draws (DrawData + CullObject
+    //     + DrawTemplate, drawId contiguous) AFTER reflection (so reflection's
+    //     DrawData slots are already taken) and BEFORE the cull pass. ──
+    static_cull::BuildResult built =
+        static_cull::build(drawDataPool_, info.frameIndex, mesh, meshOpaque, staticOpaque,
+                           terrainOpaque);
+
+    // ─── 2.6 CullingPass (Phase 2B): GPU frustum cull BEFORE MainPass ──
     {
         CullingPass::ExecuteInfo ce{};
         ce.cmd = info.cmd;
         ce.frameIndex = info.frameIndex;
-        ce.cullObjects = &info.scene->cullObjects();
-        ce.drawTemplates = nullptr;  // PART2: no real draw yet (instanceCount only)
+        ce.cullObjects = &built.cullObjects;        // PART3c: per-SubMesh
+        ce.drawTemplates = &built.drawTemplates;    // PART3c: real templates
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
         cullingPass_.execute(ce);
-
-        // temporary [Cull2B] verify: compare GPU visible count vs CPU total.
-        // Reads this frameIndex's buffer from the PREVIOUS time it was used (its
-        // GPU work has completed via the frame fence), so it's safe to read.
-        static int s_cullGpuLogFrames = 0;
-        if (!info.scene->cullObjects().empty() && s_cullGpuLogFrames < 30) {
-            ++s_cullGpuLogFrames;
-            std::cout << "[Cull2B] frame=" << info.frameIndex
-                      << " gpu(prev)=" << cullingPass_.lastGpuVisible(info.frameIndex)
-                      << " cpu=" << cullingPass_.lastCpuVisible()
-                      << " / total=" << info.scene->cullObjects().size() << "\n";
-        }
     }
 
     // ─── 3. MainPass ────────────────────────────────────────────
@@ -471,6 +467,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);
         mi.drawDataPool = &drawDataPool_;                                  // Phase 2B PART3b
         mi.drawBufferAddress = drawDataPool_.bufferAddress(info.frameIndex);
+        mi.preparedOpaque = &built.draws;            // Phase 2B PART3c: opaque static draws
+        mi.geometry = &info.assets->geometry();      // Phase 2B PART3c: block bind
 
 
         mainPass_.execute(mi);
