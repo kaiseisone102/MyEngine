@@ -31,13 +31,13 @@ namespace {
 constexpr float kDeg2Rad = 3.14159265358979323846f / 180.f;
 constexpr float kDebugHitFlashDuration = 0.30f;
 glm::mat3 makeYawRotation(float yawDeg) {
-    const float r = yawDeg * kDeg2Rad;
-    const float c = std::cos(r);
-    const float s = std::sin(r);
+    const float yawRad = yawDeg * kDeg2Rad;
+    const float cosYaw = std::cos(yawRad);
+    const float sinYaw = std::sin(yawRad);
     return glm::mat3{
-        c, 0.f, -s,
+        cosYaw, 0.f, -sinYaw,
         0.f, 1.f, 0.f,
-        s, 0.f, c
+        sinYaw, 0.f, cosYaw
     };
 }
 glm::vec3 cylinderMidCenter(const Cylinder& cyl) {

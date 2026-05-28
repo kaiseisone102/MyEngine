@@ -16,13 +16,13 @@
 #include "systems/sound_manager.h"
 namespace {
 glm::vec3 rotateY(const glm::vec3& v, float yawDeg) {
-    const float r = yawDeg * 0.017453293f;
-    const float c = std::cos(r);
-    const float s = std::sin(r);
+    const float yawRad = yawDeg * 0.017453293f;
+    const float cosYaw = std::cos(yawRad);
+    const float sinYaw = std::sin(yawRad);
     return glm::vec3{
-        v.x * c + v.z * s,
+        v.x * cosYaw + v.z * sinYaw,
         v.y,
-        -v.x * s + v.z * c
+        -v.x * sinYaw + v.z * cosYaw
     };
 }
 void updateGateTransform(CTransform& t, const CGate& g) {

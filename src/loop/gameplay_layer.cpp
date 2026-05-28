@@ -797,10 +797,10 @@ void GameplayLayer::drawAttackHitboxDebug() {
     DebugLineRenderer& dl = wd.vulkan.debugLines();
 
     const float yawRad = glm::radians(pt.yaw);
-    const float c = std::cos(yawRad);
-    const float s = std::sin(yawRad);
+    const float cosYaw = std::cos(yawRad);
+    const float sinYaw = std::sin(yawRad);
     auto localToWorld = [&](const glm::vec3& v) -> glm::vec3 {
-        return glm::vec3{v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+        return glm::vec3{v.x * cosYaw + v.z * sinYaw, v.y, -v.x * sinYaw + v.z * cosYaw};
     };
 
     const glm::vec3 startDirWMidFull = localToWorld(def.startDir);
@@ -873,9 +873,9 @@ glm::vec3 GameplayLayer::getCurrentSweepWorldDirForDraw(const CAttack& atk,
     const glm::vec3 localDir = def.dirAt(t);
 
     const float yawRad = glm::radians(at.yaw);
-    const float c = std::cos(yawRad);
-    const float s = std::sin(yawRad);
-    return glm::vec3{localDir.x * c + localDir.z * s, localDir.y, -localDir.x * s + localDir.z * c};
+    const float cosYaw = std::cos(yawRad);
+    const float sinYaw = std::sin(yawRad);
+    return glm::vec3{localDir.x * cosYaw + localDir.z * sinYaw, localDir.y, -localDir.x * sinYaw + localDir.z * cosYaw};
 }
 
 void GameplayLayer::drawImGui() {

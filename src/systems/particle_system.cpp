@@ -162,19 +162,19 @@ void ParticleSystem::update(WorldData& wd, float dt) {
             }
         } else {
             const float yawRad = glm::radians(t.yaw);
-            const float c = std::cos(yawRad);
-            const float s = std::sin(yawRad);
+            const float cosYaw = std::cos(yawRad);
+            const float sinYaw = std::sin(yawRad);
             const glm::vec3& d = em.emitDirectionLocal;
             emitterDirWorld = glm::vec3{
-                d.x * c + d.z * s,
+                d.x * cosYaw + d.z * sinYaw,
                 d.y,
-                -d.x * s + d.z * c
+                -d.x * sinYaw + d.z * cosYaw
             };
             const glm::vec3 offsetLocal = glm::vec3(em.localOffset[3]);
             const glm::vec3 offsetWorld{
-                offsetLocal.x * c + offsetLocal.z * s,
+                offsetLocal.x * cosYaw + offsetLocal.z * sinYaw,
                 offsetLocal.y,
-                -offsetLocal.x * s + offsetLocal.z * c
+                -offsetLocal.x * sinYaw + offsetLocal.z * cosYaw
             };
             emitterPos = t.pos + offsetWorld;
         }
