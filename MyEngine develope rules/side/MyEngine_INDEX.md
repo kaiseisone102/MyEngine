@@ -1,6 +1,6 @@
-# MyEngine 設計知見 — 横断インデックス (rev.3)
+# MyEngine 設計知見 — 横断インデックス (rev.4)
 
-最終更新: 2026-05-28 (rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
+最終更新: 2026-05-28 (rev.4: **PART4 §6 4b 完了反映**。 §1 で (M) SPD と (N) min+max ペア HZB を ✅完了 に更新、 §2 表で 4b を ✅完了 に、 ★次 = 4c に、 §7 現在の状態を「PART4 §6 4b まで完了・次は 4c (two-pass occlusion 本体)」に更新、 Codebase_Guide rev を 12 → 13 に、 Roadmap rev を 9 → 10 に、 Phase_Dependencies rev を 8 → 9 に、 HiZ 設計書 rev を 7 → 8 に。 / rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
 
 > **このファイルの位置づけ**: 各セッション最初に最優先で Read する横断索引。「全部読まないと判断できない」状態を解消し、必要箇所だけ深掘りできるようにする。本文は他ファイルにある (このファイルは目次)。
 > **読む順序の推奨**: ① **本 INDEX** → ② 正本5枚で原則確認 → ③ 着手する作業に応じて PART4 / Foundations / Vulkan13 のうち該当§のみ深掘り。
@@ -11,12 +11,12 @@
 
 | 系統 | ファイル | rev | 行数 | 役割 |
 |---|---|---|---|---|
-| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 |
-| | MyEngine_Graphics_Roadmap_2026.md | rev.9 | — | 全 Phase 計画 (PART4 4-前/4a 完了反映) |
-| | MyEngine_Phase_Dependencies.md | rev.8 | — | Phase 間依存マップ (Hi-Z ノードに 8 段進捗) |
-| | MyEngine_Codebase_Guide.md | rev.12 | — | コード構造の地図 (4a-1/4a-2 反映) |
+| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4b 反映) |
+| | MyEngine_Graphics_Roadmap_2026.md | rev.10 | — | 全 Phase 計画 (PART4 4b 完了反映) |
+| | MyEngine_Phase_Dependencies.md | rev.9 | — | Phase 間依存マップ (Hi-Z ノードに 4b 完了) |
+| | MyEngine_Codebase_Guide.md | rev.13 | — | コード構造の地図 (hiz_pass / hzb_debug_widget / hiz_spd.comp 反映) |
 | | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 (§0/§1.5/§5b/§5c 等、 §3-1a 事例②追記) |
-| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.7 | — | Phase 2B PART4 Hi-Z 設計 (4-前/4a 完了・次は 4b) |
+| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.8 | — | Phase 2B PART4 Hi-Z 設計 (4-前/4a/4b 完了・次は 4c) |
 | **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 (§5 SS prepass 解消マーク) |
 | **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.2 | — | Vulkan 1.3 modernization (W/AA 完了・T 適用済) |
 | **索引** | MyEngine_INDEX.md (本書) | rev.3 | — | 横断インデックス |
@@ -57,8 +57,8 @@
 
 | ID | 名称 | 担当 | 着手時期 | 状態 |
 |---|---|---|---|---|
-| (M) | SPD (Single Pass Downsampler) HZB 生成 | PART4 §3.3-M | 4b | 🟢実装 (未着手・★次) |
-| (N) | min+max ペア HZB (RG32F) | PART4 §3.3-N | 4b | 🟢実装 (未着手) |
+| (M) | SPD (Single Pass Downsampler) HZB 生成 | PART4 §3.3-M | 4b | ✅完了 (hand-rolled SPD、 LDS + wave-ops 二派生 spv) |
+| (N) | min+max ペア HZB (RG32F) | PART4 §3.3-N | 4b | ✅完了 (RG32F per-frame 2 枚) |
 | (O) | Reverse-Z depth | PART4 §3.3-O | 4-前-0 | ✅完了 (702c773) |
 | (P) | VK_EXT_device_generated_commands (DGC) | PART4 §3.3-P | 4d | ✅完了 (15b89ad, 受け皿 = indirect_exec::Mode 経路 picker) |
 | (Q) | VK_EXT_shader_object | PART4 §3.3-Q | 4d | 🟡受け皿 (未着手) |
@@ -98,8 +98,8 @@
 | **4-前-5** | Shadow_pass GPU-driven 化 | (J) | ✅ 完了 (986ba44) |
 | **4a-1** | main_pass を Dynamic Rendering 化 (4a-2 前提) | (T) main_pass 部分 | ✅ 完了 (af3dd72) |
 | **4a-2** | Depth-normal-motion MRT + OverlayPass + 深度 SAMPLED + GBuffer viewer | (H) + (S) + (T) overlay 部分 | ✅ 完了 (ed0d80e) |
-| **4b** ★次 | HiZPass = SPD で min+max ペア生成 | (M) + (N) | 🟢 着手予定 |
-| **4c** | Two-pass occlusion 本体 + AABB 遮蔽 | (F) + (C) | 🟢 未着手 |
+| **4b** | HiZPass = SPD で min+max ペア生成 | (M) + (N) | ✅ 完了 (commit pending) |
+| **4c** ★次 | Two-pass occlusion 本体 + AABB 遮蔽 | (F) + (C) | 🟢 未着手 |
 | **4d** | 能力ゲート集約 + 受け皿群 + 仕上げ | (Q) + (R) + (U) + (V) + (X)、 (T) は他 pass 段階移行 | 🟡 部分着手 (T main_pass+overlay 済) |
 | 並列 | Pipeline cache 永続化 (いつでも) | (Y) ← Vulkan13 §3 | 🟢 未着手 |
 | 後段 | TAA / 完全 dirty tracking / shadow HZB / DGC 実装 etc. | 受け皿利用 | — |
@@ -171,9 +171,14 @@
 
 ---
 
-## 7. 現在の状態 (2026-05-28 時点・PART4 §6 4-前/4a 全部完了・次は 4b)
+## 7. 現在の状態 (2026-05-28 時点・PART4 §6 4b まで完了・次は 4c)
 
-- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 = 完了** (全 8 段, commit 702c773 / ff9f7a9 / b8e39b2 / ec9c586 / 15b89ad / 986ba44 / af3dd72 / ed0d80e、 Vulkan13 W も完了 e1494bf)。 これで Hi-Z occlusion 本体 (4b/4c) と 4d 受け皿群が乗る土台が全部立った。
-- **次の着手 = PART4 §6 4b**: HiZPass 新設 = AMD FidelityFX SPD で min+max ペア HZB を 1 dispatch 生成 (`renderer/hiz_pass.*` + `hiz_spd.comp` 新規)。 入力は 4a-2 で SAMPLED 化した main_pass 出力深度。
-- **その次**: 4c (two-pass occlusion 本体 + AABB 遮蔽) → 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
-- **PART4 §6 で完了した最尖端 ID 一覧** (§1 表より): (A) (B) (D) (E) (G) (H) (I) (J) (K) (O) (P 受け皿) (S) (T main+overlay) (W) (AA) = **15 ID 完了**。 残: (C) (F) (M) (N) ((T) 他 pass) (Q) (R) (U) (V) (X) (Y) (Z)。
+- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b = 完了** (全 9 段, commit 702c773 / ff9f7a9 / b8e39b2 / ec9c586 / 15b89ad / 986ba44 / af3dd72 / ed0d80e + 4b commit pending、 Vulkan13 W も完了 e1494bf)。 これで HZB pyramid 生成まで到達 = 4c (two-pass occlusion 本体) が読む側を着手できる。
+- **次の着手 = PART4 §6 4c**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。
+- **その次**: 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
+- **4b 高速化 (済)**: `hiz_spd_wave.comp` (Phase C で `subgroupShuffleXor` 利用) を実装済み。 hiz_pass.cpp の `useWavePath_` (= `subgroupOps && subgroupSize >= 32`) で経路切替・P620 では wave 経路選択。 Phase D-F は subgroup 境界を越えるため LDS のまま (両派生共通)。
+- **4b 未対応の改善余地 (Obs B/C/D・別 commit 候補)**: いずれも P620 では実害ゼロ・correctness 上は問題なし。 詳細は MyEngine_HiZ_PART4_Design.md §6 「4b 完了後の残作業」参照。
+  - **Obs B**: 初期 layout 遷移 `VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT` → `VK_PIPELINE_STAGE_2_NONE` (sync2 best practice)。 4d で他 pass の barrier 統一時に巻き取る。
+  - **Obs C**: `VK_FORMAT_R32G32_SFLOAT` storage image 対応の format properties query + fallback (Vulkan optional feature)。 P620 以外の hardware 対応時に。
+  - **Obs D**: subgroup ID → linearIdx の canonical linear mapping 前提 (Vulkan spec 上 implementation-defined)。 `VK_EXT_subgroup_size_control + REQUIRE_FULL_SUBGROUPS` で固定する or shader を gl_SubgroupID ベースに書き換え。 mobile GPU 対応時に。
+- **PART4 §6 で完了した最尖端 ID 一覧** (§1 表より): (A) (B) (D) (E) (G) (H) (I) (J) (K) **(M)** **(N)** (O) (P 受け皿) (S) (T main+overlay) (W) (AA) = **17 ID 完了**。 残: (C) (F) ((T) 他 pass) (Q) (R) (U) (V) (X) (Y) (Z)。

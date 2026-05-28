@@ -1,6 +1,6 @@
-# MyEngine グラフィックス最新技術ロードマップ (2026 再構成版 rev.8)
+# MyEngine グラフィックス最新技術ロードマップ (2026 再構成版 rev.10)
 
-最終更新: 2026-05-28 (rev.9: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 §6 Hi-Z 受け皿全部立った**。 §5 推奨の次の一手を「PART4 4b HZB 本体」に更新、 付記に 4-前 / 4a-1 / 4a-2 と Vulkan13 W の成果を追記、 4a-2 の §3-1a clean rebuild 怠った教訓 (mode select → 本編で TDR) を反映 / rev.8: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去) 完了を反映 = **Phase 2B 完了** (prop bucket の GPU-driven 骨格が立ち上がり、CullingPass が実描画に接続)。§4 の 2B 見出しを完了に、§5 の推奨の一手を「2B 完了・次は 2C/Hi-Z/3B/2F」に更新、付記に PART3c-2 成果と `drawIndirectFirstInstance` 必須の確定事実・block 散在=連続区間 indirect・HUD 検証足場を追記 / rev.7: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・3c-1 完了 (static_cull_build.h) と 3c-2 次を反映、**Phase 2F (terrain bucket = GPU-driven 地形 + splat + 距離 LOD + チャンクストリーミング) を新設** = 完成形の「terrain は別 bucket」を独立 Phase として受け皿化。PART3c で terrain を prop bucket に一度統合し撤回した経緯を反映 / rev.6: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、§4 の 2B 見出しを PART3b 完了・PART3c 進行中に、§5 の推奨の一手を「次は 2B PART3c (indirect 差し替え)」に更新、付記に PART3b 成果と cursor リセットの教訓を追記 / rev.5: 2B PART3a 完了反映 / rev.4: 1K 主要部・2B PART0-2 完了反映) / 対象 GPU: NVIDIA Quadro P620 (Pascal 世代, GP107 / CUDA 512 / VRAM 2GB GDDR5 / 帯域 64GB/s / TDP 40W) / API: Vulkan 1.4 + SDL3
+最終更新: 2026-05-28 (rev.10: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §5 推奨の次の一手を「PART4 4c (two-pass occlusion 本体)」に更新、 付記に 4b 成果 (capability `subgroupOps` + `shaderStorageImageArrayDynamicIndexing` 実測有効化 / hand-rolled SPD アルゴリズム / hzb_debug_widget viewer) を追記。 / rev.9: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 §6 Hi-Z 受け皿全部立った**。 §5 推奨の次の一手を「PART4 4b HZB 本体」に更新、 付記に 4-前 / 4a-1 / 4a-2 と Vulkan13 W の成果を追記、 4a-2 の §3-1a clean rebuild 怠った教訓 (mode select → 本編で TDR) を反映 / rev.8: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去) 完了を反映 = **Phase 2B 完了** (prop bucket の GPU-driven 骨格が立ち上がり、CullingPass が実描画に接続)。§4 の 2B 見出しを完了に、§5 の推奨の一手を「2B 完了・次は 2C/Hi-Z/3B/2F」に更新、付記に PART3c-2 成果と `drawIndirectFirstInstance` 必須の確定事実・block 散在=連続区間 indirect・HUD 検証足場を追記 / rev.7: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・3c-1 完了 (static_cull_build.h) と 3c-2 次を反映、**Phase 2F (terrain bucket = GPU-driven 地形 + splat + 距離 LOD + チャンクストリーミング) を新設** = 完成形の「terrain は別 bucket」を独立 Phase として受け皿化。PART3c で terrain を prop bucket に一度統合し撤回した経緯を反映 / rev.6: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、§4 の 2B 見出しを PART3b 完了・PART3c 進行中に、§5 の推奨の一手を「次は 2B PART3c (indirect 差し替え)」に更新、付記に PART3b 成果と cursor リセットの教訓を追記 / rev.5: 2B PART3a 完了反映 / rev.4: 1K 主要部・2B PART0-2 完了反映) / 対象 GPU: NVIDIA Quadro P620 (Pascal 世代, GP107 / CUDA 512 / VRAM 2GB GDDR5 / 帯域 64GB/s / TDP 40W) / API: Vulkan 1.4 + SDL3
 
 このロードマップは「GPU の性能に関係なく最新の技術を取り入れたい」という方針に沿って、すでに積み上げた土台の上に何を積むかを整理したもの。各 Phase は独立して commit でき、見栄え・性能・最新度のどれに効くかを明記している。
 
@@ -215,10 +215,10 @@ VK_KHR_ray_tracing_pipeline。3-GI 段 3・3-Refl 段 2 の実体。RT 対応時
 5. ~~Phase 2B PART0 (設計) / PART1 (CullObject 受け皿, df9d843) / PART2 (compute cull pass, 5cbc7e6)~~ 完了。CullingPass (全 BDA・descriptor 無し) + cull.comp が GPU でフラスタムカリングし IndirectCommand の instanceCount を生成。GPU 可視数 = CPU オラクル一致・validation ゼロで検証済み。
 6. ~~Phase 2B PART3a (メッシュ統合, ac7bbd1) / PART3b (per-draw SSBO + shader, c5adced) / PART3c-1 (ビルダ 632433a) / PART3c-2 (indirect 差し替え・CPU draw 撤去, 1cf23b9)~~ **完了 = Phase 2B 完了**。prop の prepared CPU draw ループを `vkCmdDrawIndexedIndirect` に差し替え CPU draw を撤去、CullingPass が prop の実描画に初接続。能力チェックで `multiDrawIndirect`+`drawIndirectFirstInstance` を実測有効化 (P620 両対応)。block 散在のため連続区間ごと indirect (区間 MDI / 非対応はループ)。**シェーダ無改修**。HUD `Cull : 可視/総数` で検証 (視点回転で分子が動く)。PART4 (Hi-Z) を見越し cmdBuf 駆動構造維持。
 
-現在の起点 (2B PART4 §6 4-前-0〜4a-2 完了) から:
-7. **PART4 4b** (HiZPass = AMD FidelityFX SPD で min+max ペア HZB を 1 dispatch 生成、`hiz_spd.comp` 新規)。 main_pass 直後の深度 RT が入力 (4a-2 で SAMPLED 化済み = 受け皿OK)。設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4b」。
-8. **PART4 4c** (two-pass occlusion 本体 + AABB 遮蔽 + cull.comp 拡張)。 4b の HZB を読んで遮蔽判定する核。
-9. **PART4 4d** (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
+現在の起点 (2B PART4 §6 4b 完了) から:
+7. **PART4 4c** (two-pass occlusion 本体 + AABB 遮蔽 + cull.comp 拡張) ← ★次。 4b の HZB を読んで遮蔽判定する核。 CullingPass に `executePass1` (前フレーム可視のみ frustum + 圧縮) / `executePass2` (全 object + HZB occlusion + visBuf 更新) を分離、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。 `static_cull_build.h` で half-extent 充填、 cull.comp が AABB 画面投影 → mip 選択 → HZB occluder と比較。
+8. **PART4 4d** (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
+9. **4b 中身高速化 (任意)**: `hiz_spd_wave.comp` 派生で subgroupAdd / subgroupQuadSwap によるグループ内 reduction 加速。 capability `subgroupOps` での経路切替は HiZPass.cpp に既に入っている (`useWavePath_`)。 受け皿が立っているので「中身を差し替えるだけ」(§0 の「中身を後から埋める」適用)。
 10. **Phase 2C (LOD) / 3B mesh shader** — いずれも今できた 2B + Hi-Z 骨格の上に乗る発展。
 11. **Phase 2F terrain bucket** — terrain を専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミングで GPU-driven 化 (前提: 遅延破棄 + buffer 系 VMA 化 + ストリーミング層)。
 12. **純 GPU-driven 化の仕上げ (任意)** — CullingPass の CPU オラクル + readback (PART2 検証用) を撤去し CPU が可視数を知らない形に。Hi-Z 着手の直前が素直。
@@ -253,6 +253,14 @@ VK_KHR_ray_tracing_pipeline。3-GI 段 3・3-Refl 段 2 の実体。RT 対応時
 ---
 
 ## 付記: 直近の成果
+
+### PART4 §6 4b 完了 = HiZPass = SPD-style single-dispatch min+max RG32F pyramid (2026-05-28, commit pending)
+* **新規 `renderer/hiz_pass.{h,cpp}` + `shaders/hiz_spd.comp`**。 main_pass の swapchain depth (4a-2 で SAMPLED 化済み・post-barrier で `DEPTH_READ_ONLY_OPTIMAL`) を入力に、 per-frame (MAX_FRAMES_IN_FLIGHT=2) の `VK_FORMAT_R32G32_SFLOAT` mip chain (.r=min / .g=max・Design §3.3-N) を **1 vkCmdDispatch** で生成。 AMD FidelityFX SPD の「タイル + atomic counter」パターンを GLSL でハンドロール (FFX SDK 外部依存ゼロ・MIT-style 同等の単一 dispatch 設計)。
+* **per workgroup = 256 threads / 64×64 source tile**。 LDS 16×16 に Phase A..F (mip0=32×32 per group → mip5=1×1 per group) を貯めながら順次 imageStore。 全 group が `coherent` atomic counter を `atomicAdd`、 last group のみ `memoryBarrierImage()` 後に mip6..N (1280×720 で N≈10) を継続。
+* **新規 viewer `renderer/hzb_debug_widget.{h,cpp}`**: 右下ドック、 frame / mip スライダ、 RG32F の .r=赤 .g=緑 で min/max を同時可視化。 4a-2 の `gbuffer_debug_widget` と並ぶ独立クラス、 GENERAL レイアウトのまま ImGui::Image で sample。 RenderDoc に頼らず 4b の正しさを確認できる。
+* **capability 追加 (Design §1.5-C 実測してから書く)**: `subgroupOps` (basic + arithmetic + quad in COMPUTE) + `subgroupSize` (`VkPhysicalDeviceSubgroupProperties` 経由) + `shaderStorageImageArrayDynamicIndexing` (per-mip storage image array を loop-uniform 動的 index で引く必須 feature)。 P620 実測: `subgroupOps=1 subgroupSize=32`。 wave-ops 高速版 .comp は受け皿のみ用意 (`useWavePath_` で経路切替・現状 LDS-only spv を両経路で使用)、 中身を後から差し替え可能 (§0 受け皿先・中身後)。
+* **pass_chain 配線**: `mainPass_.execute()` 直後・ `overlayPass_.execute()` の前。 depth が `DEPTH_READ_ONLY_OPTIMAL` に遷移済みのタイミング = mid-pass barrier 不要のクリーン経路。 `onSwapchainResized` で pyramid を depth 解像度に追従させて rebuild (pipeline / set layout は extent-independent で keep)。
+* **検証**: `Vulkan ready` + 全 capability 検出・ HiZ 関連 VUID/leak/device-lost **ゼロ**。 残る validation warning 4 件は 4a-2 由来の outNormal/outMotion 1-attachment subpass の既存もので 4b と無関係。 描画見た目 (HZB viewer の min/max が mip ごとに保守的に縮約・遠景に対応する min が遠 = 0 寄り・mip 数が解像度と整合) はユーザー目視待ち。 **types.h 不変・§3-1a clean rebuild 不要・incremental build で通過**。
 
 ### PART4 §6 4a-2 完了 = depth-normal-motion MRT 受け皿 + OverlayPass 分離 (2026-05-28, commit ed0d80e)
 * **main_pass の opaque を MRT 3 attachment 化** (HDR + GBuffer normal R10G10B10A2 octahedral + motion vector RG16F) + swapchain depth SAMPLED_BIT 化。 Phase 3 SS 効果 (SSAO/SSGI/SSR/DoF/TAA) と PART4 4b HZB が必要な受け皿が全部立った。

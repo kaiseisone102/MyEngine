@@ -92,6 +92,17 @@ class VulkanContext {
     // creation only enables it when present.
     bool separateDepthStencilLayouts() const { return separateDepthStencilLayouts_; }
 
+    // PART4 4b: GL_KHR_shader_subgroup_basic + GL_KHR_shader_subgroup_shuffle
+    // availability for the SPD-style Hi-Z compute pass. true = wave-ops fast
+    // path enabled (uses subgroupShuffleXor for Phase C of hiz_spd_wave.comp),
+    // false = LDS-only fallback (hiz_spd.comp) selected at pipeline creation.
+    // Queried via VkPhysicalDeviceSubgroupProperties (Vulkan 1.1 core).
+    // Pascal+ NVIDIA, GCN+ AMD, Skylake+ Intel all expose basic + shuffle in
+    // COMPUTE; mobile drivers may not. Pair with subgroupSize() >= 32 before
+    // selecting the wave path (see HiZPass::createPipeline).
+    bool subgroupOps() const { return subgroupOps_; }
+    uint32_t subgroupSize() const { return subgroupSize_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -131,6 +142,13 @@ class VulkanContext {
     // feature, so enabling it unconditionally on the device CreateInfo would
     // make vkCreateDevice return VK_ERROR_FEATURE_NOT_PRESENT.
     bool separateDepthStencilLayouts_ = false;
+
+    // PART4 4b: queried subgroup-ops capability (basic + shuffle in COMPUTE)
+    // and the subgroup size. HiZPass picks the wave-ops pipeline variant
+    // when subgroupOps_ is true AND subgroupSize_ >= 32, and the LDS-only
+    // variant otherwise.
+    bool subgroupOps_ = false;
+    uint32_t subgroupSize_ = 0;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

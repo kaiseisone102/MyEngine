@@ -18,6 +18,8 @@
 #include "main_pass.h"
 #include "overlay_pass.h"
 #include "gbuffer_debug_widget.h"
+#include "hiz_pass.h"
+#include "hzb_debug_widget.h"
 #include "instance_buffer_pool.h"
 #include "draw_data_pool.h"
 #include "culling_pass.h"
@@ -159,6 +161,10 @@ class PassChain {
     // remain owned by PassChain (init/shutdown here) and are driven through
     // OverlayPass.execute()'s ExecuteInfo pointers.
     OverlayPass overlayPass_;
+    // PART4 4b: SPD-style Hi-Z pyramid generation. execute() runs between
+    // mainPass_ and overlayPass_ (depth is in DEPTH_READ_ONLY_OPTIMAL at
+    // that point thanks to main_pass's post-barrier).
+    HiZPass hizPass_;
     bool bloomEnabled_ = true;
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;
@@ -175,4 +181,7 @@ class PassChain {
     VkImageView hdrColorView_ = VK_NULL_HANDLE;
     VkImage hdrColorImage_ = VK_NULL_HANDLE;
     GBufferDebugWidget gbufferWidget_;
+    // PART4 4b: Hi-Z pyramid viewer (mip slider + RG min/max). Lives next to
+    // the GBuffer widget so 4b verification doesn't depend on RenderDoc.
+    HzbDebugWidget hzbWidget_;
 };

@@ -1,6 +1,6 @@
-# MyEngine Phase 依存関係マップ (テキスト版 rev.7)
+# MyEngine Phase 依存関係マップ (テキスト版 rev.9)
 
-最終更新: 2026-05-28 (rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
+最終更新: 2026-05-28 (rev.9: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §4 の Hi-Z occlusion ノードに 4b 完了 + 次 = 4c (two-pass occlusion 本体)、 §6 着手順に 4b 行を追記し ★次を 4c に。 / rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
 
 このドキュメントは「どの Phase がどの Phase の前提か」を整理し、着手順を見誤らないための地図。ロードマップ本体 (MyEngine_Graphics_Roadmap_2026.md) と対で読む。土台 side (VmaImage / 遅延破棄 / ストリーミング) も込みで、土台と描画機能が一枚でどう絡むかを示す。
 
@@ -23,7 +23,7 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 ストリーミング ───────────────────────────────────────→ 2F terrain bucket          3C HW レイトレ
 ```
 
-進捗マーク: 段階1 / VmaImage 化 / 1G / 1I / 1K(主要部) / 2B PART0-2 / 2B PART3a / 2B PART3b / 2B PART3c-1 / **2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) = Phase 2B 完了** = prop bucket の GPU-driven 骨格が立ち上がり、CullingPass が実描画に接続。★次 = ここから枝分かれ: **2C LOD / Hi-Z occlusion (PART4) / 3B mesh shader** (いずれも 2B の上)、**Phase 2F terrain bucket** (terrain を別 bucket で GPU-driven 化)、任意で純 GPU-driven 化仕上げ。**2B のスコープは prop (cube + Model) のみだった。terrain は別 bucket = Phase 2F (未着手)。** terrain bucket は土台 side「ストリーミング」層 + 遅延破棄の上に乗り、2B の GPU-driven 骨格と同じ仕組みを terrain 専用に並立させる。詳細は Codebase_Guide §3.5 / START_HERE §2 / Work_Protocol §5e。
+進捗マーク: 段階1 / VmaImage 化 / 1G / 1I / 1K(主要部) / 2B PART0-2 / 2B PART3a / 2B PART3b / 2B PART3c-1 / 2B PART3c-2 (1cf23b9) = Phase 2B 完了 / PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 (受け皿) / **PART4 §6 4b (HiZPass = SPD-style single-dispatch min+max RG32F pyramid, commit pending) = HZB 生成到達**。★次 = **PART4 4c (two-pass occlusion 本体)** = 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較し遮蔽カリング。 並行可候補: 2C LOD / 3B mesh shader (RTX 後) / Phase 2F terrain bucket / 任意で 4b 中身高速化 (wave-ops 派生)。詳細は Codebase_Guide §3.5 / §3.6 / START_HERE §2 / side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
 
 層をまたぐ主な依存:
 - 土台 side は全描画 Phase の足場 (特にポスト系の render target 増設)
@@ -151,8 +151,9 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
   - **4-前-5 (GPU-driven shadow / per-CullSet output buffer)**: main+shadow が同形で indirect 化 (986ba44)
   - **4a-1 (main_pass を dynamic rendering 化)**: 4a-2 MRT 拡張前提 (af3dd72)
   - **4a-2 (depth-normal-motion MRT + OverlayPass)**: 4b の深度 sample 入力 + Phase 3 SS 効果受け皿 (ed0d80e)
-- **次 = 4b (HZB SPD)**: AMD FidelityFX SPD ベースで min+max ペア HZB を 1 dispatch 生成。 入力は 4a-2 で SAMPLED 化した main_pass 出力深度。 設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4b」。
-- 4c (two-pass occlusion 本体), 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象) と続く。
+- **4b (HZB SPD, 2026-05-28, commit pending)**: 完了。 `renderer/hiz_pass.{h,cpp}` + `shaders/hiz_spd.comp` + viewer `renderer/hzb_debug_widget.{h,cpp}` 新設。 per-frame 2 枚 `VK_FORMAT_R32G32_SFLOAT` mip chain (.r=min / .g=max) を 1 vkCmdDispatch で生成 (256 threads / 64×64 source tile / LDS + atomic counter for last-group continuation)。 capability `subgroupOps` (basic+arith+quad) + `shaderStorageImageArrayDynamicIndexing` を実測有効化 (P620 両対応 `subgroupSize=32`)。 wave-ops 高速版は受け皿のみ用意。
+- **次 = 4c (two-pass occlusion 本体)**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。 設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
+- 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象) と続く。
 
 ---
 
@@ -218,11 +219,12 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 完了   PART4 4-前-5              [GPU-driven shadow / per-CullSet output buffer]  986ba44
 完了   PART4 4a-1                [main_pass を Vulkan 1.3 dynamic rendering 化]  af3dd72
 完了   PART4 4a-2                [depth-normal-motion MRT + OverlayPass 分離]  ed0d80e
-       → PART4 §6 4-前/4a 全部完了 = Hi-Z occlusion 本体 (4b/4c) の受け皿が全部立った
+完了   PART4 4b HZB SPD          [hiz_spd.comp 新設・SPD-style single-dispatch min+max RG32F]  (commit pending)
+       → 4b までで pyramid 生成完了。 4c が読む側 (two-pass occlusion 本体)
    ↓        ここから枝分かれ:
-   ├─→ PART4 4b HZB SPD       [hiz_spd.comp 新設・min+max ペア 1 dispatch]  ←★ 次の本命
-   ├─→ PART4 4c 本体          [two-pass occlusion + AABB 遮蔽 + cull.comp 拡張]
+   ├─→ PART4 4c 本体          [two-pass occlusion + AABB 遮蔽 + cull.comp 拡張]  ←★ 次の本命
    ├─→ PART4 4d 仕上げ         [能力ゲート集約 + DGC/ShaderObj/DescBuf/Timeline/AsyncCompute 受け皿 + RenderTarget 抽象]
+   ├─→ 4b 中身高速化 (任意)    [hiz_spd_wave.comp 派生 + subgroupAdd/QuadSwap・useWavePath_ で経路切替]
    ├─→ 2C LOD                (2B 必須)
    ├─→ 3B mesh shader        (2B 必須・RTX更新後)
    └─→ 2F terrain bucket     [専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミング]

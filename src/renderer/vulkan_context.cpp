@@ -427,16 +427,50 @@ void VulkanContext::createDevice() {
         }
     }
 
+    // PART4 4b: query subgroup properties (Vulkan 1.1 core). HiZPass's
+    // wave-ops shader (hiz_spd_wave.comp) needs GL_KHR_shader_subgroup_basic
+    // (subgroup builtins) plus GL_KHR_shader_subgroup_shuffle (subgroupShuffleXor)
+    // in the COMPUTE stage. ARITHMETIC and QUAD ops are NOT used; querying
+    // them would over-restrict the gate. If either required feature is
+    // missing we fall back to the LDS-only variant (hiz_spd.comp). The
+    // subgroup size is exposed separately because the wave path also needs
+    // subgroupSize >= 32 for the 16x16 thread grid's y-neighbour shuffle to
+    // stay inside one subgroup.
+    {
+        VkPhysicalDeviceSubgroupProperties subgroupProps{};
+        subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+        VkPhysicalDeviceProperties2 props2{};
+        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        props2.pNext = &subgroupProps;
+        vkGetPhysicalDeviceProperties2(physical_, &props2);
+        const VkSubgroupFeatureFlags need =
+            VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
+        const bool stageOk =
+            (subgroupProps.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+        const bool opsOk = (subgroupProps.supportedOperations & need) == need;
+        subgroupOps_ = stageOk && opsOk;
+        subgroupSize_ = subgroupProps.subgroupSize;
+    }
+
     std::cout << "[Caps] multiDrawIndirect=" << (multiDrawIndirect_ ? 1 : 0)
               << " drawIndirectFirstInstance=" << (drawIndirectFirstInstance_ ? 1 : 0)
               << " synchronization2=" << (synchronization2_ ? 1 : 0)
               << " drawIndirectCount=" << (drawIndirectCount_ ? 1 : 0)
               << " deviceGeneratedCommands=" << (deviceGeneratedCommands_ ? 1 : 0)
               << " dynamicRendering=" << (dynamicRendering_ ? 1 : 0)
-              << " separateDepthStencilLayouts=" << (separateDepthStencilLayouts_ ? 1 : 0) << "\n";
+              << " separateDepthStencilLayouts=" << (separateDepthStencilLayouts_ ? 1 : 0)
+              << " subgroupOps=" << (subgroupOps_ ? 1 : 0)
+              << " subgroupSize=" << subgroupSize_ << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
+    // PART4 4b: HiZPass binds the per-mip storage views as a descriptor array
+    // (descriptorCount = kMaxMips) and indexes it with a loop-uniform mip
+    // index inside the SPD shader. Vulkan 1.0 core; supported on Pascal+.
+    features.shaderStorageImageArrayDynamicIndexing =
+        (supportedFeatures.shaderStorageImageArrayDynamicIndexing == VK_TRUE)
+            ? VK_TRUE
+            : VK_FALSE;
     // Vulkan 1.2+ features (enable BDA = Buffer Device Address).
     // BDA lets shaders dereference GPU memory pointers directly,
     // avoiding descriptor sets for buffers. Required for modern bindless setup.

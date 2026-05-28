@@ -28,3 +28,4 @@ Thumbs.db
 *.swp
 
 run.log
+run.err.log

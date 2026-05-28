@@ -178,6 +178,23 @@ void PassChain::init(const InitInfo& info) {
         overlayPass_.init(oi);
     }
 
+    // ─── HiZPass (PART4 4b) ──────────────────────────────────────
+    // Hi-Z pyramid is generated from the swapchain depth attachment that
+    // main_pass writes and then transitions to DEPTH_READ_ONLY_OPTIMAL in
+    // its post-barrier. Runs immediately after main_pass.execute(); 4c
+    // (two-pass occlusion) will consume the previous frame's pyramid.
+    {
+        HiZPass::InitInfo hi{};
+        hi.ctx = info.ctx;
+        hi.resources = info.resources;
+        hi.depthView = info.swapchain->depthView();
+        hi.depthFormat = info.swapchain->depthFormat();
+        hi.baseWidth = info.swapchain->extent().width;
+        hi.baseHeight = info.swapchain->extent().height;
+        hi.shaderDir = info.shaderDir;
+        hizPass_.init(hi);
+    }
+
     // ─── WaterPass ───────────────────────────────────────────────
     {
         WaterPass::InitInfo wi{};
@@ -230,14 +247,21 @@ void PassChain::init(const InitInfo& info) {
     gbufferWidget_.init(info.ctx);
     gbufferWidget_.setAttachments(info.normalView, info.motionView,
                                    info.swapchain->depthView());
+
+    // PART4 4b: HZB pyramid viewer. Pyramid views come from HiZPass; the
+    // widget caches them and lazily registers ImGui descriptors.
+    hzbWidget_.init(info.ctx);
+    hzbWidget_.setPyramid(&hizPass_);
 }
 
 void PassChain::shutdown() {
-    // PART4 4a-2: widget releases its ImGui descriptor sets first so the
-    // ImGui Vulkan backend is still alive when ImGui_ImplVulkan_RemoveTexture
+    // PART4 4a-2 / 4b: widgets release their ImGui descriptor sets first so
+    // the ImGui Vulkan backend is still alive when ImGui_ImplVulkan_RemoveTexture
     // runs.
+    hzbWidget_.shutdown();
     gbufferWidget_.shutdown();
     imgui_.shutdown();
+    hizPass_.shutdown();
     overlayPass_.shutdown();
     waterPass_.shutdown();
     reflectionPass_.shutdown();
@@ -284,6 +308,18 @@ void PassChain::onSwapchainResized(const ResizeInfo& info) {
     if (info.hdrColorImage != VK_NULL_HANDLE) hdrColorImage_ = info.hdrColorImage;
     gbufferWidget_.setAttachments(info.normalView, info.motionView,
                                    swapchain_ ? swapchain_->depthView() : VK_NULL_HANDLE);
+    // PART4 4b: HiZPass rebuilds its pyramid at the new depth resolution.
+    // The new depth view comes from the (already-recreated) swapchain.
+    if (swapchain_) {
+        HiZPass::InitInfo hi{};
+        hi.ctx = ctx_;
+        hi.depthView = swapchain_->depthView();
+        hi.depthFormat = swapchain_->depthFormat();
+        hi.baseWidth = swapchain_->extent().width;
+        hi.baseHeight = swapchain_->extent().height;
+        hizPass_.onSwapchainResized(hi);
+        hzbWidget_.setPyramid(&hizPass_);  // cache new mip views
+    }
     mainPass_.onSwapchainResized();
     // Phase 1I: rebuild bloom mip chain at the new base extent FIRST, so its new
     // mip0 view/sampler can be forwarded to PostPass below.
@@ -316,6 +352,8 @@ void PassChain::beginUI() {
     imgui_.beginFrame();
     // PART4 4a-2: GBuffer attachment viewer (right-docked, FirstUseEver).
     gbufferWidget_.draw();
+    // PART4 4b: HZB pyramid viewer (lower-right, mip slider).
+    hzbWidget_.draw();
 }
 void PassChain::endUI() { imgui_.endFrame(); }
 
@@ -597,6 +635,19 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 0);
 
         mainPass_.execute(mi);
+    }
+
+    // ─── HiZPass (PART4 4b) ─────────────────────────────────────
+    // SPD single-dispatch pyramid generation. main_pass leaves swapchain
+    // depth in DEPTH_READ_ONLY_OPTIMAL (separate or combined layout, picked
+    // by depth_layouts::readOnly()); HiZPass samples it from compute.
+    // OverlayPass below doesn't touch depth, so this fits cleanly between
+    // them.
+    {
+        HiZPass::ExecuteInfo he{};
+        he.cmd = info.cmd;
+        he.frameIndex = info.frameIndex;
+        hizPass_.execute(he);
     }
 
     // ─── OverlayPass (PART4 4a-2) ────────────────────────────────

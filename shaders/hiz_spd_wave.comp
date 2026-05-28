@@ -1,0 +1,225 @@
+// shaders/hiz_spd_wave.comp - PART4 4b: Hi-Z pyramid SPD (wave-ops accelerated)
+// =============================================================================
+// Variant of hiz_spd.comp that replaces Phase C's LDS round-trip with subgroup
+// shuffles. Algorithm and bindings are otherwise IDENTICAL to the LDS-only
+// version - only the mip1->mip2 reduction in Phase C is different. Phase D/E/F
+// continue to use LDS because their inputs straddle the subgroup boundary
+// (the 16x16 thread grid puts rows 0-1 in subgroup 0, rows 2-3 in subgroup 1,
+// etc., so 4x4 reductions need cross-subgroup data).
+//
+// Selection: hiz_pass.cpp picks this SPV when ctx_->subgroupOps() &&
+// ctx_->subgroupSize() >= 32. subgroupSize=32 is required because Phase C's
+// subgroupShuffleXor(_, 16) reaches across two rows of the 16x16 thread grid;
+// only subgroups of size >= 32 contain both rows.
+//
+// Layout shared with hiz_spd.comp:
+//   binding 0 = sampler2D inputDepth
+//   binding 1 = coherent image2D outMips[HIZ_MAX_MIPS=12]
+//   binding 2 = coherent buffer AtomicCounter
+//   push      = mipsToGenerate / numWorkGroupsTotal / inputWidth / inputHeight
+//
+// The two .comp files duplicate ~90% by design. The alternative - sharing a
+// .glsl include with #ifdef HIZ_USE_WAVE_OPS - was considered but the diff is
+// small enough that two clear flat files read better than one with
+// preprocessor gymnastics. If a third variant lands (e.g., a half-precision
+// reduction for VK_KHR_shader_float16_int8), refactor to a shared impl then.
+// =============================================================================
+
+#version 450
+
+// Only basic + shuffle are actually used (subgroupShuffleXor is a shuffle op,
+// not arithmetic or quad). The C++ capability gate in vulkan_context.cpp
+// matches: VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT.
+#extension GL_KHR_shader_subgroup_basic   : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#define HIZ_MAX_MIPS 12
+
+layout(set = 0, binding = 0) uniform sampler2D inputDepth;
+layout(set = 0, binding = 1, rg32f) coherent uniform image2D outMips[HIZ_MAX_MIPS];
+layout(set = 0, binding = 2) coherent buffer AtomicCounter {
+    uint counter;
+} atom;
+
+layout(push_constant) uniform PC {
+    uint mipsToGenerate;
+    uint numWorkGroupsTotal;
+    uint inputWidth;
+    uint inputHeight;
+} pc;
+
+shared vec2 ldsValue[16][16];
+shared uint ldsLastGroup;
+
+vec2 reduce4(vec2 a, vec2 b, vec2 c, vec2 d) {
+    return vec2(min(min(a.x, b.x), min(c.x, d.x)),
+                max(max(a.y, b.y), max(c.y, d.y)));
+}
+
+float loadSrc(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(int(pc.inputWidth) - 1, int(pc.inputHeight) - 1));
+    return texelFetch(inputDepth, p, 0).r;
+}
+
+vec2 reduceSource2x2(ivec2 mip0XY) {
+    ivec2 src = mip0XY * 2;
+    float d00 = loadSrc(src);
+    float d10 = loadSrc(src + ivec2(1, 0));
+    float d01 = loadSrc(src + ivec2(0, 1));
+    float d11 = loadSrc(src + ivec2(1, 1));
+    return vec2(min(min(d00, d10), min(d01, d11)),
+                max(max(d00, d10), max(d01, d11)));
+}
+
+void reduceMipToNext(uint srcMip, uint localIdx) {
+    ivec2 srcSize = imageSize(outMips[srcMip]);
+    ivec2 dstSize = ivec2(max(srcSize.x >> 1, 1), max(srcSize.y >> 1, 1));
+    uint dstTotal = uint(dstSize.x) * uint(dstSize.y);
+    if (localIdx >= dstTotal) return;
+    uvec2 t = uvec2(localIdx % uint(dstSize.x), localIdx / uint(dstSize.x));
+    ivec2 sp = ivec2(t) * 2;
+    vec2 a = imageLoad(outMips[srcMip], sp).rg;
+    vec2 b = (sp.x + 1 < srcSize.x) ? imageLoad(outMips[srcMip], sp + ivec2(1, 0)).rg : a;
+    vec2 c = (sp.y + 1 < srcSize.y) ? imageLoad(outMips[srcMip], sp + ivec2(0, 1)).rg : a;
+    vec2 d = (sp.x + 1 < srcSize.x && sp.y + 1 < srcSize.y)
+               ? imageLoad(outMips[srcMip], sp + ivec2(1, 1)).rg : a;
+    imageStore(outMips[srcMip + 1], ivec2(t), vec4(reduce4(a, b, c, d), 0.0, 0.0));
+}
+
+void main() {
+    const uvec2 groupID = gl_WorkGroupID.xy;
+    const uint  localIdx = gl_LocalInvocationIndex;
+
+    const uvec2 t16 = uvec2(localIdx & 15u, localIdx >> 4);
+
+    // -- Phase A: 4 mip0 texels (2x2 sub-block per thread). --
+    vec2 mip0_q[2][2];
+    for (uint qy = 0u; qy < 2u; ++qy) {
+        for (uint qx = 0u; qx < 2u; ++qx) {
+            uvec2 mip0Local = uvec2(t16.x * 2u + qx, t16.y * 2u + qy);
+            uvec2 mip0Global = groupID * 32u + mip0Local;
+            ivec2 mip0Size = imageSize(outMips[0]);
+            vec2 v = reduceSource2x2(ivec2(mip0Global));
+            mip0_q[qy][qx] = v;
+            if (pc.mipsToGenerate >= 1u && int(mip0Global.x) < mip0Size.x &&
+                int(mip0Global.y) < mip0Size.y) {
+                imageStore(outMips[0], ivec2(mip0Global), vec4(v, 0.0, 0.0));
+            }
+        }
+    }
+    if (pc.mipsToGenerate < 2u) return;
+
+    // -- Phase B: reduce per-thread mip0 quad to one mip1. --
+    vec2 mip1 = reduce4(mip0_q[0][0], mip0_q[0][1], mip0_q[1][0], mip0_q[1][1]);
+    {
+        uvec2 mip1Global = groupID * 16u + t16;
+        ivec2 mip1Size = imageSize(outMips[1]);
+        if (int(mip1Global.x) < mip1Size.x && int(mip1Global.y) < mip1Size.y) {
+            imageStore(outMips[1], ivec2(mip1Global), vec4(mip1, 0.0, 0.0));
+        }
+    }
+    if (pc.mipsToGenerate < 3u) return;
+
+    // -- Phase C (WAVE-OPS): mip1 -> mip2 via subgroupShuffleXor. --
+    // With the 16x16 row-major layout (linearIdx = ty * 16 + tx) and
+    // subgroupSize >= 32, lanes 0..31 hold rows 0..1, lanes 32..63 hold rows
+    // 2..3, ... Every 2x2 block of the 16x16 mip1 grid lives inside ONE
+    // subgroup, so the 4 contributing mip1 values needed for one mip2 texel
+    // are reachable via shuffleXor without LDS:
+    //   xor 1  -> neighbor in x (same row)
+    //   xor 16 -> neighbor in y (next row, same subgroup since rows 0+1 share)
+    //   xor 17 -> diagonal neighbor
+    // All 256 threads compute the mip2 value redundantly; the 64 threads at
+    // the top-left of each 2x2 block are the ones that actually write to
+    // outMips[2] and to ldsValue (which Phase D consumes).
+    vec2 a = mip1;
+    vec2 b = subgroupShuffleXor(mip1, 1u);
+    vec2 c = subgroupShuffleXor(mip1, 16u);
+    vec2 d = subgroupShuffleXor(mip1, 17u);
+    vec2 mip2 = reduce4(a, b, c, d);
+    if ((t16.x & 1u) == 0u && (t16.y & 1u) == 0u) {
+        uvec2 mip2Local = uvec2(t16.x >> 1, t16.y >> 1);
+        uvec2 mip2Global = groupID * 8u + mip2Local;
+        ivec2 mip2Size = imageSize(outMips[2]);
+        if (int(mip2Global.x) < mip2Size.x && int(mip2Global.y) < mip2Size.y) {
+            imageStore(outMips[2], ivec2(mip2Global), vec4(mip2, 0.0, 0.0));
+        }
+        ldsValue[mip2Local.y][mip2Local.x] = mip2;
+    }
+    if (pc.mipsToGenerate < 4u) return;
+    barrier();
+
+    // -- Phase D: 16 threads write mip3 (4x4 per group) from 8x8 LDS. --
+    // 8x8 mip2 spans rows 0..7 of the thread grid = subgroups 0..3, so any
+    // 2x2 mip2 reduction at this level can straddle subgroup boundaries.
+    // Stay on LDS for D / E / F.
+    if (localIdx < 16u) {
+        uvec2 t4 = uvec2(localIdx & 3u, localIdx >> 2);
+        vec2 av = ldsValue[t4.y * 2u    ][t4.x * 2u    ];
+        vec2 bv = ldsValue[t4.y * 2u    ][t4.x * 2u + 1u];
+        vec2 cv = ldsValue[t4.y * 2u + 1u][t4.x * 2u    ];
+        vec2 dv = ldsValue[t4.y * 2u + 1u][t4.x * 2u + 1u];
+        vec2 mip3 = reduce4(av, bv, cv, dv);
+        uvec2 mip3Global = groupID * 4u + t4;
+        ivec2 mip3Size = imageSize(outMips[3]);
+        if (int(mip3Global.x) < mip3Size.x && int(mip3Global.y) < mip3Size.y) {
+            imageStore(outMips[3], ivec2(mip3Global), vec4(mip3, 0.0, 0.0));
+        }
+        ldsValue[t4.y][t4.x] = mip3;
+    }
+    if (pc.mipsToGenerate < 5u) return;
+    barrier();
+
+    // -- Phase E: 4 threads write mip4 (2x2 per group). --
+    if (localIdx < 4u) {
+        uvec2 t2 = uvec2(localIdx & 1u, localIdx >> 1);
+        vec2 av = ldsValue[t2.y * 2u    ][t2.x * 2u    ];
+        vec2 bv = ldsValue[t2.y * 2u    ][t2.x * 2u + 1u];
+        vec2 cv = ldsValue[t2.y * 2u + 1u][t2.x * 2u    ];
+        vec2 dv = ldsValue[t2.y * 2u + 1u][t2.x * 2u + 1u];
+        vec2 mip4 = reduce4(av, bv, cv, dv);
+        uvec2 mip4Global = groupID * 2u + t2;
+        ivec2 mip4Size = imageSize(outMips[4]);
+        if (int(mip4Global.x) < mip4Size.x && int(mip4Global.y) < mip4Size.y) {
+            imageStore(outMips[4], ivec2(mip4Global), vec4(mip4, 0.0, 0.0));
+        }
+        ldsValue[t2.y][t2.x] = mip4;
+    }
+    if (pc.mipsToGenerate < 6u) return;
+    barrier();
+
+    // -- Phase F: 1 thread writes mip5 (1x1 per group). --
+    if (localIdx == 0u) {
+        vec2 mip5 = reduce4(ldsValue[0][0], ldsValue[0][1], ldsValue[1][0], ldsValue[1][1]);
+        ivec2 mip5Size = imageSize(outMips[5]);
+        if (int(groupID.x) < mip5Size.x && int(groupID.y) < mip5Size.y) {
+            imageStore(outMips[5], ivec2(groupID), vec4(mip5, 0.0, 0.0));
+        }
+    }
+    if (pc.mipsToGenerate <= 6u) return;
+
+    // -----------------------------------------------------------------------
+    // Inter-group: detect last group and continue to mip6..N. (Identical to
+    // the LDS-only variant.)
+    // -----------------------------------------------------------------------
+    if (localIdx == 0u) {
+        memoryBarrier();
+        uint prev = atomicAdd(atom.counter, 1u);
+        ldsLastGroup = (prev == pc.numWorkGroupsTotal - 1u) ? 1u : 0u;
+    }
+    barrier();
+    if (ldsLastGroup == 0u) return;
+
+    memoryBarrierImage();
+
+    // Workgroup-scope groupMemoryBarrier (not device-scope memoryBarrierImage)
+    // since the writer + reader are the SAME workgroup at this point - see
+    // the matching comment in hiz_spd.comp for the rationale.
+    for (uint src = 5u; src + 1u < pc.mipsToGenerate; ++src) {
+        reduceMipToNext(src, localIdx);
+        groupMemoryBarrier();
+        barrier();
+    }
+}
