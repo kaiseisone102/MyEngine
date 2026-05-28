@@ -1,8 +1,8 @@
 // \MyEngine\src\app\engine_app.cpp
 // =============================================================================
-// + settings ロードを vulkan.init の前に移動 + reflection quality 反映
-// + Phase 1C: render::SceneRenderer → SceneRenderer (グローバル namespace に統一)
-//            setCullingDistance 廃止 (SceneRenderer は cullingDistance を保持しない)
+// + Move settings load before vulkan.init + reflection quality applied
+// + Phase 1C: render::SceneRenderer -> SceneRenderer (unified into global namespace)
+//            setCullingDistance removed (SceneRenderer does not hold cullingDistance)
 // =============================================================================
 #include "app/engine_app.h"
 
@@ -110,7 +110,7 @@ void EngineApp::initGame() {
     state_.worldState.data.vulkan.setBloomEnabled(state_.settings.bloom);
     state_.worldState.data.vulkan.setNormalMapping(state_.settings.normalMapping);
     state_.worldState.data.vulkan.setMRMapping(state_.settings.mrMapping);
-    // Phase 1C: グローバル SceneRenderer、 引数なし、 cullingDistance も保持しない
+    // Phase 1C: global SceneRenderer. No arguments; cullingDistance is not held.
     sceneRenderer_ = std::make_unique<SceneRenderer>();
     {
         const char* base = SDL_GetBasePath();
@@ -137,7 +137,7 @@ void EngineApp::initGame() {
     state_.worldState.systems.sound.setBGMVolume(state_.settings.bgmVolume);
     state_.worldState.systems.sound.setSFXVolume(state_.settings.sfxVolume);
     state_.worldState.systems.cameraSystem.setSensitivity(state_.settings.mouseSensitivity);
-    // Phase 1C: setCullingDistance は廃止。 drawDistance は state_.settings 経由。
+    // Phase 1C: setCullingDistance removed. drawDistance comes via state_.settings.
     layerFactory_ =
         std::make_unique<DefaultLayerFactory>(state_, *sceneRenderer_, kGravity, kJumpSpeed);
 }

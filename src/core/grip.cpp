@@ -1,14 +1,14 @@
 // =============================================================================
-// core/grip.cpp — Grip システム実装 (Fire + Light)
+// core/grip.cpp - Grip system implementation (Fire + Light)
 // =============================================================================
 // Fire grip:
-//   colorStart = (1.0, 0.4,  0.2,  0.5)  ← 明るめ赤、 半透明
-//   colorEnd   = (1.0, 0.15, 0.05, 0.0)  ← 真っ赤 → 完全透明
+//   colorStart = (1.0, 0.4,  0.2,  0.5)  -> bright red, semi-transparent
+//   colorEnd   = (1.0, 0.15, 0.05, 0.0)  -> deep red -> fully transparent
 //
 // Light grip:
-//   colorStart = (1.0, 1.0, 0.7,  0.7)   ← 明るい黄白、 半透明
-//   colorEnd   = (1.0, 0.9, 0.4,  0.0)   ← 黄金 → 完全透明
-//   emitRate 高、 寿命短、 散らばり 0.1 (ビーム感)、 重力微弱
+//   colorStart = (1.0, 1.0, 0.7,  0.7)   -> bright yellowish white, semi-transparent
+//   colorEnd   = (1.0, 0.9, 0.4,  0.0)   -> yellow-gold -> fully transparent
+//   high emitRate, short lifetime, scatter 0.1 (beam-like), weak gravity
 // =============================================================================
 #include "core/grip.h"
 
@@ -45,57 +45,40 @@ void applyPresetToEmitter(CParticleEmitter& em, const GripEmitterPreset& p,
 
 const std::array<GripDef, 3> kGripDefs = {{
     // None
-    GripDef{
-        "none", "none", 0, glm::vec4{1.f}, glm::vec4{1.f},
-        GripEmitterPreset{0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, glm::vec3{0.f}, 0.f,
-                          EmitterShape::Point, glm::vec3{0.f}, glm::vec3{0.f, 1.f, 0.f}, 0.f, 0.f,
-                          0.f},
-        GripEmitterPreset{0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, glm::vec3{0.f}, 0.f,
-                          EmitterShape::Point, glm::vec3{0.f}, glm::vec3{0.f, 1.f, 0.f}, 0.f, 0.f,
-                          0.f},
-        glm::vec4{0.3f, 1.0f, 0.4f, 1.0f}
-    },
+    GripDef{"none", "none", 0, glm::vec4{1.f}, glm::vec4{1.f},
+            GripEmitterPreset{0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, glm::vec3{0.f}, 0.f,
+                              EmitterShape::Point, glm::vec3{0.f}, glm::vec3{0.f, 1.f, 0.f}, 0.f,
+                              0.f, 0.f},
+            GripEmitterPreset{0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, glm::vec3{0.f}, 0.f,
+                              EmitterShape::Point, glm::vec3{0.f}, glm::vec3{0.f, 1.f, 0.f}, 0.f,
+                              0.f, 0.f},
+            glm::vec4{0.3f, 1.0f, 0.4f, 1.0f}},
     // Fire
     GripDef{
-        "fire", "fire_grip", 32,
-        glm::vec4{1.0f, 0.4f,  0.2f,  0.5f},
+        "fire", "fire_grip", 32, glm::vec4{1.0f, 0.4f, 0.2f, 0.5f},
         glm::vec4{1.0f, 0.15f, 0.05f, 0.0f},
-        // 装備中
-        GripEmitterPreset{60.f, 0.4f, 0.7f, 0.06f, 0.10f,
-                          0.18f, 0.28f,
-                          glm::vec3{0.f, 2.0f, 0.f}, 1.5f, EmitterShape::Line,
-                          glm::vec3{0.f, 0.5f, 0.f}, glm::vec3{0.f, 1.f, 0.f}, 1.5f, 2.5f, 0.3f},
-        // 地面アイテム
-        GripEmitterPreset{25.f, 0.5f, 0.9f, 0.032f, 0.056f,
-                          0.096f, 0.144f,
+        // equipped
+        GripEmitterPreset{60.f, 0.4f, 0.7f, 0.06f, 0.10f, 0.18f, 0.28f, glm::vec3{0.f, 2.0f, 0.f},
+                          1.5f, EmitterShape::Line, glm::vec3{0.f, 0.5f, 0.f},
+                          glm::vec3{0.f, 1.f, 0.f}, 1.5f, 2.5f, 0.3f},
+        // ground item
+        GripEmitterPreset{25.f, 0.5f, 0.9f, 0.032f, 0.056f, 0.096f, 0.144f,
                           glm::vec3{0.f, 1.0f, 0.f}, 1.0f, EmitterShape::Sphere,
                           glm::vec3{0.2f, 0.f, 0.f}, glm::vec3{0.f, 1.f, 0.f}, 0.5f, 1.0f, 0.5f},
-        glm::vec4{0.95f, 0.20f, 0.10f, 1.0f}
-    },
+        glm::vec4{0.95f, 0.20f, 0.10f, 1.0f}},
     // Light
     GripDef{
-        "light", "light_grip", 32,
-        glm::vec4{1.0f, 1.0f, 0.7f, 0.7f},
+        "light", "light_grip", 32, glm::vec4{1.0f, 1.0f, 0.7f, 0.7f},
         glm::vec4{1.0f, 0.9f, 0.4f, 0.0f},
-        // 装備中: 一直線ビーム、 重力ほぼなし、 emit 多、 寿命短
-        GripEmitterPreset{80.f,
-                          0.2f, 0.4f,
-                          0.05f, 0.09f,
-                          0.14f, 0.22f,
-                          glm::vec3{0.f, 0.5f, 0.f}, 1.0f,
-                          EmitterShape::Line,
-                          glm::vec3{0.f, 0.6f, 0.f},
-                          glm::vec3{0.f, 1.f, 0.f},
-                          2.0f, 3.5f,
-                          0.1f},
-        // 地面アイテム: 柔らかな輝き
-        GripEmitterPreset{30.f, 0.6f, 1.0f, 0.04f, 0.06f,
-                          0.10f, 0.16f,
-                          glm::vec3{0.f, 0.3f, 0.f}, 1.0f, EmitterShape::Sphere,
-                          glm::vec3{0.25f, 0.f, 0.f},
+        // equipped: straight beam, near-zero gravity, high emit rate, short lifetime
+        GripEmitterPreset{80.f, 0.2f, 0.4f, 0.05f, 0.09f, 0.14f, 0.22f, glm::vec3{0.f, 0.5f, 0.f},
+                          1.0f, EmitterShape::Line, glm::vec3{0.f, 0.6f, 0.f},
+                          glm::vec3{0.f, 1.f, 0.f}, 2.0f, 3.5f, 0.1f},
+        // ground item: soft glow
+        GripEmitterPreset{30.f, 0.6f, 1.0f, 0.04f, 0.06f, 0.10f, 0.16f, glm::vec3{0.f, 0.3f, 0.f},
+                          1.0f, EmitterShape::Sphere, glm::vec3{0.25f, 0.f, 0.f},
                           glm::vec3{0.f, 1.f, 0.f}, 0.3f, 0.7f, 0.6f},
-        glm::vec4{1.0f, 0.95f, 0.4f, 1.0f}
-    },
+        glm::vec4{1.0f, 0.95f, 0.4f, 1.0f}},
 }};
 
 }  // namespace

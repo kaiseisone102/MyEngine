@@ -1,8 +1,8 @@
 // =============================================================================
-// core/enemy_hitbox_util.cpp — 敵攻撃 hitbox 計算の実装
+// core/enemy_hitbox_util.cpp - Enemy attack hitbox calculation implementation
 // =============================================================================
-// 旧 SimulationSystem::makeGroundEnemyPunchHitbox から移植。
-// ロジック自体は完全に同じ (判定の挙動を変えないため)。
+// Migrated from the old SimulationSystem::makeGroundEnemyPunchHitbox.
+// The logic itself is exactly the same (to keep judgement behavior unchanged)
 // =============================================================================
 #include "core/enemy_hitbox_util.h"
 
@@ -34,7 +34,8 @@ PunchHitbox makeGroundPunch(const CTransform& et, const CEnemyAI& ai, bool isSke
         half.z = sc.z * 0.5f;
     }
 
-    // 中心は敵の前方 attackRange/2 の位置、 高さは half.y (= 中心が hitbox の真ん中)
+    // Center is positioned attackRange/2 in front of the enemy.
+    //  Height is half.y (= center at exact middle of hitbox)
     glm::vec3 center = et.pos + fwd * (ai.attackRange * 0.5f);
     center.y = et.pos.y + half.y;
 

@@ -1,9 +1,12 @@
 // =============================================================================
-// simulation_system.cpp  E+ ItemPickupSystem::update に sound 渡ぁE// =============================================================================
+// simulation_system.cpp - ItemPickupSystem::update receives sound
+// =============================================================================
 #include "systems/simulation_system.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+
 #include "core/aabb.h"
 #include "core/action_state.h"
 #include "core/components.h"
@@ -15,6 +18,7 @@
 #include "renderer/animation.h"
 #include "renderer/asset_registry.h"
 #include "systems/physics_util.h"
+
 namespace {
 constexpr float kEnemyFallKillY = -30.f;
 }  // namespace
@@ -118,17 +122,17 @@ void SimulationSystem::updateEnemy(GameState& gameState, float dt, float gravity
                          wd.enemies.end());
     }
 }
-void SimulationSystem::updatePlayer(GameState& gameState, const ActionState& input, float dt, float gravity,
-                                    float jumpSpeed) {
+void SimulationSystem::updatePlayer(GameState& gameState, const ActionState& input, float dt,
+                                    float gravity, float jumpSpeed) {
     auto& wd = gameState.worldState.data;
     auto& ws = gameState.worldState.systems;
     ws.animStateSystem.update(gameState, dt, input);
     ws.skeletalAnimSystem.update(gameState, dt);
     ws.itemPhysicsSystem.update(wd, dt, gravity);
-    // ─── アイチE��拾ぁE(SoundManager 注入) ────
+    // --- Item pickup (SoundManager injection) ---
     ws.itemPickupSystem.update(wd.shieldItems, wd.armorItems, wd.gripItems, wd.keyItems,
-                               wd.moneyItems, wd.potionItems, wd.spiritItems,
-                               wd.player, wd.vulkan.assets(), ws.sound);
+                               wd.moneyItems, wd.potionItems, wd.spiritItems, wd.player,
+                               wd.vulkan.assets(), ws.sound);
     wd.player.ensure<CHealth>().tick(dt);
     ws.combatSystem.update(wd, wd.player, dt);
     wd.enemies.erase(std::remove_if(wd.enemies.begin(), wd.enemies.end(),
@@ -164,19 +168,19 @@ void SimulationSystem::updatePlayer(GameState& gameState, const ActionState& inp
         for (flecs::entity e : graveToDestruct) {
             if (!e.is_alive()) continue;
             std::cout << "[Grave] destructing faded grave '" << e.name().c_str() << "'\n";
-            wd.graves.erase(std::remove(wd.graves.begin(), wd.graves.end(), e),
-                            wd.graves.end());
+            wd.graves.erase(std::remove(wd.graves.begin(), wd.graves.end(), e), wd.graves.end());
             e.destruct();
         }
     }
     ws.spiritSystem.update(wd, dt);
     if (!inputLocked) {
-        ws.movementSystem.updateTpsPlayerMove(wd.player, gameState.runtime.camera, input, &wd.terrains, dt);
+        ws.movementSystem.updateTpsPlayerMove(wd.player, gameState.runtime.camera, input,
+                                              &wd.terrains, dt);
     }
     ws.movementSystem.resolveHorizontalCollisions(wd.player, wd.platforms);
     ws.movementSystem.resolveObstacleCollisions(wd.player, wd.obstacles);
     ws.physicsSystem.update(wd.player, wd.platforms, wd.obstacles, &wd.terrains, dt, gravity,
-                             jumpSpeed);
+                            jumpSpeed);
     if (wd.player.get<CPhysics>().onGround) {
         ws.combatSystem.cancelAerialOnLanding(wd.player, wd);
     }
