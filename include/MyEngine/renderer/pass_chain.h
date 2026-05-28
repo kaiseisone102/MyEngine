@@ -36,6 +36,7 @@ class Mesh;
 class Model;
 class DebugLineRenderer;
 class HudDrawList;
+class DeletionQueue;
 
 class PassChain {
    public:
@@ -46,6 +47,7 @@ class PassChain {
         Swapchain* swapchain = nullptr;
         FrameUniforms* frameUniforms = nullptr;
         AssetRegistry* assets = nullptr;
+        DeletionQueue* deletionQueue = nullptr;  // PART4 4-前-3: CullingPass / DrawDataPool grow path
         // Phase 1D: bindless texture set layout
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         // Phase 1H-2: HDR target attachment for MainPass

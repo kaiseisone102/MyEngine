@@ -36,16 +36,23 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer DrawCmdBuffe
     DrawCmd cmds[];
 };
 
-// PART4 4-前-2: layout extended with viewPos so the cone test can compute the
-// view direction. Layout: planes(96) + viewPos(16) + cullAddr(8) + cmdAddr(8)
-// + objectCount(4) = 132 bytes. Comfortably within typical maxPushConstantsSize
-// (P620 advertises 256 in practice; Vulkan spec guarantees 128 minimum so a
-// future capability check at CullingPass init can guard).
+// PART4 4-前-3: bit-packed visibility bitmap (32 objects per uint32). cull.comp
+// sets/clears the bit for its drawId via atomicOr/atomicAnd. 4c two-pass
+// occlusion will read the previous frame's bits.
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisBuffer {
+    uint words[];
+};
+
+// PART4 4-前-3: layout = planes(96) + viewPos(16) + cullAddr(8) + cmdAddr(8)
+// + visAddr(8) + objectCount(4) = 140 bytes. Within P620's 256 B
+// maxPushConstantsSize (128 spec-guaranteed minimum); Hi-Z additions in PART4
+// 4c may push past 128 and force a UBO/BDA split per HiZ_PART4_Design §7.
 layout(push_constant) uniform PC {
     vec4  planes[6];   // frustum planes (a,b,c,d), inward, normalized
     vec4  viewPos;     // xyz = camera world position; w reserved
     uvec2 cullAddr;    // CullObjectBuffer device address
     uvec2 cmdAddr;     // DrawCmdBuffer device address
+    uvec2 visAddr;     // VisBuffer device address (bit-packed)
     uint  objectCount; // number of CullObjects
 } pc;
 
@@ -72,12 +79,24 @@ bool coneVisible(vec3 apex, vec3 axis, float cosHalfAngle, vec3 viewPos) {
     return dot(toCamera, axis) >= cosHalfAngle;
 }
 
+// PART4 4-前-3: write one drawId's visibility into the bit-packed bitmap.
+// atomicOr / atomicAnd because 32 drawIds share each uint32 word; threads
+// addressing the same word must not race. Idempotent: same input -> same
+// final bit value.
+void writeVis(VisBuffer vis, uint drawId, bool visible) {
+    uint word = drawId >> 5;
+    uint mask = 1u << (drawId & 31u);
+    if (visible) atomicOr (vis.words[word],  mask);
+    else         atomicAnd(vis.words[word], ~mask);
+}
+
 void main() {
     uint id = gl_GlobalInvocationID.x;
     if (id >= pc.objectCount) return;
 
     CullObjectBuffer objs = CullObjectBuffer(pc.cullAddr);
     DrawCmdBuffer    cmds = DrawCmdBuffer(pc.cmdAddr);
+    VisBuffer        vis  = VisBuffer(pc.visAddr);
 
     CullObject o = objs.objects[id];
     vec3  center       = o.centerRadius.xyz;
@@ -91,4 +110,5 @@ void main() {
                 && coneVisible(coneApex, coneAxis, cosHalfAngle, pc.viewPos.xyz);
 
     cmds.cmds[drawId].instanceCount = visible ? 1u : 0u;
+    writeVis(vis, drawId, visible);  // PART4 4-前-3: bit-packed visibility for 4c
 }

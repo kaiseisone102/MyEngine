@@ -73,12 +73,14 @@ void PassChain::init(const InitInfo& info) {
 
     // Phase 1E: instance matrix pool
     instancePool_.init(info.ctx, info.resources);
-    drawDataPool_.init(info.ctx);  // Phase 2B PART3b
+    // PART4 4-前-3: DrawDataPool needs DeletionQueue for the grow path.
+    drawDataPool_.init(info.ctx, info.deletionQueue);
 
     // Phase 2B PART2: GPU frustum culling compute pass (BDA-only, no sets)
     {
         CullingPass::InitInfo ci{};
         ci.ctx = info.ctx;
+        ci.deletionQueue = info.deletionQueue;  // PART4 4-前-3: grow path
         ci.shaderDir = info.shaderDir;
         cullingPass_.init(ci);
     }

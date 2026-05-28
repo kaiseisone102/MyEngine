@@ -46,6 +46,7 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.swapchain = &swapchain_;
         info.frameUniforms = &frameUniforms_;
         info.assets = &assets_;
+        info.deletionQueue = &deletionQueue_;  // PART4 4-前-3: CullingPass / DrawDataPool grow path
         info.bindlessSetLayout = bindlessTextures_.layout();
         info.hdrColorView = hdrTarget_.view();
         info.hdrColorSampler = hdrTarget_.sampler();  // Phase 1H-3  // Phase 1H-2
