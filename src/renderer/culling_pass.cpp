@@ -11,6 +11,7 @@
 #include <cstring>
 #include <stdexcept>
 
+#include "renderer/barrier.h"
 #include "renderer/frustum.h"
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
@@ -153,16 +154,13 @@ void CullingPass::execute(const ExecuteInfo& info) {
 
     // 5) make the compute writes visible to the indirect-draw stage (PART3 reads
     //    instanceCount via vkCmdDrawIndexedIndirect). Confined to this pass.
-    VkBufferMemoryBarrier b{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    b.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.buffer = cmdBuf_[frame].buffer();
-    b.offset = 0;
-    b.size = VK_WHOLE_SIZE;
-    vkCmdPipelineBarrier(info.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr, 1, &b, 0, nullptr);
+    barrier::recordBuffer(*ctx_, info.cmd, barrier::BufferBarrier{
+        .buffer = cmdBuf_[frame].buffer(),
+        .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
+        .dstStage  = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+        .dstAccess = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+    });
 }
 
 uint32_t CullingPass::gpuVisibleCount(uint32_t frameIndex) const {

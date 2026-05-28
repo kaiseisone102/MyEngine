@@ -18,6 +18,7 @@
 #include <array>
 #include <stdexcept>
 
+#include "renderer/barrier.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
@@ -292,17 +293,16 @@ void BloomPass::destroyMipsAndSets() {
 }
 
 void BloomPass::barrierWriteToRead(VkCommandBuffer cmd, VkImage img) {
-    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = img;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    barrier::recordImage(*ctx_, cmd, barrier::ImageBarrier{
+        .image = img,
+        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
+        .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+    });
 }
 
 // mip0 layout flips so PostPass can sample it as SHADER_READ_ONLY while bloom
@@ -310,16 +310,19 @@ void BloomPass::barrierWriteToRead(VkCommandBuffer cmd, VkImage img) {
 void BloomPass::transitionMip0(VkCommandBuffer cmd, VkImageLayout oldL, VkImageLayout newL,
                                VkAccessFlags srcAccess, VkAccessFlags dstAccess,
                                VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
-    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    b.oldLayout = oldL;
-    b.newLayout = newL;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = mips_[0].image();
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    b.srcAccessMask = srcAccess;
-    b.dstAccessMask = dstAccess;
-    vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    // The caller still passes 32-bit legacy flag types for now; widen here.
+    // VK_*_2_* values overlap with the legacy bits, so the cast is exact for
+    // all flags currently in use at bloom call sites.
+    barrier::recordImage(*ctx_, cmd, barrier::ImageBarrier{
+        .image = mips_[0].image(),
+        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+        .oldLayout = oldL,
+        .newLayout = newL,
+        .srcStage  = static_cast<VkPipelineStageFlags2>(srcStage),
+        .srcAccess = static_cast<VkAccessFlags2>(srcAccess),
+        .dstStage  = static_cast<VkPipelineStageFlags2>(dstStage),
+        .dstAccess = static_cast<VkAccessFlags2>(dstAccess),
+    });
 }
 
 void BloomPass::recordDispatch(VkCommandBuffer cmd, VkPipeline pipe, VkDescriptorSet set,

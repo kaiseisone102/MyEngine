@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <stdexcept>
 
+#include "renderer/barrier.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/resource_factory.h"
@@ -339,18 +340,16 @@ void ShadowPass::execute(const ExecuteInfo& info) {
 
     vkCmdEndRenderPass(info.cmd);
 
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = target_.image();
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(info.cmd, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                         &barrier);
+    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
+        .image = target_.image(),
+        .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        .srcStage  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .srcAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+    });
 }
 
 void ShadowPass::shutdown() {

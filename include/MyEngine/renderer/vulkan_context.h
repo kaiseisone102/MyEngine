@@ -62,6 +62,12 @@ class VulkanContext {
     bool multiDrawIndirect() const { return multiDrawIndirect_; }
     bool drawIndirectFirstInstance() const { return drawIndirectFirstInstance_; }
 
+    // Vulkan13 §1 (W): VK_KHR_synchronization2 (core in Vulkan 1.3). Queried at
+    // device creation; the barrier helper (renderer/barrier.h) falls back to the
+    // legacy vkCmdPipelineBarrier path when this is false. Future PART4 barriers
+    // (HZB mips, two-pass cull, async-compute QFOT) all go through that helper.
+    bool synchronization2() const { return synchronization2_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -85,6 +91,9 @@ class VulkanContext {
     // Phase 2B PART3c-2: queried indirect-draw capability flags.
     bool multiDrawIndirect_ = false;
     bool drawIndirectFirstInstance_ = false;
+
+    // Vulkan13 §1 (W): queried sync2 capability flag.
+    bool synchronization2_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;
