@@ -9,10 +9,13 @@
 #include <stdexcept>
 
 #include "renderer/barrier.h"
+#include "renderer/geometry_buffer.h"
+#include "renderer/indirect_exec.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
+#include "renderer/static_cull_build.h"
 #include "renderer/vulkan_context.h"
 
 void ShadowPass::init(const InitInfo& info) {
@@ -193,7 +196,10 @@ void ShadowPass::createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = sizeof(glm::mat4);
+    // PART4 4-前-5: shadow.vert now reads DrawData via BDA (DrawDataPool),
+    // so the push constant is just the BDA pointer (8 bytes) instead of the
+    // 64-byte per-draw model matrix. Same layout as StaticDrawPushConstants.
+    pc.size = sizeof(myengine::shared::ShadowDrawPushConstants);
 
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     lci.setLayoutCount = 1;
@@ -270,43 +276,45 @@ void ShadowPass::execute(const ExecuteInfo& info) {
                         1.f};
     VkRect2D scissor{{0, 0}, extent_};
 
-    // ─── Static pipeline 共通セットアップ (Mesh + Phase 5-B Static Models) ─
-    const bool hasMesh = info.mesh && info.meshDrawList && !info.meshDrawList->empty();
-    const bool hasStaticModels =
-        info.staticModelDrawList && !info.staticModelDrawList->empty();
+    // ─── PART4 4-前-5: GPU-driven static-mesh shadow ──────────────────────
+    // Cube mesh + static model draws now flow through indirect_exec backed by
+    // CullingPass's shadow-set compactCmd / countBuf. The shadow vertex
+    // shader (shadow.vert) reads DrawData[gl_InstanceIndex].model from the
+    // DrawDataPool BDA - same source main_pass uses - so the per-block
+    // ranges and template are identical; only the cull frustum / visBuf
+    // differ between camera and shadow.
+    const bool hasGpuDrivenStatic =
+        info.geometry &&
+        info.blockRanges && info.blockRangeCount > 0 &&
+        info.compactCommandBuffer != VK_NULL_HANDLE &&
+        info.indirectCountBuffer != VK_NULL_HANDLE &&
+        info.drawBufferAddress != 0;
 
-    if (hasMesh || hasStaticModels) {
+    if (hasGpuDrivenStatic) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, staticLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
 
-        // ── Mesh (cube) 影 ────────────────────────────────────
-        if (hasMesh) {
-            info.mesh->bind(info.cmd);
-            for (const MeshDrawItem& item : *info.meshDrawList) {
-                vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                   sizeof(glm::mat4), &item.model);
-                vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
-            }
-        }
+        myengine::shared::ShadowDrawPushConstants spc{};
+        spc.drawBuffer = info.drawBufferAddress;
+        vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                            sizeof(spc), &spc);
 
-        // ── Phase 5-B: Static Model (装備品) 影 ────────────────
-        if (hasStaticModels) {
-            const Model* curModel = nullptr;
-            for (const StaticModelDrawItem& item : *info.staticModelDrawList) {
-                if (!item.sourceModel) continue;
-                if (item.sourceModel != curModel) {
-                    curModel = item.sourceModel;
-                }
-                vkCmdPushConstants(info.cmd, staticLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                   sizeof(glm::mat4), &item.model);
-                for (const SubMesh& sm : curModel->subMeshes()) {
-                    if (sm.indexCount == 0) continue;
-                    sm.bindAndDraw(info.cmd);
-                }
-            }
+        const uint32_t stride = static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand));
+        for (uint32_t i = 0; i < info.blockRangeCount; ++i) {
+            const static_cull::BlockRange& range = info.blockRanges[i];
+            if (range.drawCount == 0) continue;
+            info.geometry->bindBlock(info.cmd, range.blockIndex);
+            indirect_exec::DrawIndexedIndirectCountInfo dii{};
+            dii.commandBuffer = info.compactCommandBuffer;
+            dii.commandOffset = static_cast<VkDeviceSize>(range.firstDraw) * stride;
+            dii.countBuffer   = info.indirectCountBuffer;
+            dii.countOffset   = static_cast<VkDeviceSize>(i) * sizeof(uint32_t);
+            dii.maxCount      = range.drawCount;
+            dii.stride        = stride;
+            indirect_exec::recordDrawIndexedIndirectCount(*ctx_, info.cmd, dii);
         }
     }
 

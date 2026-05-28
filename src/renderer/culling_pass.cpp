@@ -63,35 +63,35 @@ void CullingPass::createBuffers(uint32_t capacity, uint32_t blockCount) {
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
         VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    visBuf_ = VmaBuffer::createDeviceLocal(
-        ctx_, static_cast<VkDeviceSize>(visWordsFor(capacity)) * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-
-    // PART4 4-前-4: per-block visible counts + visible-only compacted draws.
+    // PART4 4-前-4 + 4-前-5: per-CullSet output (visBuf + compactCmd1/2 +
+    // countBuf1/2 + workgroupTotals). Pipelines are shared; only output
+    // buffers differ per cull consumer (camera, shadow, future cascades).
     const VkDeviceSize cmdBufBytes = static_cast<VkDeviceSize>(capacity) * cmdStride();
     const VkBufferUsageFlags compactUsage =
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-    compactCmd1Buf_ = VmaBuffer::createDeviceLocal(ctx_, cmdBufBytes, compactUsage);
-    compactCmd2Buf_ = VmaBuffer::createDeviceLocal(ctx_, cmdBufBytes, compactUsage);
-
     const VkDeviceSize countBufBytes = static_cast<VkDeviceSize>(blockCount) * sizeof(uint32_t);
-    countBuf1_ = VmaBuffer::createDeviceLocal(ctx_, countBufBytes, compactUsage);
-    countBuf2_ = VmaBuffer::createDeviceLocal(ctx_, countBufBytes, compactUsage);
-
-    // Scan scratch: one uint per workgroup, sized to the worst case (every
-    // draw on its own would need scanWgsFor(capacity_) workgroups).
     const VkDeviceSize wgTotalsBytes =
         static_cast<VkDeviceSize>(scanWgsFor(capacity)) * sizeof(uint32_t);
-    workgroupTotalsBuf_ = VmaBuffer::createDeviceLocal(
-        ctx_, wgTotalsBytes,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    for (size_t s = 0; s < kNumCullSets; ++s) {
+        CullOutputs& o = cullOutputs_[s];
+        o.visBuf = VmaBuffer::createDeviceLocal(
+            ctx_, static_cast<VkDeviceSize>(visWordsFor(capacity)) * sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        o.compactCmd1 = VmaBuffer::createDeviceLocal(ctx_, cmdBufBytes, compactUsage);
+        o.compactCmd2 = VmaBuffer::createDeviceLocal(ctx_, cmdBufBytes, compactUsage);
+        o.countBuf1   = VmaBuffer::createDeviceLocal(ctx_, countBufBytes, compactUsage);
+        o.countBuf2   = VmaBuffer::createDeviceLocal(ctx_, countBufBytes, compactUsage);
+        o.workgroupTotals = VmaBuffer::createDeviceLocal(
+            ctx_, wgTotalsBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    }
 
-    // Per-frame staging + per-frame template (4-前-3 layout).
+    // Per-frame staging + per-frame template (4-前-3 layout, shared across sets).
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         cullStaging_[i] = VmaBuffer::createMappedHostVisible(
             ctx_, static_cast<VkDeviceSize>(capacity) * cullStride(),
@@ -111,12 +111,14 @@ void CullingPass::destroyBuffersToDeletionQueue() {
         }
     };
     enqueue(cullBuf_);
-    enqueue(visBuf_);
-    enqueue(compactCmd1Buf_);
-    enqueue(compactCmd2Buf_);
-    enqueue(countBuf1_);
-    enqueue(countBuf2_);
-    enqueue(workgroupTotalsBuf_);
+    for (CullOutputs& o : cullOutputs_) {
+        enqueue(o.visBuf);
+        enqueue(o.compactCmd1);
+        enqueue(o.compactCmd2);
+        enqueue(o.countBuf1);
+        enqueue(o.countBuf2);
+        enqueue(o.workgroupTotals);
+    }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         enqueue(cullStaging_[i]);
         enqueue(cmdBuf_[i]);
@@ -199,12 +201,14 @@ void CullingPass::shutdown() {
     cullPipe_.reset();
     cullLayout_.reset();
     cullBuf_.reset();
-    visBuf_.reset();
-    compactCmd1Buf_.reset();
-    compactCmd2Buf_.reset();
-    countBuf1_.reset();
-    countBuf2_.reset();
-    workgroupTotalsBuf_.reset();
+    for (CullOutputs& o : cullOutputs_) {
+        o.visBuf.reset();
+        o.compactCmd1.reset();
+        o.compactCmd2.reset();
+        o.countBuf1.reset();
+        o.countBuf2.reset();
+        o.workgroupTotals.reset();
+    }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         cullStaging_[i].reset();
         cmdBuf_[i].reset();
@@ -247,61 +251,62 @@ void CullingPass::execute(const ExecuteInfo& info) {
 
     lastCount_[frame] = count;
 
-    // 1) CPU memcpy CullObjects into host-mapped staging.
-    std::memcpy(cullStaging_[frame].mapped(), info.cullObjects->data(),
-                static_cast<size_t>(count) * cullStride());
+    CullOutputs& outs = cullOutputs_[size_t(info.set)];
 
-    // 2) Prepare the cmdBuf template (still host-mapped). scan_scatter reads it.
-    auto* cmds = static_cast<VkDrawIndexedIndirectCommand*>(cmdBuf_[frame].mapped());
-    std::memset(cmds, 0, static_cast<size_t>(count) * cmdStride());
-    if (info.drawTemplates) {
-        const uint32_t tn = static_cast<uint32_t>(info.drawTemplates->size());
-        for (uint32_t i = 0; i < count && i < tn; ++i) {
-            const DrawTemplate& t = (*info.drawTemplates)[i];
-            cmds[i].indexCount = t.indexCount;
-            cmds[i].firstIndex = t.firstIndex;
-            cmds[i].vertexOffset = t.vertexOffset;
-            cmds[i].firstInstance = t.firstInstance;
+    // 1) CPU writes to shared staging + cmd template - only when this is the
+    //    first cull set this frame. Shadow sets reuse the data Camera uploaded.
+    if (!info.inputAlreadyUploaded) {
+        std::memcpy(cullStaging_[frame].mapped(), info.cullObjects->data(),
+                    static_cast<size_t>(count) * cullStride());
+
+        auto* cmds = static_cast<VkDrawIndexedIndirectCommand*>(cmdBuf_[frame].mapped());
+        std::memset(cmds, 0, static_cast<size_t>(count) * cmdStride());
+        if (info.drawTemplates) {
+            const uint32_t tn = static_cast<uint32_t>(info.drawTemplates->size());
+            for (uint32_t i = 0; i < count && i < tn; ++i) {
+                const DrawTemplate& t = (*info.drawTemplates)[i];
+                cmds[i].indexCount = t.indexCount;
+                cmds[i].firstIndex = t.firstIndex;
+                cmds[i].vertexOffset = t.vertexOffset;
+                cmds[i].firstInstance = t.firstInstance;
+            }
         }
     }
 
-    // 3) Stage -> device-local copy + zero-fill compactCmd1 + barrier so cull
-    //    and scan see fresh data. compactCmd1 must be zeroed each frame so the
-    //    Legacy indirect_exec fallback (walks every slot via vkCmdDrawIndexed-
-    //    Indirect) skips slots scan_scatter does not write to (instanceCount
-    //    stays 0). IndirectCount / DGC ignore the trailing slots so the cost
-    //    is only paid when the spec-fallback path runs - but the fill is also
-    //    cheap (~80 KB at 4096 capacity, far under the per-frame bandwidth
-    //    budget), so we always do it for behavioural consistency.
+    // 2) Stage -> device-local copy of the shared CullObject input (skipped
+    //    when an earlier cull set this frame already did it). Zero-fill THIS
+    //    set's compactCmd1 so the Legacy indirect_exec fallback gets
+    //    instanceCount = 0 on slots scan_scatter does not populate.
     {
-        VkBufferCopy region{};
-        region.srcOffset = 0;
-        region.dstOffset = 0;
-        region.size = static_cast<VkDeviceSize>(count) * cullStride();
-        vkCmdCopyBuffer(info.cmd, cullStaging_[frame].buffer(), cullBuf_.buffer(), 1, &region);
-        vkCmdFillBuffer(info.cmd, compactCmd1Buf_.buffer(), 0, VK_WHOLE_SIZE, 0);
-        const barrier::BufferBarrier transferToCompute[2] = {
-            {
+        barrier::BufferBarrier transferToCompute[2];
+        uint32_t nb = 0;
+        if (!info.inputAlreadyUploaded) {
+            VkBufferCopy region{};
+            region.srcOffset = 0;
+            region.dstOffset = 0;
+            region.size = static_cast<VkDeviceSize>(count) * cullStride();
+            vkCmdCopyBuffer(info.cmd, cullStaging_[frame].buffer(), cullBuf_.buffer(), 1, &region);
+            transferToCompute[nb++] = barrier::BufferBarrier{
                 .buffer = cullBuf_.buffer(),
                 .srcStage  = VK_PIPELINE_STAGE_2_COPY_BIT,
                 .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                 .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
-            },
-            {
-                .buffer = compactCmd1Buf_.buffer(),
-                .srcStage  = VK_PIPELINE_STAGE_2_CLEAR_BIT,
-                .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .dstAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
-            },
+            };
+        }
+        vkCmdFillBuffer(info.cmd, outs.compactCmd1.buffer(), 0, VK_WHOLE_SIZE, 0);
+        transferToCompute[nb++] = barrier::BufferBarrier{
+            .buffer = outs.compactCmd1.buffer(),
+            .srcStage  = VK_PIPELINE_STAGE_2_CLEAR_BIT,
+            .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
         };
         barrier::recordBatch(*ctx_, info.cmd, {},
-                              std::span<const barrier::BufferBarrier>{transferToCompute, 2}, {});
+                              std::span<const barrier::BufferBarrier>{transferToCompute, nb}, {});
     }
 
-    // 4) Dispatch cull.comp: write visBuf bit per drawId. Predicate only - no
-    //    longer writes to cmdBuf (scan_scatter handles that).
+    // 3) Dispatch cull.comp: write THIS set's visBuf bit per drawId.
     {
         CullPC pcs{};
         Frustum fr;
@@ -309,14 +314,14 @@ void CullingPass::execute(const ExecuteInfo& info) {
         for (int i = 0; i < 6; ++i) pcs.planes[i] = fr.planes[i];
         pcs.viewPos    = glm::vec4(info.viewPos, 0.0f);
         pcs.cullAddr   = packAddr(cullBuf_.deviceAddress());
-        pcs.visAddr    = packAddr(visBuf_.deviceAddress());
+        pcs.visAddr    = packAddr(outs.visBuf.deviceAddress());
         pcs.objectCount = count;
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cullPipe_.get());
         vkCmdPushConstants(info.cmd, cullLayout_.get(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(CullPC), &pcs);
         vkCmdDispatch(info.cmd, groups(count), 1, 1);
         barrier::recordBuffer(*ctx_, info.cmd, barrier::BufferBarrier{
-            .buffer = visBuf_.buffer(),
+            .buffer = outs.visBuf.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -324,18 +329,12 @@ void CullingPass::execute(const ExecuteInfo& info) {
         });
     }
 
-    // 5) Per-block 3-pass scan compaction. For each BlockRange:
-    //      Pass A (scan_local)   -> write per-wg totals to workgroupTotals slice
-    //      Pass B (scan_globals) -> in-place exclusive scan + write count
-    //      Pass C (scan_scatter) -> recompute local scan, add wg prefix, scatter
-    //    Each pass is sized exactly to the block's draw count; the per-block
-    //    dispatch keeps the algorithm correct without a wg-to-block lookup
-    //    table. For B blocks today (~4), 3*B dispatches = 12; each is tiny.
-    const VkDeviceAddress visAddr    = visBuf_.deviceAddress();
-    const VkDeviceAddress wgTotAddr  = workgroupTotalsBuf_.deviceAddress();
-    const VkDeviceAddress cmdTplAddr = cmdBuf_[frame].deviceAddress();
-    const VkDeviceAddress compactAddr = compactCmd1Buf_.deviceAddress();
-    const VkDeviceAddress countAddr  = countBuf1_.deviceAddress();
+    // 4) Per-block 3-pass scan compaction using THIS set's output buffers.
+    const VkDeviceAddress visAddr     = outs.visBuf.deviceAddress();
+    const VkDeviceAddress wgTotAddr   = outs.workgroupTotals.deviceAddress();
+    const VkDeviceAddress cmdTplAddr  = cmdBuf_[frame].deviceAddress();
+    const VkDeviceAddress compactAddr = outs.compactCmd1.deviceAddress();
+    const VkDeviceAddress countAddr   = outs.countBuf1.deviceAddress();
 
     uint32_t wgCursor = 0;  // running offset into workgroupTotalsBuf_
     for (uint32_t i = 0; i < info.blockRangeCount; ++i) {
@@ -356,7 +355,7 @@ void CullingPass::execute(const ExecuteInfo& info) {
                                 sizeof(ScanLocalPC), &pcs);
             vkCmdDispatch(info.cmd, numWgs, 1, 1);
             barrier::recordBuffer(*ctx_, info.cmd, barrier::BufferBarrier{
-                .buffer = workgroupTotalsBuf_.buffer(),
+                .buffer = outs.workgroupTotals.buffer(),
                 .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                 .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
                 .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -377,7 +376,7 @@ void CullingPass::execute(const ExecuteInfo& info) {
                                 sizeof(ScanGlobalsPC), &pcs);
             vkCmdDispatch(info.cmd, 1, 1, 1);
             barrier::recordBuffer(*ctx_, info.cmd, barrier::BufferBarrier{
-                .buffer = workgroupTotalsBuf_.buffer(),
+                .buffer = outs.workgroupTotals.buffer(),
                 .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                 .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
                 .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -404,17 +403,17 @@ void CullingPass::execute(const ExecuteInfo& info) {
         wgCursor += numWgs;
     }
 
-    // 6) Final barrier: compactCmd + countBuf -> DRAW_INDIRECT read.
+    // 5) Final barrier: compactCmd + countBuf -> DRAW_INDIRECT read.
     const barrier::BufferBarrier batched[2] = {
         {
-            .buffer = compactCmd1Buf_.buffer(),
+            .buffer = outs.compactCmd1.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
             .dstAccess = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
         },
         {
-            .buffer = countBuf1_.buffer(),
+            .buffer = outs.countBuf1.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,

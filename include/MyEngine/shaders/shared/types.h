@@ -158,11 +158,23 @@ struct SkinnedPushConstants {
 #endif
 
 // -----------------------------------------------------------------------------
-// ShadowStaticPushConstants: shadow pass for non-skinned meshes (64 bytes)
+// ShadowDrawPushConstants: PART4 4-前-5 - shadow pass for non-skinned meshes.
+//   Mirrors StaticDrawPushConstants: only the BDA address of the DrawData SSBO
+//   (8 bytes, VERTEX). The vertex shader reads
+//     DrawData[gl_InstanceIndex].model
+//   so vkCmdDrawIndexedIndirectCount (via indirect_exec) can drive shadow draws
+//   without per-draw push constants. Replaces the legacy ShadowStaticPushConstants
+//   ({ mat4 model; }) that required CPU-loop bookkeeping.
 // -----------------------------------------------------------------------------
-struct ShadowStaticPushConstants {
-    mat4 model;
+#ifdef __cplusplus
+struct ShadowDrawPushConstants {
+    VkDeviceAddress drawBuffer;  // 8: BDA to DrawData[]
 };
+#else
+struct ShadowDrawPushConstants {
+    uvec2 drawBuffer;
+};
+#endif
 
 // -----------------------------------------------------------------------------
 // ShadowSkinnedPushConstants: shadow pass for skinned meshes (96 bytes)

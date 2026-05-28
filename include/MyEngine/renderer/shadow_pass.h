@@ -25,6 +25,9 @@ class VulkanContext;
 class ResourceFactory;
 class Mesh;
 class Model;
+class GeometryBuffer;
+
+namespace static_cull { struct BlockRange; }
 
 class ShadowPass {
    public:
@@ -47,8 +50,20 @@ class ShadowPass {
         const Mesh* mesh = nullptr;
         const std::vector<MeshDrawItem>* meshDrawList = nullptr;
         const std::vector<SkinnedDrawItem>* modelDrawList = nullptr;
-        // Phase 5-B: 装備品など静的 Model の影
+        // Phase 5-B: 装備品など静的 Model の影 (skinned shadow continues here)
         const std::vector<StaticModelDrawItem>* staticModelDrawList = nullptr;
+
+        // PART4 4-前-5: GPU-driven static-mesh shadow. When all of these are
+        // set, shadow_pass routes the cube / static-model draws through
+        // indirect_exec (vkCmdDrawIndexedIndirectCount) backed by
+        // CullingPass's shadow-set compactCmd / countBuf. Skinned shadow
+        // stays on the legacy CPU loop above.
+        const GeometryBuffer* geometry = nullptr;
+        const static_cull::BlockRange* blockRanges = nullptr;
+        uint32_t blockRangeCount = 0;
+        VkBuffer compactCommandBuffer = VK_NULL_HANDLE;
+        VkBuffer indirectCountBuffer = VK_NULL_HANDLE;
+        VkDeviceAddress drawBufferAddress = 0;  // DrawDataPool BDA for shadow.vert
     };
 
     void init(const InitInfo& info);

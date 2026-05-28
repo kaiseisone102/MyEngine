@@ -275,18 +275,13 @@ void PassChain::recordFrame(const RecordInfo& info) {
     const auto& terrainTransparent = info.scene->terrainDrawListTransparentConst();
     const auto& waterList          = info.scene->waterDrawList();
 
-    // ─── 1. ShadowPass ──────────────────────────────────────────
-    {
-        ShadowPass::ExecuteInfo si{};
-        si.cmd = info.cmd;
-        si.frameSet = frameSet;
-        si.skinAddress = info.skinAddress;
-        si.mesh = mesh;
-        si.meshDrawList = &meshOpaque;
-        si.modelDrawList = &modelOpaque;
-        si.staticModelDrawList = &staticOpaque;
-        shadowPass_.execute(si);
-    }
+    // PART4 4-前-5: ShadowPass is now driven by CullingPass's Shadow cull set
+    // (compactCmd / countBuf) for static + static-model draws. We must run
+    // static_cull::build + cullingPass.execute(Camera+Shadow) BEFORE
+    // ShadowPass.execute. Skinned shadow still rides on the legacy CPU loop
+    // inside ShadowPass.execute (see the skinned ExecuteInfo plumbing below).
+    // The actual ShadowPass.execute call moved further down, after the cull
+    // dispatches.
 
     // PART3b: reset the per-draw SSBO cursor ONCE before any consumer. Reflection
     // (below) fills slots [0..Nrefl), then MainPass continues from there. Must run
@@ -364,9 +359,44 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.drawTemplates = &built.drawTemplates;    // PART3c: real templates
         ce.blockRanges = built.blockRanges.data();              // PART4 4-前-4
         ce.blockRangeCount = static_cast<uint32_t>(built.blockRanges.size());
+        ce.set = CullingPass::CullSet::Camera;                  // PART4 4-前-5
+        ce.inputAlreadyUploaded = false;
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
-        ce.viewPos  = glm::vec3(info.normalLighting.viewPos);  // PART4 4-前-2: cone test
+        ce.viewPos  = glm::vec3(info.normalLighting.viewPos);   // PART4 4-前-2: cone test
         cullingPass_.execute(ce);
+
+        // PART4 4-前-5: second cull dispatch into the Shadow set. Same
+        // CullObject input (already on-device from the Camera pass) - we only
+        // re-run cull + scan with the light's view-projection so shadow_pass
+        // can read its own compactCmd / countBuf.
+        ce.set = CullingPass::CullSet::Shadow;
+        ce.inputAlreadyUploaded = true;
+        ce.viewProj = info.normalLighting.lightVP;
+        // viewPos stays the camera world position; the cone test is a no-op
+        // today (cosHalfAngle sentinel = 2.0), and a real cone test for
+        // shadow caster culling would use the light direction instead.
+        cullingPass_.execute(ce);
+    }
+
+    // ─── 1. ShadowPass (PART4 4-前-5: post-cull) ───────────────────────────
+    {
+        ShadowPass::ExecuteInfo si{};
+        si.cmd = info.cmd;
+        si.frameSet = frameSet;
+        si.skinAddress = info.skinAddress;
+        si.mesh = mesh;
+        si.meshDrawList = &meshOpaque;
+        si.modelDrawList = &modelOpaque;
+        si.staticModelDrawList = &staticOpaque;
+        // PART4 4-前-5: GPU-driven static-mesh shadow flows through
+        // CullingPass's Shadow cull set + indirect_exec.
+        si.geometry = &info.assets->geometry();
+        si.blockRanges = built.blockRanges.data();
+        si.blockRangeCount = static_cast<uint32_t>(built.blockRanges.size());
+        si.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Shadow, 0);
+        si.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Shadow, 0);
+        si.drawBufferAddress    = drawDataPool_.bufferAddress(info.frameIndex);
+        shadowPass_.execute(si);
     }
 
     // ─── 3. MainPass ────────────────────────────────────────────
@@ -499,8 +529,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2 fallback
         // PART4 4-前-4: compacted draw + per-block count buffers. main_pass
         // hands these to indirect_exec which picks DGC / IndirectCount / Legacy.
-        mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(0);
-        mi.indirectCountBuffer  = cullingPass_.countBuffer(0);
+        mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Camera, 0);
+        mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 0);
 
         mainPass_.execute(mi);
     }

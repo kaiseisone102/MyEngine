@@ -82,6 +82,15 @@ class CullingPass {
     // AMD subgroup-of-64 * 4. Each Pass A workgroup processes this many drawIds.
     static constexpr uint32_t SCAN_WG_SIZE     = 256;
 
+    // PART4 4-前-5: one cull "set" per consumer (camera, shadow, future
+    // cascades / lights). Each set has its own visBuf / compactCmd / countBuf /
+    // workgroupTotals so multiple culls can run on the same shared CullObject
+    // input without overwriting each other's results. Pipelines are shared.
+    enum class CullSet : uint32_t {
+        Camera = 0,
+        Shadow = 1,
+    };
+
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         DeletionQueue* deletionQueue = nullptr;
@@ -100,13 +109,19 @@ class CullingPass {
     struct ExecuteInfo {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         uint32_t frameIndex = 0;
+        // PART4 4-前-5: which cull output set to write into. The CullObject
+        // input is shared across sets; only viewProj / viewPos and the
+        // output buffers differ.
+        CullSet set = CullSet::Camera;
+        // PART4 4-前-5: skip the CullObject staging copy when this cull set is
+        // running after a same-frame Camera pass that already uploaded the
+        // shared CullObject buffer. Shadow sets this to true.
+        bool inputAlreadyUploaded = false;
         const std::vector<myengine::shared::CullObject>* cullObjects = nullptr;
         const std::vector<DrawTemplate>* drawTemplates = nullptr;
         // PART4 4-前-4: block-sorted ranges (from static_cull::build). Raw
-        // pointer + count to avoid pulling the static_cull_build.h
-        // BlockRange definition into culling_pass.h. Each range becomes one
-        // scan_compact 3-pass dispatch sequence so the visible count is
-        // per-block, matching main_pass's per-block bind.
+        // pointer + count to avoid pulling static_cull_build.h's BlockRange
+        // definition into this header.
         const static_cull::BlockRange* blockRanges = nullptr;
         uint32_t blockRangeCount = 0;
         glm::mat4 viewProj{1.0f};
@@ -126,14 +141,17 @@ class CullingPass {
     uint32_t capacity()    const noexcept { return capacity_;    }
     uint32_t blockCount()  const noexcept { return blockCount_;  }
 
-    // PART4 4-前-4: BDA + handles for main_pass / indirect_exec. The
-    // commandBuffer pointer is the compacted draw command list (visible only),
-    // and countBuffer holds per-block visible counts written by scan_globals.
-    VkBuffer compactCmdBuffer(uint32_t passIndex) const {
-        return passIndex == 0 ? compactCmd1Buf_.buffer() : compactCmd2Buf_.buffer();
+    // PART4 4-前-4: BDA + handles for main_pass / shadow_pass / indirect_exec.
+    // The commandBuffer pointer is the compacted draw command list (visible
+    // only) for the given CullSet, and countBuffer holds per-block visible
+    // counts written by scan_globals.
+    VkBuffer compactCmdBuffer(CullSet set, uint32_t passIndex) const {
+        const CullOutputs& o = cullOutputs_[size_t(set)];
+        return passIndex == 0 ? o.compactCmd1.buffer() : o.compactCmd2.buffer();
     }
-    VkBuffer countBuffer(uint32_t passIndex) const {
-        return passIndex == 0 ? countBuf1_.buffer() : countBuf2_.buffer();
+    VkBuffer countBuffer(CullSet set, uint32_t passIndex) const {
+        const CullOutputs& o = cullOutputs_[size_t(set)];
+        return passIndex == 0 ? o.countBuf1.buffer() : o.countBuf2.buffer();
     }
 
     // (Legacy 4-前-3 accessor kept for any caller still drawing from cmdBuf_;
@@ -193,6 +211,19 @@ class CullingPass {
     };
 
     // -- Internals -----------------------------------------------------------
+    // PART4 4-前-5: per-CullSet output buffers. cullBuf / cmdBuf / cullStaging
+    // are shared (the CullObject input is the same scene draw list); only the
+    // visibility result and the scan workspace differ per consumer.
+    struct CullOutputs {
+        VmaBuffer visBuf;             // device-local bit-packed predicate
+        VmaBuffer compactCmd1;        // device-local VkDrawIndexedIndirectCommand[]
+        VmaBuffer compactCmd2;        // 4c pass2 receptacle (allocated, unused today)
+        VmaBuffer countBuf1;          // device-local uint[blockCount_]
+        VmaBuffer countBuf2;          // 4c pass2 receptacle
+        VmaBuffer workgroupTotals;    // scratch uint[scanWgsFor(capacity_)]
+    };
+    static constexpr size_t kNumCullSets = 2;  // Camera + Shadow today; cascades grow this.
+
     void createBuffers(uint32_t capacity, uint32_t blockCount);
     void destroyBuffersToDeletionQueue();
     void createPipelines(const std::string& shaderDir);
@@ -211,18 +242,13 @@ class CullingPass {
     uint32_t capacity_   = 0;
     uint32_t blockCount_ = 0;
 
-    // Inputs and predicate.
+    // Shared input (one upload per frame, reused by all CullSets).
     VmaBuffer cullBuf_;                                       // device-local
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cullStaging_; // host-mapped
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cmdBuf_;      // host-mapped template
-    VmaBuffer visBuf_;                                        // device-local bit-packed
 
-    // PART4 4-前-4 scan compaction output.
-    VmaBuffer compactCmd1Buf_;  // device-local VkDrawIndexedIndirectCommand[]
-    VmaBuffer compactCmd2Buf_;  // 4c pass2 receptacle (allocated, unused today)
-    VmaBuffer countBuf1_;       // device-local uint[blockCount_]
-    VmaBuffer countBuf2_;       // 4c pass2 receptacle
-    VmaBuffer workgroupTotalsBuf_;  // scratch uint[scanWgsFor(capacity_)]
+    // Per-CullSet outputs (PART4 4-前-5).
+    std::array<CullOutputs, kNumCullSets> cullOutputs_;
 
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastCount_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastVisible_{};
