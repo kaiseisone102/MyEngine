@@ -260,7 +260,7 @@ VK_KHR_ray_tracing_pipeline。3-GI 段 3・3-Refl 段 2 の実体。RT 対応時
 * **新規ファイル**: `overlay_pass.{h,cpp}`、 `gbuffer_debug_widget.{h,cpp}` (右上ドック ImGui::Image viewer)、 `depth_layouts.h` (separate vs combined depth/stencil layout 選択の一元化)、 `shared/gbuffer.glsl` (octahedral encode + motion vector helper)。
 * **capability 追加**: `dynamicRendering` (Vulkan 1.3 core) + `separateDepthStencilLayouts` (Vulkan 1.2 core optional, fallback あり)。 `[Caps] ... dynamicRendering=1 separateDepthStencilLayouts=1` (P620 両対応)。
 * **FrameUBO に `mat4 prevViewProj`** (Phase 3 TAA まで shader 改修ゼロで届く受け皿)。
-* **教訓 (Work_Protocol §3-1a)**: 共有ヘッダ struct size 変更 (FrameUBO に prevViewProj 追加で 352B → 416B) で clean rebuild を怠ると一部 .obj が古いサイズで残り、 mode select → 本編遷移で UBO ズレで rasterizer hang (TDR) → 画面凍結する。 §3-1a の徹底必須。
+* **教訓 (Work_Protocol §3-1a)**: 共有ヘッダ struct size 変更 (FrameUBO に prevViewProj 追加で 352B → 416B) で clean rebuild を怠ると mode select → 本編 startGame 遷移時のみ画面凍結 (TDR、 validation 無音) を起こす。 当初は depth layout / OverlayPass / GBuffer feedback loop を疑って多数の修正を入れたが効かず、 clean rebuild が決定打となって解消した。 根本原因の仮説 (FrameUBO レイアウト不一致で gl_Position が NaN/巨大値) は §3-1a 事例②参照。 §3-1a の徹底必須。
 
 ### PART4 §6 4a-1 完了 = main_pass を Vulkan 1.3 dynamic rendering 化 (2026-05-28, commit af3dd72)
 * main_pass の VkRenderPass + VkFramebuffer を撤去、 `vkCmdBeginRendering` + `VkPipelineRenderingCreateInfo` ベースに。 子 pass (debug_line / hud / particle / water / imgui) も同経路に伝播。 4a-2 の MRT 拡張前提。

@@ -12,13 +12,13 @@
 | 系統 | ファイル | rev | 行数 | 役割 |
 |---|---|---|---|---|
 | **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 |
-| | MyEngine_Graphics_Roadmap_2026.md | rev.8 | — | 全 Phase 計画 |
-| | MyEngine_Phase_Dependencies.md | rev.7 | — | Phase 間依存マップ |
+| | MyEngine_Graphics_Roadmap_2026.md | rev.9 | — | 全 Phase 計画 (PART4 4-前/4a 完了反映) |
+| | MyEngine_Phase_Dependencies.md | rev.8 | — | Phase 間依存マップ (Hi-Z ノードに 8 段進捗) |
 | | MyEngine_Codebase_Guide.md | rev.12 | — | コード構造の地図 (4a-1/4a-2 反映) |
 | | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 (§0/§1.5/§5b/§5c 等、 §3-1a 事例②追記) |
-| **作業正本** | MyEngine_HiZ_PART4_Design.md | **rev.7** | **— ** | Phase 2B PART4 Hi-Z 設計 (4-前/4a 完了・次は 4b) |
-| **土台監査** | MyEngine_Foundations_Audit.md | **rev.4** | **— ** | 先回り受け皿 + 実ソース確認済み既存負債 (SS prepass 受け皿完了反映) |
-| **隣接機能** | MyEngine_Vulkan13_Modernization.md | **rev.2** | — | Vulkan 1.3 modernization (W-AA, W/AA 完了・T も適用) |
+| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.7 | — | Phase 2B PART4 Hi-Z 設計 (4-前/4a 完了・次は 4b) |
+| **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 (§5 SS prepass 解消マーク) |
+| **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.2 | — | Vulkan 1.3 modernization (W/AA 完了・T 適用済) |
 | **索引** | MyEngine_INDEX.md (本書) | rev.3 | — | 横断インデックス |
 
 ---
