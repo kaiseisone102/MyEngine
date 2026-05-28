@@ -98,7 +98,7 @@
 | **4-前-5** | Shadow_pass GPU-driven 化 | (J) | ✅ 完了 (986ba44) |
 | **4a-1** | main_pass を Dynamic Rendering 化 (4a-2 前提) | (T) main_pass 部分 | ✅ 完了 (af3dd72) |
 | **4a-2** | Depth-normal-motion MRT + OverlayPass + 深度 SAMPLED + GBuffer viewer | (H) + (S) + (T) overlay 部分 | ✅ 完了 (ed0d80e) |
-| **4b** | HiZPass = SPD で min+max ペア生成 | (M) + (N) | ✅ 完了 (commit pending) |
+| **4b** | HiZPass = SPD で min+max ペア生成 | (M) + (N) | ✅ 完了 (commit ffe9673) |
 | **4c** ★次 | Two-pass occlusion 本体 + AABB 遮蔽 | (F) + (C) | 🟢 未着手 |
 | **4d** | 能力ゲート集約 + 受け皿群 + 仕上げ | (Q) + (R) + (U) + (V) + (X)、 (T) は他 pass 段階移行 | 🟡 部分着手 (T main_pass+overlay 済) |
 | 並列 | Pipeline cache 永続化 (いつでも) | (Y) ← Vulkan13 §3 | 🟢 未着手 |
@@ -173,7 +173,7 @@
 
 ## 7. 現在の状態 (2026-05-28 時点・PART4 §6 4b まで完了・次は 4c)
 
-- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b = 完了** (全 9 段, commit 702c773 / ff9f7a9 / b8e39b2 / ec9c586 / 15b89ad / 986ba44 / af3dd72 / ed0d80e + 4b commit pending、 Vulkan13 W も完了 e1494bf)。 これで HZB pyramid 生成まで到達 = 4c (two-pass occlusion 本体) が読む側を着手できる。
+- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b = 完了** (全 9 段, commit 702c773 / ff9f7a9 / b8e39b2 / ec9c586 / 15b89ad / 986ba44 / af3dd72 / ed0d80e + 4b commit ffe9673、 Vulkan13 W も完了 e1494bf)。 これで HZB pyramid 生成まで到達 = 4c (two-pass occlusion 本体) が読む側を着手できる。
 - **次の着手 = PART4 §6 4c**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。
 - **その次**: 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
 - **4b 高速化 (済)**: `hiz_spd_wave.comp` (Phase C で `subgroupShuffleXor` 利用) を実装済み。 hiz_pass.cpp の `useWavePath_` (= `subgroupOps && subgroupSize >= 32`) で経路切替・P620 では wave 経路選択。 Phase D-F は subgroup 境界を越えるため LDS のまま (両派生共通)。

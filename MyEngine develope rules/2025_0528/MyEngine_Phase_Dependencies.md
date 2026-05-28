@@ -23,7 +23,7 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 ストリーミング ───────────────────────────────────────→ 2F terrain bucket          3C HW レイトレ
 ```
 
-進捗マーク: 段階1 / VmaImage 化 / 1G / 1I / 1K(主要部) / 2B PART0-2 / 2B PART3a / 2B PART3b / 2B PART3c-1 / 2B PART3c-2 (1cf23b9) = Phase 2B 完了 / PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 (受け皿) / **PART4 §6 4b (HiZPass = SPD-style single-dispatch min+max RG32F pyramid, commit pending) = HZB 生成到達**。★次 = **PART4 4c (two-pass occlusion 本体)** = 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較し遮蔽カリング。 並行可候補: 2C LOD / 3B mesh shader (RTX 後) / Phase 2F terrain bucket / 任意で 4b 中身高速化 (wave-ops 派生)。詳細は Codebase_Guide §3.5 / §3.6 / START_HERE §2 / side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
+進捗マーク: 段階1 / VmaImage 化 / 1G / 1I / 1K(主要部) / 2B PART0-2 / 2B PART3a / 2B PART3b / 2B PART3c-1 / 2B PART3c-2 (1cf23b9) = Phase 2B 完了 / PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 (受け皿) / **PART4 §6 4b (HiZPass = SPD-style single-dispatch min+max RG32F pyramid, commit ffe9673) = HZB 生成到達**。★次 = **PART4 4c (two-pass occlusion 本体)** = 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較し遮蔽カリング。 並行可候補: 2C LOD / 3B mesh shader (RTX 後) / Phase 2F terrain bucket / 任意で 4b 中身高速化 (wave-ops 派生)。詳細は Codebase_Guide §3.5 / §3.6 / START_HERE §2 / side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
 
 層をまたぐ主な依存:
 - 土台 side は全描画 Phase の足場 (特にポスト系の render target 増設)
@@ -151,7 +151,7 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
   - **4-前-5 (GPU-driven shadow / per-CullSet output buffer)**: main+shadow が同形で indirect 化 (986ba44)
   - **4a-1 (main_pass を dynamic rendering 化)**: 4a-2 MRT 拡張前提 (af3dd72)
   - **4a-2 (depth-normal-motion MRT + OverlayPass)**: 4b の深度 sample 入力 + Phase 3 SS 効果受け皿 (ed0d80e)
-- **4b (HZB SPD, 2026-05-28, commit pending)**: 完了。 `renderer/hiz_pass.{h,cpp}` + `shaders/hiz_spd.comp` + viewer `renderer/hzb_debug_widget.{h,cpp}` 新設。 per-frame 2 枚 `VK_FORMAT_R32G32_SFLOAT` mip chain (.r=min / .g=max) を 1 vkCmdDispatch で生成 (256 threads / 64×64 source tile / LDS + atomic counter for last-group continuation)。 capability `subgroupOps` (basic+arith+quad) + `shaderStorageImageArrayDynamicIndexing` を実測有効化 (P620 両対応 `subgroupSize=32`)。 wave-ops 高速版は受け皿のみ用意。
+- **4b (HZB SPD, 2026-05-28, commit ffe9673)**: 完了。 `renderer/hiz_pass.{h,cpp}` + **二派生 spv** (`shaders/hiz_spd.comp` LDS-only + `shaders/hiz_spd_wave.comp` wave-ops Phase C) + viewer `renderer/hzb_debug_widget.{h,cpp}` 新設。 per-frame 2 枚 `VK_FORMAT_R32G32_SFLOAT` mip chain (.r=min / .g=max) を 1 vkCmdDispatch で生成 (256 threads / 64×64 source tile / LDS + atomic counter for last-group continuation)。 capability `subgroupOps` (**basic + shuffle**) + `subgroupSize >= 32` で wave 経路 / それ以外で LDS-only fallback (P620 両対応 `subgroupSize=32` で wave 経路選択)。 atomic counter は device-local。 残 Obs B/C/D は side/MyEngine_HiZ_PART4_Design.md §6 「4b 完了後の残作業」参照。
 - **次 = 4c (two-pass occlusion 本体)**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。 設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
 - 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象) と続く。
 
@@ -219,7 +219,7 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 完了   PART4 4-前-5              [GPU-driven shadow / per-CullSet output buffer]  986ba44
 完了   PART4 4a-1                [main_pass を Vulkan 1.3 dynamic rendering 化]  af3dd72
 完了   PART4 4a-2                [depth-normal-motion MRT + OverlayPass 分離]  ed0d80e
-完了   PART4 4b HZB SPD          [hiz_spd.comp 新設・SPD-style single-dispatch min+max RG32F]  (commit pending)
+完了   PART4 4b HZB SPD          [hiz_spd.comp 新設・SPD-style single-dispatch min+max RG32F]  (commit ffe9673)
        → 4b までで pyramid 生成完了。 4c が読む側 (two-pass occlusion 本体)
    ↓        ここから枝分かれ:
    ├─→ PART4 4c 本体          [two-pass occlusion + AABB 遮蔽 + cull.comp 拡張]  ←★ 次の本命
