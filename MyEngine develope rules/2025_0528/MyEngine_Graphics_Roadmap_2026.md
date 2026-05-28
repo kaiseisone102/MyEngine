@@ -1,6 +1,6 @@
 # MyEngine グラフィックス最新技術ロードマップ (2026 再構成版 rev.8)
 
-最終更新: 2026-05-27 (rev.8: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去) 完了を反映 = **Phase 2B 完了** (prop bucket の GPU-driven 骨格が立ち上がり、CullingPass が実描画に接続)。§4 の 2B 見出しを完了に、§5 の推奨の一手を「2B 完了・次は 2C/Hi-Z/3B/2F」に更新、付記に PART3c-2 成果と `drawIndirectFirstInstance` 必須の確定事実・block 散在=連続区間 indirect・HUD 検証足場を追記 / rev.7: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・3c-1 完了 (static_cull_build.h) と 3c-2 次を反映、**Phase 2F (terrain bucket = GPU-driven 地形 + splat + 距離 LOD + チャンクストリーミング) を新設** = 完成形の「terrain は別 bucket」を独立 Phase として受け皿化。PART3c で terrain を prop bucket に一度統合し撤回した経緯を反映 / rev.6: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、§4 の 2B 見出しを PART3b 完了・PART3c 進行中に、§5 の推奨の一手を「次は 2B PART3c (indirect 差し替え)」に更新、付記に PART3b 成果と cursor リセットの教訓を追記 / rev.5: 2B PART3a 完了反映 / rev.4: 1K 主要部・2B PART0-2 完了反映) / 対象 GPU: NVIDIA Quadro P620 (Pascal 世代, GP107 / CUDA 512 / VRAM 2GB GDDR5 / 帯域 64GB/s / TDP 40W) / API: Vulkan 1.4 + SDL3
+最終更新: 2026-05-28 (rev.9: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 §6 Hi-Z 受け皿全部立った**。 §5 推奨の次の一手を「PART4 4b HZB 本体」に更新、 付記に 4-前 / 4a-1 / 4a-2 と Vulkan13 W の成果を追記、 4a-2 の §3-1a clean rebuild 怠った教訓 (mode select → 本編で TDR) を反映 / rev.8: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去) 完了を反映 = **Phase 2B 完了** (prop bucket の GPU-driven 骨格が立ち上がり、CullingPass が実描画に接続)。§4 の 2B 見出しを完了に、§5 の推奨の一手を「2B 完了・次は 2C/Hi-Z/3B/2F」に更新、付記に PART3c-2 成果と `drawIndirectFirstInstance` 必須の確定事実・block 散在=連続区間 indirect・HUD 検証足場を追記 / rev.7: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・3c-1 完了 (static_cull_build.h) と 3c-2 次を反映、**Phase 2F (terrain bucket = GPU-driven 地形 + splat + 距離 LOD + チャンクストリーミング) を新設** = 完成形の「terrain は別 bucket」を独立 Phase として受け皿化。PART3c で terrain を prop bucket に一度統合し撤回した経緯を反映 / rev.6: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、§4 の 2B 見出しを PART3b 完了・PART3c 進行中に、§5 の推奨の一手を「次は 2B PART3c (indirect 差し替え)」に更新、付記に PART3b 成果と cursor リセットの教訓を追記 / rev.5: 2B PART3a 完了反映 / rev.4: 1K 主要部・2B PART0-2 完了反映) / 対象 GPU: NVIDIA Quadro P620 (Pascal 世代, GP107 / CUDA 512 / VRAM 2GB GDDR5 / 帯域 64GB/s / TDP 40W) / API: Vulkan 1.4 + SDL3
 
 このロードマップは「GPU の性能に関係なく最新の技術を取り入れたい」という方針に沿って、すでに積み上げた土台の上に何を積むかを整理したもの。各 Phase は独立して commit でき、見栄え・性能・最新度のどれに効くかを明記している。
 
@@ -215,10 +215,13 @@ VK_KHR_ray_tracing_pipeline。3-GI 段 3・3-Refl 段 2 の実体。RT 対応時
 5. ~~Phase 2B PART0 (設計) / PART1 (CullObject 受け皿, df9d843) / PART2 (compute cull pass, 5cbc7e6)~~ 完了。CullingPass (全 BDA・descriptor 無し) + cull.comp が GPU でフラスタムカリングし IndirectCommand の instanceCount を生成。GPU 可視数 = CPU オラクル一致・validation ゼロで検証済み。
 6. ~~Phase 2B PART3a (メッシュ統合, ac7bbd1) / PART3b (per-draw SSBO + shader, c5adced) / PART3c-1 (ビルダ 632433a) / PART3c-2 (indirect 差し替え・CPU draw 撤去, 1cf23b9)~~ **完了 = Phase 2B 完了**。prop の prepared CPU draw ループを `vkCmdDrawIndexedIndirect` に差し替え CPU draw を撤去、CullingPass が prop の実描画に初接続。能力チェックで `multiDrawIndirect`+`drawIndirectFirstInstance` を実測有効化 (P620 両対応)。block 散在のため連続区間ごと indirect (区間 MDI / 非対応はループ)。**シェーダ無改修**。HUD `Cull : 可視/総数` で検証 (視点回転で分子が動く)。PART4 (Hi-Z) を見越し cmdBuf 駆動構造維持。
 
-現在の起点 (2B 完了) から:
-7. **Phase 2C (LOD) / Hi-Z occlusion (PART4) / 3B mesh shader** — いずれも今できた 2B の GPU-driven 骨格の上に乗る発展。Hi-Z は frustum cull の後段に挿す 2 パス目 compute (深度ピラミッド生成が追加前提)。
-8. **Phase 2F terrain bucket** — terrain を専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミングで GPU-driven 化 (前提: 遅延破棄 + buffer 系 VMA 化 + ストリーミング層)。
-9. **純 GPU-driven 化の仕上げ (任意)** — CullingPass の CPU オラクル + readback (PART2 検証用) を撤去し CPU が可視数を知らない形に。Hi-Z 着手の直前が素直。
+現在の起点 (2B PART4 §6 4-前-0〜4a-2 完了) から:
+7. **PART4 4b** (HiZPass = AMD FidelityFX SPD で min+max ペア HZB を 1 dispatch 生成、`hiz_spd.comp` 新規)。 main_pass 直後の深度 RT が入力 (4a-2 で SAMPLED 化済み = 受け皿OK)。設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4b」。
+8. **PART4 4c** (two-pass occlusion 本体 + AABB 遮蔽 + cull.comp 拡張)。 4b の HZB を読んで遮蔽判定する核。
+9. **PART4 4d** (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
+10. **Phase 2C (LOD) / 3B mesh shader** — いずれも今できた 2B + Hi-Z 骨格の上に乗る発展。
+11. **Phase 2F terrain bucket** — terrain を専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミングで GPU-driven 化 (前提: 遅延破棄 + buffer 系 VMA 化 + ストリーミング層)。
+12. **純 GPU-driven 化の仕上げ (任意)** — CullingPass の CPU オラクル + readback (PART2 検証用) を撤去し CPU が可視数を知らない形に。Hi-Z 着手の直前が素直。
 
 任意 / 並行可:
 - **Phase 1I PART D** (bloom 強度・段数を settings 連携・目視チューニング) — 本体は完了済み、これは仕上げ
@@ -250,6 +253,40 @@ VK_KHR_ray_tracing_pipeline。3-GI 段 3・3-Refl 段 2 の実体。RT 対応時
 ---
 
 ## 付記: 直近の成果
+
+### PART4 §6 4a-2 完了 = depth-normal-motion MRT 受け皿 + OverlayPass 分離 (2026-05-28, commit ed0d80e)
+* **main_pass の opaque を MRT 3 attachment 化** (HDR + GBuffer normal R10G10B10A2 octahedral + motion vector RG16F) + swapchain depth SAMPLED_BIT 化。 Phase 3 SS 効果 (SSAO/SSGI/SSR/DoF/TAA) と PART4 4b HZB が必要な受け皿が全部立った。
+* **HUD/ImGui を OverlayPass という新 dynamic-rendering pass に分離**。 HudPipeline / ImGui は `depthAttachmentFormat = VK_FORMAT_UNDEFINED` で rebuild、 OverlayPass の BeginRendering は color-only (HDR LOAD) = mid-pass barrier / feedback-loop 心配なしのクリーン経路。
+* **新規ファイル**: `overlay_pass.{h,cpp}`、 `gbuffer_debug_widget.{h,cpp}` (右上ドック ImGui::Image viewer)、 `depth_layouts.h` (separate vs combined depth/stencil layout 選択の一元化)、 `shared/gbuffer.glsl` (octahedral encode + motion vector helper)。
+* **capability 追加**: `dynamicRendering` (Vulkan 1.3 core) + `separateDepthStencilLayouts` (Vulkan 1.2 core optional, fallback あり)。 `[Caps] ... dynamicRendering=1 separateDepthStencilLayouts=1` (P620 両対応)。
+* **FrameUBO に `mat4 prevViewProj`** (Phase 3 TAA まで shader 改修ゼロで届く受け皿)。
+* **教訓 (Work_Protocol §3-1a)**: 共有ヘッダ struct size 変更 (FrameUBO に prevViewProj 追加で 352B → 416B) で clean rebuild を怠ると一部 .obj が古いサイズで残り、 mode select → 本編遷移で UBO ズレで rasterizer hang (TDR) → 画面凍結する。 §3-1a の徹底必須。
+
+### PART4 §6 4a-1 完了 = main_pass を Vulkan 1.3 dynamic rendering 化 (2026-05-28, commit af3dd72)
+* main_pass の VkRenderPass + VkFramebuffer を撤去、 `vkCmdBeginRendering` + `VkPipelineRenderingCreateInfo` ベースに。 子 pass (debug_line / hud / particle / water / imgui) も同経路に伝播。 4a-2 の MRT 拡張前提。
+* `vulkan_context::dynamicRendering()` capability 追加。 attachment format 変更を VkRenderPass 再構築なしで吸収できる「最新 Vulkan 標準形」 (vkguide v1.3 / Khronos Vulkan-Samples)。
+
+### PART4 §6 4-前-5 完了 = GPU-driven shadow (2026-05-28, commit 986ba44)
+* ShadowPass の static draw を CullingPass の Shadow CullSet (新 enum `CullSet{Camera, Shadow}` で per-set output buffer 化) + `vkCmdDrawIndexedIndirectCount` 経由に。 main bucket と同形の compaction を shadow にも適用。 skinned shadow は legacy CPU loop 維持。 vkguide サンプル (main+shadow 両方 GPU-driven) と揃った。
+
+### PART4 §6 4-前-4 完了 = 3-pass scan compaction + IndirectCount + DGC 受け皿 (2026-05-28, commit 15b89ad)
+* `scan_local.comp` (subgroup ops + LDS で per-workgroup prefix) + `scan_globals.comp` (workgroup 間 prefix) + `scan_scatter.comp` (compact draw write) の3 pass scan。 `cull.comp` は predicate-only に縮小。 `indirect_exec::Mode{DGC, IndirectCount, Legacy}` で capability 別経路 picker。
+
+### PART4 §6 4-前-3 完了 = persistent device-local CullObject + bit-packed visBuf + grow (2026-05-28, commit ec9c586)
+* CullObject buffer を per-frame ring から persistent device-local + staging upload + sync2 barrier 経路に。 visBuf は 32 object / uint32 (`atomicOr/atomicAnd`)。 満杯時は `DeletionQueue` で旧バッファ遅延破棄。
+
+### PART4 §6 4-前-2 完了 = meshlet-ready CullObject + cone test (2026-05-28, commit b8e39b2)
+* CullObject に cone backface test 用フィールド + cluster ID (Nanite 風 DAG の受け皿) を追加。 builder で cone 充填。 `cull.comp` に cone test 受け皿 (object 粒度では cheap な追加 cull、 meshlet 段階で同じ関数が活きる)。
+
+### PART4 §6 4-前-1 完了 = block sort + BlockRange 導入 (2026-05-28, commit ff9f7a9)
+* `static_cull_build` で同一 GeometryBuffer block の prop を連続区間に並べ替え、 main_pass の区間検出 (前後比較ループ) を撤去して `BlockRange` 配列に置き換え。 シェーダ無改修・挙動不変。
+
+### PART4 §6 4-前-0 完了 = Reverse-Z + 無限遠 perspective (2026-05-28, commit 702c773)
+* 全 pass に Reverse-Z (clear=0.0, compareOp=GREATER) と無限遠 perspective を全面適用。 `include/MyEngine/renderer/projection.h` に `makeReversedZInfinitePerspective(fovY, aspect, zNear)` ヘルパ (Y-flip 込み)。 shadow / reflection / depth-related shader 全部に波及。 4b HZB の精度確保前提。
+
+### Vulkan13 W 完了 = sync2 barrier helper (2026-05-28, commit e1494bf)
+* `include/MyEngine/renderer/barrier.h` (header-only) を新設。 sync2 `VkDependencyInfo` を一括記録する `recordBatch` + 単発 `recordImage/recordBuffer`、 capability 未対応の sync1 fallback も同居。 ImageBarrier / BufferBarrier / MemoryBarrier 構造体 + QFOT パラメータ (streaming / async compute 用)。 5 サイト移行 (bloom mip / culling / shadow / mainPass のうち適用箇所)。
+
 
 ### 2026-05-27 — Phase 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去) = Phase 2B 完了
 
