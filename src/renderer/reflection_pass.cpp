@@ -213,7 +213,7 @@ VkPipeline ReflectionPass::buildPipeline(const PipelineBuildArgs& args,
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     ds.depthTestEnable = VK_TRUE;
     ds.depthWriteEnable = VK_TRUE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS;
+    ds.depthCompareOp = VK_COMPARE_OP_GREATER;  // reverse-Z (see renderer/projection.h)
 
     VkPipelineColorBlendAttachmentState blendAtt{};
     blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -349,7 +349,7 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
     VkClearValue clears[2]{};
     clears[0].color = {{info.clearColor.r, info.clearColor.g, info.clearColor.b,
                          info.clearColor.a}};
-    clears[1].depthStencil = {1.0f, 0};
+    clears[1].depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)
 
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     rp.renderPass = renderPass_.get();

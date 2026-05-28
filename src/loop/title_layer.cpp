@@ -23,6 +23,7 @@
 #include "renderer/animation.h"
 #include "renderer/asset_registry.h"
 #include "renderer/frame_uniforms.h"
+#include "renderer/projection.h"
 #include "renderer/model.h"
 #include "renderer/shadow_light.h"
 #include "renderer/vulkan_renderer.h"
@@ -98,8 +99,8 @@ void TitleLayer::buildScene(SceneData& scene) {
     const glm::vec3 cameraPos{2.5f, 2.0f, 4.0f};
     const glm::vec3 lookAt{0.f, 1.0f, 0.f};
     const glm::mat4 view = glm::lookAt(cameraPos, lookAt, glm::vec3{0.f, 1.f, 0.f});
-    glm::mat4 proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 200.f);
-    proj[1][1] *= -1.f;  // Vulkan Y flip
+    // Reverse-Z + infinite far. Vulkan Y flip is baked into the helper.
+    glm::mat4 proj = makeReversedZInfinitePerspective(glm::radians(45.f), aspect, 0.1f);
 
     // ----- 2. Light view-projection (for shadow map) -----
     const glm::vec3 lightTarget{0.f, 0.5f, 0.f};

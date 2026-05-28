@@ -107,8 +107,8 @@ VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::stri
     VkPipelineDepthStencilStateCreateInfo ds{
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     ds.depthTestEnable = VK_TRUE;
-    ds.depthWriteEnable = VK_FALSE;  // デバッグなので depth を上書きしない
-    ds.depthCompareOp = VK_COMPARE_OP_LESS;
+    ds.depthWriteEnable = VK_FALSE;  // debug overlay: never write to depth
+    ds.depthCompareOp = VK_COMPARE_OP_GREATER;  // reverse-Z (see renderer/projection.h)
 
     // アルファブレンド有効 (扇形の半透明塗りつぶし用)
     VkPipelineColorBlendAttachmentState blendAtt{};

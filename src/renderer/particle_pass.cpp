@@ -130,7 +130,7 @@ void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& sh
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     ds.depthTestEnable = VK_TRUE;
     ds.depthWriteEnable = VK_FALSE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS;
+    ds.depthCompareOp = VK_COMPARE_OP_GREATER;  // reverse-Z (see renderer/projection.h)
 
     VkPipelineColorBlendAttachmentState blendAtt{};
     blendAtt.blendEnable = VK_TRUE;

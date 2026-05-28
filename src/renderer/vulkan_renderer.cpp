@@ -8,6 +8,7 @@
 #include "renderer/vulkan_renderer.h"
 #include <iostream>
 #include <cmath>
+#include <limits>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -98,7 +99,11 @@ FrameUniforms::LightingUBO VulkanRenderer::buildCompleteFrameUBO() const {
                          std::sin(elapsedTime_));
     ubo.screenSize = glm::vec4(fw, fh, invW, invH);
     ubo.jitter = glm::vec4(0.f);
-    ubo.cameraParams = glm::vec4(0.1f, 200.f, glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
+    // farZ = +INFINITY: reverse-Z infinite-far perspective (see renderer/projection.h).
+    // Shaders currently do not read cameraParams.y; if a future depth-linearization
+    // pass needs a usable far, derive it from near and ndc_z instead.
+    ubo.cameraParams = glm::vec4(0.1f, std::numeric_limits<float>::infinity(),
+                                  glm::radians(45.f), (fh > 0.f) ? fw / fh : 1.f);
 
     // Material SSBO address (BDA) for the shaders' buffer_reference.
     ubo.materialBuffer = assets_.materialRegistry().bufferAddressPacked();

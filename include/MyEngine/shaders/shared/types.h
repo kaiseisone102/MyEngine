@@ -62,7 +62,8 @@ struct FrameUBO {
     vec4 time;          // x=time(sec), y=deltaTime, z=frameNumber, w=sin(time*2pi)
     vec4 screenSize;    // xy=(width,height), zw=(1/width, 1/height)
     vec4 jitter;        // xy=current frame jitter, zw=previous (TAA reserved)
-    vec4 cameraParams;  // x=nearZ, y=farZ, z=fov(rad), w=aspect
+    vec4 cameraParams;  // x=nearZ, y=farZ (+INFINITY for reverse-Z infinite far), z=fov(rad), w=aspect
+                        // NDC z convention: 1=near, 0=far (reverse-Z, Vulkan 0..1).
 
     // === Phase 1K-2: unified material SSBO address (BDA) ===
     uvec4 materialBuffer;  // xy = 64-bit GPU address (lo,hi); zw reserved

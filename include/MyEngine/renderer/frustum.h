@@ -21,6 +21,14 @@
 // NOTE on depth convention: this engine uses GLM_FORCE_DEPTH_ZERO_TO_ONE
 // (Vulkan-style 0..1 clip depth). The near-plane row is therefore taken as
 // just row3 (m[.][2]) rather than (row3 + row4) which is the GL -1..1 form.
+//
+// Reverse-Z + infinite far note: with the reverse-Z infinite perspective from
+// renderer/projection.h, planes[4] (originally labeled "near") becomes
+// degenerate (0,0,0,zNear) and always evaluates inside -> the far clip is
+// effectively disabled (correct for far=infinity). planes[5] (originally
+// labeled "far") becomes the true near plane. The labels are kept for code
+// continuity but their semantic positions are swapped. Behavior is correct
+// for both forward-Z and reverse-Z projections without any code change.
 // =============================================================================
 #include <glm/glm.hpp>
 
@@ -41,8 +49,8 @@ struct Frustum {
         planes[1] = row3 - row0;  // right
         planes[2] = row3 + row1;  // bottom
         planes[3] = row3 - row1;  // top
-        planes[4] = row2;         // near (0..1 depth: just row2)
-        planes[5] = row3 - row2;  // far
+        planes[4] = row2;         // near (forward-Z) / degenerate-far (reverse-Z infinite)
+        planes[5] = row3 - row2;  // far (forward-Z) / near (reverse-Z infinite)
 
         // Normalize each plane so d is a true signed distance.
         for (int i = 0; i < 6; ++i) {

@@ -18,6 +18,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 
+#include "renderer/projection.h"
+
 enum class CameraMode {
     FPS,
     TPS
@@ -136,13 +138,9 @@ public:
     }
 
     glm::mat4 getProjectionMatrix(float aspect) const {
-        glm::mat4 proj = glm::perspective(
-            glm::radians(fov), aspect,
-            0.1f,
-            200.f
-        );
-        proj[1][1] *= -1.f;  // Vulkan Y軸反転
-        return proj;
+        // Reverse-Z + infinite far. Vulkan Y flip is baked into the helper.
+        // See include/MyEngine/renderer/projection.h for the convention.
+        return makeReversedZInfinitePerspective(glm::radians(fov), aspect, 0.1f);
     }
 
 private:
