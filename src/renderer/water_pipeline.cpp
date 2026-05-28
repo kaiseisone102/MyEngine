@@ -12,12 +12,14 @@
 
 void WaterPipeline::init(const InitInfo& info) {
     if (!info.ctx) throw std::runtime_error("WaterPipeline::init: ctx is null");
-    if (info.renderPass == VK_NULL_HANDLE)
-        throw std::runtime_error("WaterPipeline::init: renderPass missing");
+    if (info.colorFormat == VK_FORMAT_UNDEFINED || info.depthFormat == VK_FORMAT_UNDEFINED)
+        throw std::runtime_error("WaterPipeline::init: format missing");
     if (info.frameSetLayout == VK_NULL_HANDLE)
         throw std::runtime_error("WaterPipeline::init: frameSetLayout missing");
 
     ctx_ = info.ctx;
+    colorFormat_ = info.colorFormat;
+    depthFormat_ = info.depthFormat;
 
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -37,7 +39,7 @@ void WaterPipeline::init(const InitInfo& info) {
         layoutFakeOnly_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
         pipelineFakeOnly_ = VkUnique<VkPipeline>(
             ctx_->device(),
-            buildPipeline(info.renderPass, layoutFakeOnly_.get(), info.shaderDir, "water_frag.spv"));
+            buildPipeline(layoutFakeOnly_.get(), info.shaderDir, "water_frag.spv"));
     }
 
     // ─── withReflection レイアウト (set=0, set=1) ────
@@ -53,12 +55,12 @@ void WaterPipeline::init(const InitInfo& info) {
             throw std::runtime_error("WaterPipeline: layoutWithReflection failed");
         layoutWithReflection_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
         pipelineWithReflection_ = VkUnique<VkPipeline>(
-            ctx_->device(), buildPipeline(info.renderPass, layoutWithReflection_.get(),
+            ctx_->device(), buildPipeline(layoutWithReflection_.get(),
                                           info.shaderDir, "water_reflect_frag.spv"));
     }
 }
 
-VkPipeline WaterPipeline::buildPipeline(VkRenderPass renderPass, VkPipelineLayout layout,
+VkPipeline WaterPipeline::buildPipeline(VkPipelineLayout layout,
                                           const std::string& shaderDir,
                                           const std::string& fragName) {
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + "water_vert.spv");
@@ -134,7 +136,15 @@ VkPipeline WaterPipeline::buildPipeline(VkRenderPass renderPass, VkPipelineLayou
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4a-1: dynamic rendering.
+    VkFormat colorFormats[1] = {colorFormat_};
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = colorFormats;
+    rci.depthAttachmentFormat = depthFormat_;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 2;
     pci.pStages = stages;
     pci.pVertexInputState = &vi;
@@ -146,8 +156,7 @@ VkPipeline WaterPipeline::buildPipeline(VkRenderPass renderPass, VkPipelineLayou
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
     pci.layout = layout;
-    pci.renderPass = renderPass;
-    pci.subpass = 0;
+    pci.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     const VkResult r =

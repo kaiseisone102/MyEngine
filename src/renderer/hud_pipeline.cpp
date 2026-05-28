@@ -8,11 +8,13 @@
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
 
-void HudPipeline::init(VulkanContext* ctx, VkRenderPass renderPass,
+void HudPipeline::init(VulkanContext* ctx, VkFormat colorFormat, VkFormat depthFormat,
                        const std::string& shaderDir) {
     ctx_ = ctx;
+    colorFormat_ = colorFormat;
+    depthFormat_ = depthFormat;
     createLayout();
-    createPipeline(renderPass, shaderDir);
+    createPipeline(shaderDir);
 }
 
 void HudPipeline::shutdown() {
@@ -42,7 +44,7 @@ void HudPipeline::createLayout() {
     layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
-void HudPipeline::createPipeline(VkRenderPass renderPass, const std::string& shaderDir) {
+void HudPipeline::createPipeline(const std::string& shaderDir) {
     VkShaderModule vert = shader_util::loadShaderModule(ctx_->device(), shaderDir + "hud_vert.spv");
     VkShaderModule frag = shader_util::loadShaderModule(ctx_->device(), shaderDir + "hud_frag.spv");
 
@@ -109,7 +111,15 @@ void HudPipeline::createPipeline(VkRenderPass renderPass, const std::string& sha
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4a-1: dynamic rendering.
+    VkFormat colorFormats[1] = {colorFormat_};
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = colorFormats;
+    rci.depthAttachmentFormat = depthFormat_;
+
     VkGraphicsPipelineCreateInfo pi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pi.pNext = &rci;
     pi.stageCount = 2;
     pi.pStages = stages;
     pi.pVertexInputState = &vertexInput;
@@ -121,8 +131,7 @@ void HudPipeline::createPipeline(VkRenderPass renderPass, const std::string& sha
     pi.pColorBlendState = &blend;
     pi.pDynamicState = &dyn;
     pi.layout = layout_.get();
-    pi.renderPass = renderPass;
-    pi.subpass = 0;
+    pi.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipe = VK_NULL_HANDLE;
     if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pi, nullptr, &pipe) !=

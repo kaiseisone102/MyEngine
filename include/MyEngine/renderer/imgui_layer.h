@@ -26,7 +26,11 @@ class ImGuiLayer {
         SDL_Window* window = nullptr;
         VulkanContext* ctx = nullptr;
         uint32_t swapchainImageCount = 0;
-        VkRenderPass renderPass = VK_NULL_HANDLE;  // ImGui を乗せる RenderPass (通常 MainPass)
+        // PART4 4a-1: ImGui Vulkan backend supports dynamic rendering directly
+        // (UseDynamicRendering + PipelineRenderingCreateInfo). We hand it the
+        // color / depth formats main_pass renders to.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         uint32_t minImageCount = 2;
     };
 

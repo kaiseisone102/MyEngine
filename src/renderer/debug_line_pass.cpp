@@ -21,15 +21,18 @@
 void DebugLinePass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources || !info.swapchain)
         throw std::runtime_error("DebugLinePass::init: invalid info");
-    if (info.mainRenderPass == VK_NULL_HANDLE || info.frameSetLayout == VK_NULL_HANDLE)
-        throw std::runtime_error("DebugLinePass::init: missing renderPass/frameSetLayout");
+    if (info.colorFormat == VK_FORMAT_UNDEFINED || info.depthFormat == VK_FORMAT_UNDEFINED ||
+        info.frameSetLayout == VK_NULL_HANDLE)
+        throw std::runtime_error("DebugLinePass::init: missing format/frameSetLayout");
 
     ctx_ = info.ctx;
     resources_ = info.resources;
     swapchain_ = info.swapchain;
+    colorFormat_ = info.colorFormat;
+    depthFormat_ = info.depthFormat;
 
     createLayout(info.frameSetLayout);
-    createPipelines(info.mainRenderPass, info.shaderDir);
+    createPipelines(info.shaderDir);
     createVertexBuffers();
 }
 
@@ -46,14 +49,14 @@ void DebugLinePass::createLayout(VkDescriptorSetLayout frameSetLayout) {
     layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
-void DebugLinePass::createPipelines(VkRenderPass renderPass, const std::string& shaderDir) {
+void DebugLinePass::createPipelines(const std::string& shaderDir) {
     linePipeline_ = VkUnique<VkPipeline>(
-        ctx_->device(), buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_LINE_LIST));
+        ctx_->device(), buildPipeline(shaderDir, VK_PRIMITIVE_TOPOLOGY_LINE_LIST));
     triPipeline_ = VkUnique<VkPipeline>(
-        ctx_->device(), buildPipeline(renderPass, shaderDir, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST));
+        ctx_->device(), buildPipeline(shaderDir, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST));
 }
 
-VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::string& shaderDir,
+VkPipeline DebugLinePass::buildPipeline(const std::string& shaderDir,
                                           VkPrimitiveTopology topology) {
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "debug_line_vert.spv");
@@ -132,7 +135,16 @@ VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::stri
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4a-1: dynamic rendering. Chain attachment formats and leave
+    // renderPass = VK_NULL_HANDLE.
+    VkFormat colorFormats[1] = {colorFormat_};
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = colorFormats;
+    rci.depthAttachmentFormat = depthFormat_;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 2;
     pci.pStages = stages;
     pci.pVertexInputState = &vi;
@@ -144,8 +156,7 @@ VkPipeline DebugLinePass::buildPipeline(VkRenderPass renderPass, const std::stri
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
     pci.layout = layout_.get();
-    pci.renderPass = renderPass;
-    pci.subpass = 0;
+    pci.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     const VkResult r =

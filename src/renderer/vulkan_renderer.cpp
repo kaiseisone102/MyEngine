@@ -49,6 +49,7 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.deletionQueue = &deletionQueue_;  // PART4 4-前-3: CullingPass / DrawDataPool grow path
         info.bindlessSetLayout = bindlessTextures_.layout();
         info.hdrColorView = hdrTarget_.view();
+        info.hdrColorImage = hdrTarget_.image();  // PART4 4a-1: dynamic-rendering barrier
         info.hdrColorSampler = hdrTarget_.sampler();  // Phase 1H-3  // Phase 1H-2
         info.hdrColorFormat = hdrTarget_.format();
         info.shaderDir = shaderDir_;
@@ -76,7 +77,8 @@ void VulkanRenderer::recreateSwapchain() {
     destroyRenderTargets();
     createHdrTarget();
     passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler(),
-                                  swapchain_.extent().width / 2, swapchain_.extent().height / 2);
+                                  swapchain_.extent().width / 2, swapchain_.extent().height / 2,
+                                  hdrTarget_.image());
 }
 
 void VulkanRenderer::onResize() {

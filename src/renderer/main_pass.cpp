@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "renderer/barrier.h"
 #include "renderer/debug_line_pass.h"
 #include "renderer/debug_line_renderer.h"
 #include "renderer/hud_draw_list.h"
@@ -67,9 +68,12 @@ void MainPass::init(const InitInfo& info) {
     ctx_ = info.ctx;
     swapchain_ = info.swapchain;
     hdrColorView_ = info.hdrColorView;  // Phase 1H-2
+    hdrColorImage_ = info.hdrColorImage;  // PART4 4a-1
     hdrColorFormat_ = info.hdrColorFormat;
-
-    createRenderPass();
+    // PART4 4a-1: cache the depth format that pipelines are compatible with.
+    // Dynamic rendering takes the format directly (no VkRenderPass) so all
+    // child passes must use the same format when building their pipelines.
+    depthFormat_ = swapchain_->depthFormat();
 
     createStaticLayout(info.frameSetLayout, info.bindlessSetLayout);  // S4-c: set=1 is now the bindless array
     {
@@ -103,62 +107,6 @@ void MainPass::init(const InitInfo& info) {
         std::cout << "[MainPass] grass pipeline created\n";
     }
 
-    createFramebuffers();
-}
-
-void MainPass::createRenderPass() {
-    VkAttachmentDescription color{};
-    color.format = hdrColorFormat_;  // Phase 1H-2 (was swapchain colorFormat)
-    color.samples = VK_SAMPLE_COUNT_1_BIT;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // Phase 1H-2: PostPass will sample this
-
-    VkAttachmentDescription depth{};
-    depth.format = swapchain_->depthFormat();
-    depth.samples = VK_SAMPLE_COUNT_1_BIT;
-    depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-
-    VkSubpassDescription sub{};
-    sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub.colorAttachmentCount = 1;
-    sub.pColorAttachments = &colorRef;
-    sub.pDepthStencilAttachment = &depthRef;
-
-    VkSubpassDependency dep{};
-    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass = 0;
-    dep.srcStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.dstStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = 0;
-    dep.dstAccessMask =
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-    VkAttachmentDescription attachments[] = {color, depth};
-    VkRenderPassCreateInfo ci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    ci.attachmentCount = 2;
-    ci.pAttachments = attachments;
-    ci.subpassCount = 1;
-    ci.pSubpasses = &sub;
-    ci.dependencyCount = 1;
-    ci.pDependencies = &dep;
-    VkRenderPass rp = VK_NULL_HANDLE;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
-        throw std::runtime_error("MainPass: vkCreateRenderPass failed");
-    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void MainPass::createStaticLayout(VkDescriptorSetLayout frameSetLayout,
@@ -306,7 +254,16 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4a-1: dynamic rendering. Chain VkPipelineRenderingCreateInfo
+    // describing the attachment formats; renderPass = VK_NULL_HANDLE.
+    VkFormat colorFormats[1] = {hdrColorFormat_};
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = colorFormats;
+    rci.depthAttachmentFormat = depthFormat_;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 2;
     pci.pStages = stages;
     pci.pVertexInputState = &vi;
@@ -318,8 +275,7 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
     pci.layout = args.layout;
-    pci.renderPass = renderPass_.get();
-    pci.subpass = 0;
+    pci.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     const VkResult r =
@@ -332,56 +288,51 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
     return pipeline;
 }
 
-void MainPass::createFramebuffers() {
-    // Phase 1H-2: write into the HDR target (single framebuffer, not per-swapchain-image)
-    const VkExtent2D extent = swapchain_->extent();
-    framebuffers_.clear();
-    VkImageView attachments[] = {hdrColorView_, swapchain_->depthView()};
-    VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    ci.renderPass = renderPass_.get();
-    ci.attachmentCount = 2;
-    ci.pAttachments = attachments;
-    ci.width = extent.width;
-    ci.height = extent.height;
-    ci.layers = 1;
-    VkFramebuffer fb = VK_NULL_HANDLE;
-    if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &fb) != VK_SUCCESS)
-        throw std::runtime_error("MainPass: vkCreateFramebuffer failed");
-    framebuffers_.emplace_back(ctx_->device(), fb);
-}
-
-void MainPass::destroyFramebuffers() {
-    if (!ctx_) return;
-    // VkUnique elements free their framebuffers on clear.
-    framebuffers_.clear();
-}
-
+// PART4 4a-1: no framebuffer / renderpass to recreate on resize. The HDR
+// color view is replaced via setHdrColorView() from the swapchain owner and
+// dynamic rendering picks it up at the next execute().
 void MainPass::onSwapchainResized() {
-    if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    destroyFramebuffers();
-    createFramebuffers();
 }
 
 void MainPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("MainPass::execute: invalid cmd");
-    if (framebuffers_.empty())
-        throw std::runtime_error("MainPass::execute: framebuffers not created");
+    if (hdrColorView_ == VK_NULL_HANDLE)
+        throw std::runtime_error("MainPass::execute: hdrColorView not set");
 
     const VkExtent2D extent = swapchain_->extent();
 
-    VkClearValue clearValues[2]{};
-    clearValues[0].color = {
+    // PART4 4a-1: dynamic rendering. The HDR color attachment used to have
+    // initialLayout=UNDEFINED + finalLayout=SHADER_READ_ONLY via VkRenderPass;
+    // here the responsibility is split: the swapchain owner has already
+    // transitioned the HDR image to COLOR_ATTACHMENT_OPTIMAL before this pass
+    // (or it stays in that layout from the previous frame), and PostPass
+    // issues its own transition to SHADER_READ_ONLY before sampling. The
+    // depth view stays in DEPTH_STENCIL_ATTACHMENT_OPTIMAL across frames; the
+    // legacy renderpass UNDEFINED->ATTACHMENT path also did an implicit
+    // transition so we mirror that contract via a clear loadOp.
+    VkRenderingAttachmentInfo colorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    colorAtt.imageView = hdrColorView_;
+    colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.clearValue.color = {
         {info.clearColor.r, info.clearColor.g, info.clearColor.b, info.clearColor.a}};
-    clearValues[1].depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)
 
-    VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_.get();
-    rp.framebuffer = framebuffers_[0].get();  // Phase 1H-2 (single HDR framebuffer)
+    VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAtt.imageView = swapchain_->depthView();
+    depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.clearValue.depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)
+
+    VkRenderingInfo rp{VK_STRUCTURE_TYPE_RENDERING_INFO};
     rp.renderArea = {{0, 0}, extent};
-    rp.clearValueCount = 2;
-    rp.pClearValues = clearValues;
+    rp.layerCount = 1;
+    rp.colorAttachmentCount = 1;
+    rp.pColorAttachments = &colorAtt;
+    rp.pDepthAttachment = &depthAtt;
 
-    vkCmdBeginRenderPass(info.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRendering(info.cmd, &rp);
 
     VkViewport viewport{0.f, 0.f, static_cast<float>(extent.width),
                           static_cast<float>(extent.height), 0.f, 1.f};
@@ -677,14 +628,29 @@ void MainPass::execute(const ExecuteInfo& info) {
         vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
     }
 
-    vkCmdEndRenderPass(info.cmd);
+    vkCmdEndRendering(info.cmd);
+
+    // PART4 4a-1: legacy VkRenderPass had finalLayout=SHADER_READ_ONLY_OPTIMAL
+    // on the HDR color attachment, which produced an implicit transition at
+    // EndRenderPass time. Dynamic rendering has no finalLayout, so we issue
+    // the COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL transition
+    // here so PostPass can sample the HDR target with the same contract.
+    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
+        .image = hdrColorImage_,
+        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+    });
 }
 
 void MainPass::shutdown() {
     grassPipeline_.reset();
     grassLayout_.reset();
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    destroyFramebuffers();
 
     skinnedPipelineTransparent_.reset();
     skinnedPipelineOpaque_.reset();
@@ -695,7 +661,7 @@ void MainPass::shutdown() {
     staticPipelineTransparent_.reset();
     staticPipelineOpaque_.reset();
     staticLayout_.reset();
-    renderPass_.reset();
+    // PART4 4a-1: no renderPass_ / framebuffers_ to release (dynamic rendering).
     ctx_ = nullptr;
     swapchain_ = nullptr;
 }

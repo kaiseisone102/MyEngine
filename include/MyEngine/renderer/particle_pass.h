@@ -40,7 +40,9 @@ class ParticlePass {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         Swapchain* swapchain = nullptr;
-        VkRenderPass mainRenderPass = VK_NULL_HANDLE;
+        // PART4 4a-1: dynamic rendering. See debug_line_pass.h.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
     };
@@ -80,8 +82,12 @@ class ParticlePass {
 
     std::array<VmaBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> instanceVBs_{};
 
+    // PART4 4a-1: dynamic rendering — formats instead of VkRenderPass.
+    VkFormat colorFormat_ = VK_FORMAT_UNDEFINED;
+    VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
+
     void createLayout(VkDescriptorSetLayout frameSetLayout);
-    void createPipeline(VkRenderPass renderPass, const std::string& shaderDir);
+    void createPipeline(const std::string& shaderDir);
     void createQuadBuffers();
     void createInstanceBuffers();
     void destroyBuffers();

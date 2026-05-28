@@ -79,6 +79,13 @@ class VulkanContext {
     // indirect_exec wrapper has a DGC code path that 4d will fill in.
     bool deviceGeneratedCommands() const { return deviceGeneratedCommands_; }
 
+    // PART4 4a-1: VK_KHR_dynamic_rendering (core in Vulkan 1.3). Required by
+    // the MRT prepass (4a-2) and is the modern replacement for VkRenderPass +
+    // VkFramebuffer. Pascal-and-newer NVIDIA + Mesa NVK all expose Vulkan 1.3,
+    // so we expect this to always be true on supported hardware; the bit lives
+    // here so the receptacle (4a-1) is symmetric with sync2 / drawIndirectCount.
+    bool dynamicRendering() const { return dynamicRendering_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -109,6 +116,9 @@ class VulkanContext {
     // PART4 4-前-4: queried indirect-count / DGC capability flags.
     bool drawIndirectCount_ = false;
     bool deviceGeneratedCommands_ = false;
+
+    // PART4 4a-1: queried VK_KHR_dynamic_rendering capability flag.
+    bool dynamicRendering_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

@@ -66,6 +66,7 @@ void PassChain::init(const InitInfo& info) {
         mi.frameSetLayout = info.frameUniforms->layout();
         mi.bindlessSetLayout = info.bindlessSetLayout;
         mi.hdrColorView = info.hdrColorView;  // Phase 1H-2
+        mi.hdrColorImage = info.hdrColorImage;  // PART4 4a-1
         mi.hdrColorFormat = info.hdrColorFormat;
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
@@ -111,13 +112,20 @@ void PassChain::init(const InitInfo& info) {
     }
 
 
+    // PART4 4a-1: main_pass uses dynamic rendering; child passes now build
+    // pipelines against the color / depth formats instead of sharing a
+    // VkRenderPass.
+    const VkFormat mainColorFormat = mainPass_.hdrColorFormat();
+    const VkFormat mainDepthFormat = mainPass_.depthFormat();
+
     // ─── DebugLinePass ───────────────────────────────────────────
     {
         DebugLinePass::InitInfo di{};
         di.ctx = info.ctx;
         di.resources = info.resources;
         di.swapchain = info.swapchain;
-        di.mainRenderPass = mainPass_.renderPass();
+        di.colorFormat = mainColorFormat;
+        di.depthFormat = mainDepthFormat;
         di.frameSetLayout = info.frameUniforms->layout();
         di.shaderDir = info.shaderDir;
         debugLinePass_.init(di);
@@ -129,7 +137,8 @@ void PassChain::init(const InitInfo& info) {
         pi.ctx = info.ctx;
         pi.resources = info.resources;
         pi.swapchain = info.swapchain;
-        pi.mainRenderPass = mainPass_.renderPass();
+        pi.colorFormat = mainColorFormat;
+        pi.depthFormat = mainDepthFormat;
         pi.frameSetLayout = info.frameUniforms->layout();
         pi.shaderDir = info.shaderDir;
         particlePass_.init(pi);
@@ -140,7 +149,8 @@ void PassChain::init(const InitInfo& info) {
         HudPass::InitInfo hi{};
         hi.ctx = info.ctx;
         hi.swapchain = info.swapchain;
-        hi.mainRenderPass = mainPass_.renderPass();
+        hi.colorFormat = mainColorFormat;
+        hi.depthFormat = mainDepthFormat;
         hi.shaderDir = info.shaderDir;
         hudPass_.init(hi);
     }
@@ -150,7 +160,8 @@ void PassChain::init(const InitInfo& info) {
         WaterPass::InitInfo wi{};
         wi.ctx = info.ctx;
         wi.resources = info.resources;
-        wi.mainRenderPass = mainPass_.renderPass();
+        wi.colorFormat = mainColorFormat;
+        wi.depthFormat = mainDepthFormat;
         wi.frameSetLayout = info.frameUniforms->layout();
         wi.shaderDir = info.shaderDir;
         waterPass_.init(wi);
@@ -184,7 +195,8 @@ void PassChain::init(const InitInfo& info) {
         ii.window = info.window;
         ii.ctx = info.ctx;
         ii.swapchainImageCount = info.swapchain->imageCount();
-        ii.renderPass = mainPass_.renderPass();
+        ii.colorFormat = mainColorFormat;  // PART4 4a-1
+        ii.depthFormat = mainDepthFormat;
         ii.minImageCount = 2;
         imgui_.init(ii);
     }
@@ -217,10 +229,16 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
 }
 
 void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
-                                   uint32_t bloomBaseW, uint32_t bloomBaseH) {
-    // Phase 1H-2: forward new HDR view to MainPass before re-creating framebuffer
+                                   uint32_t bloomBaseW, uint32_t bloomBaseH,
+                                   VkImage hdrColorImage) {
+    // Phase 1H-2 / PART4 4a-1: forward new HDR view + image to MainPass before
+    // its next execute. With dynamic rendering main_pass no longer rebuilds a
+    // framebuffer here.
     if (hdrColorView != VK_NULL_HANDLE) {
         mainPass_.setHdrColorView(hdrColorView);
+    }
+    if (hdrColorImage != VK_NULL_HANDLE) {
+        mainPass_.setHdrColorImage(hdrColorImage);
     }
     mainPass_.onSwapchainResized();
     // Phase 1I: rebuild bloom mip chain at the new base extent FIRST, so its new

@@ -48,6 +48,10 @@ class MainPass {
         // === Phase 1H-2: HDR render target attachment ===
         VkImageView hdrColorView = VK_NULL_HANDLE;
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
+        // PART4 4a-1: dynamic rendering requires the VkImage for the post-pass
+        // COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL transition that
+        // VkRenderPass used to do implicitly via finalLayout.
+        VkImage hdrColorImage = VK_NULL_HANDLE;
         // Phase 1D: bindless texture array set layout (set=1 in bindless pipeline)
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
@@ -114,8 +118,18 @@ class MainPass {
     void execute(const ExecuteInfo& info);
     void onSwapchainResized();
     void setHdrColorView(VkImageView view) { hdrColorView_ = view; }  // Phase 1H-2
+    // PART4 4a-1: dynamic rendering needs the VkImage to issue the post-pass
+    // layout transition that VkRenderPass used to do via finalLayout.
+    void setHdrColorImage(VkImage image) { hdrColorImage_ = image; }
 
-    VkRenderPass renderPass() const { return renderPass_.get(); }
+    // PART4 4a-1: replace VkRenderPass exposure with format accessors. Child
+    // passes (debug_line / hud / particle / water / imgui) need to know which
+    // formats main_pass renders to so their pipelines are
+    // dynamic-rendering compatible via VkPipelineRenderingCreateInfo. 4a-2
+    // will extend hdrColorFormat() to a colorFormats() array (HDR + normal +
+    // motion).
+    VkFormat hdrColorFormat() const { return hdrColorFormat_; }
+    VkFormat depthFormat() const { return depthFormat_; }
 
    private:
     struct PipelineBuildArgs {
@@ -130,11 +144,14 @@ class MainPass {
     VulkanContext* ctx_ = nullptr;
     Swapchain* swapchain_ = nullptr;
 
-    VkUnique<VkRenderPass> renderPass_;
-    // Phase 1H-2: cached HDR target info
+    // PART4 4a-1: VkRenderPass / VkFramebuffer removed. main_pass now uses
+    // Vulkan 1.3 dynamic rendering (vkCmdBeginRendering + VkRenderingInfo).
+    // Pipelines are created with VkPipelineRenderingCreateInfo describing the
+    // attachment formats below.
     VkImageView hdrColorView_ = VK_NULL_HANDLE;
+    VkImage hdrColorImage_ = VK_NULL_HANDLE;
     VkFormat hdrColorFormat_ = VK_FORMAT_UNDEFINED;
-    std::vector<VkUnique<VkFramebuffer>> framebuffers_;
+    VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
 
     VkUnique<VkPipelineLayout> staticLayout_;
     VkUnique<VkPipeline> staticPipelineOpaque_;
@@ -152,7 +169,6 @@ class MainPass {
     VkUnique<VkPipelineLayout> grassLayout_;
     VkUnique<VkPipeline> grassPipeline_;
 
-    void createRenderPass();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                              VkDescriptorSetLayout bindlessSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
@@ -161,6 +177,4 @@ class MainPass {
                               VkDescriptorSetLayout bindlessSetLayout);
     void createGrassLayout(VkDescriptorSetLayout frameSetLayout, VkDescriptorSetLayout bindlessSetLayout);
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
-    void createFramebuffers();
-    void destroyFramebuffers();
 };

@@ -30,7 +30,9 @@ class WaterPipeline {
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
-        VkRenderPass renderPass = VK_NULL_HANDLE;
+        // PART4 4a-1: dynamic rendering — formats instead of VkRenderPass.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout reflectionSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
@@ -51,6 +53,9 @@ class WaterPipeline {
     VkUnique<VkPipelineLayout> layoutWithReflection_;
     VkUnique<VkPipeline> pipelineWithReflection_;
 
-    VkPipeline buildPipeline(VkRenderPass renderPass, VkPipelineLayout layout,
-                              const std::string& shaderDir, const std::string& fragName);
+    VkFormat colorFormat_ = VK_FORMAT_UNDEFINED;
+    VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
+
+    VkPipeline buildPipeline(VkPipelineLayout layout, const std::string& shaderDir,
+                              const std::string& fragName);
 };

@@ -49,7 +49,7 @@ VkDescriptorPool g_descriptorPool = VK_NULL_HANDLE;
 
 void ImGuiLayer::init(const InitInfo& info) {
     if (initialized_) return;
-    if (!info.window || !info.ctx || info.renderPass == VK_NULL_HANDLE) {
+    if (!info.window || !info.ctx || info.colorFormat == VK_FORMAT_UNDEFINED) {
         throw std::runtime_error("ImGuiLayer::init: invalid InitInfo");
     }
 
@@ -105,12 +105,18 @@ void ImGuiLayer::init(const InitInfo& info) {
     ii.PipelineCache = VK_NULL_HANDLE;
     ii.Allocator = nullptr;
     ii.CheckVkResultFn = nullptr;
-    ii.UseDynamicRendering = false;
+    // PART4 4a-1: main_pass uses Vulkan 1.3 dynamic rendering. Hand the
+    // attachment formats to ImGui's pipeline.
+    ii.UseDynamicRendering = true;
 
-    // PipelineInfoMain: 1.92.8 で導入された新フィールド
-    ii.PipelineInfoMain.RenderPass = info.renderPass;
+    ii.PipelineInfoMain.RenderPass = VK_NULL_HANDLE;
     ii.PipelineInfoMain.Subpass = 0;
     ii.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &info.colorFormat;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = info.depthFormat;
 
     if (!ImGui_ImplVulkan_Init(&ii)) {
         vkDestroyDescriptorPool(g_device, g_descriptorPool, nullptr);

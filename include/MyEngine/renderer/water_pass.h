@@ -35,7 +35,9 @@ class WaterPass {
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
-        VkRenderPass mainRenderPass = VK_NULL_HANDLE;
+        // PART4 4a-1: dynamic rendering — formats instead of VkRenderPass.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
     };

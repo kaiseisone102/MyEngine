@@ -37,15 +37,18 @@ constexpr uint16_t kQuadIndices[6] = {
 void ParticlePass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources || !info.swapchain)
         throw std::runtime_error("ParticlePass::init: invalid info");
-    if (info.mainRenderPass == VK_NULL_HANDLE || info.frameSetLayout == VK_NULL_HANDLE)
-        throw std::runtime_error("ParticlePass::init: missing renderPass/frameSetLayout");
+    if (info.colorFormat == VK_FORMAT_UNDEFINED || info.depthFormat == VK_FORMAT_UNDEFINED ||
+        info.frameSetLayout == VK_NULL_HANDLE)
+        throw std::runtime_error("ParticlePass::init: missing format/frameSetLayout");
 
     ctx_ = info.ctx;
     resources_ = info.resources;
     swapchain_ = info.swapchain;
+    colorFormat_ = info.colorFormat;
+    depthFormat_ = info.depthFormat;
 
     createLayout(info.frameSetLayout);
-    createPipeline(info.mainRenderPass, info.shaderDir);
+    createPipeline(info.shaderDir);
     createQuadBuffers();
     createInstanceBuffers();
 }
@@ -69,7 +72,7 @@ void ParticlePass::createLayout(VkDescriptorSetLayout frameSetLayout) {
     layout_ = VkUnique<VkPipelineLayout>(ctx_->device(), lay);
 }
 
-void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& shaderDir) {
+void ParticlePass::createPipeline(const std::string& shaderDir) {
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "particle_vert.spv");
     VkShaderModule frag =
@@ -153,7 +156,15 @@ void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& sh
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4a-1: dynamic rendering.
+    VkFormat colorFormats[1] = {colorFormat_};
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = colorFormats;
+    rci.depthAttachmentFormat = depthFormat_;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 2;
     pci.pStages = stages;
     pci.pVertexInputState = &vi;
@@ -165,8 +176,7 @@ void ParticlePass::createPipeline(VkRenderPass renderPass, const std::string& sh
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &dyn;
     pci.layout = layout_.get();
-    pci.renderPass = renderPass;
-    pci.subpass = 0;
+    pci.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipe = VK_NULL_HANDLE;
     const VkResult r =

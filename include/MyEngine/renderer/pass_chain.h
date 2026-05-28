@@ -52,6 +52,7 @@ class PassChain {
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         // Phase 1H-2: HDR target attachment for MainPass
         VkImageView hdrColorView = VK_NULL_HANDLE;
+        VkImage hdrColorImage = VK_NULL_HANDLE;  // PART4 4a-1: dynamic-rendering layout transition
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         VkSampler hdrColorSampler = VK_NULL_HANDLE;  // Phase 1H-3
         // Phase 1I: compute mip-chain bloom. BloomPass owns its own mip chain;
@@ -105,7 +106,8 @@ class PassChain {
     int lastCullGpuVisible() const { return lastCullGpuVisible_; }
     int lastCullTotal() const { return lastCullTotal_; }
     void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE,
-                            uint32_t bloomBaseW = 0, uint32_t bloomBaseH = 0);  // Phase 1H-2/3 + 1I
+                            uint32_t bloomBaseW = 0, uint32_t bloomBaseH = 0,
+                            VkImage hdrColorImage = VK_NULL_HANDLE);  // Phase 1H-2/3 + 1I + PART4 4a-1
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }

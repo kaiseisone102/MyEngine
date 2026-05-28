@@ -23,7 +23,9 @@ class HudPass {
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         Swapchain* swapchain = nullptr;
-        VkRenderPass mainRenderPass = VK_NULL_HANDLE;
+        // PART4 4a-1: dynamic rendering. See debug_line_pass.h.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         std::string shaderDir;
     };
 

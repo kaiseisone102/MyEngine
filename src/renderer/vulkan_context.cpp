@@ -405,6 +405,7 @@ void VulkanContext::createDevice() {
     vkGetPhysicalDeviceFeatures2(physical_, &supportedFeatures2);
     synchronization2_ = (supportedVk13.synchronization2 == VK_TRUE);
     drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
+    dynamicRendering_ = (supportedVk13.dynamicRendering == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -429,7 +430,8 @@ void VulkanContext::createDevice() {
               << " drawIndirectFirstInstance=" << (drawIndirectFirstInstance_ ? 1 : 0)
               << " synchronization2=" << (synchronization2_ ? 1 : 0)
               << " drawIndirectCount=" << (drawIndirectCount_ ? 1 : 0)
-              << " deviceGeneratedCommands=" << (deviceGeneratedCommands_ ? 1 : 0) << "\n";
+              << " deviceGeneratedCommands=" << (deviceGeneratedCommands_ ? 1 : 0)
+              << " dynamicRendering=" << (dynamicRendering_ ? 1 : 0) << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
@@ -454,9 +456,12 @@ void VulkanContext::createDevice() {
     // Vulkan13 §1 (W): enable synchronization2 when supported. Chained after
     // vk12Features in pNext. Future PART4 4-前-4 / 4b / 4c additions in
     // Vulkan13_Modernization receive their flags here too.
+    // PART4 4a-1: enable dynamicRendering (Vulkan 1.3 core) so main_pass can
+    // drop VkRenderPass / VkFramebuffer in favour of vkCmdBeginRendering.
     VkPhysicalDeviceVulkan13Features vk13Features{};
     vk13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     vk13Features.synchronization2 = synchronization2_ ? VK_TRUE : VK_FALSE;
+    vk13Features.dynamicRendering = dynamicRendering_ ? VK_TRUE : VK_FALSE;
     vk12Features.pNext = &vk13Features;
 
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};

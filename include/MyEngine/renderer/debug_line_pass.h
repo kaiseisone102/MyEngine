@@ -45,7 +45,11 @@ class DebugLinePass {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         Swapchain* swapchain = nullptr;
-        VkRenderPass mainRenderPass = VK_NULL_HANDLE;  // MainPass の renderPass を共有
+        // PART4 4a-1: main_pass uses Vulkan 1.3 dynamic rendering, so we no
+        // longer share a VkRenderPass. The child pipeline is compatible by
+        // matching color and depth attachment formats.
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
     };
@@ -79,9 +83,12 @@ class DebugLinePass {
     std::array<VmaBuffer, FrameSync::MAX_FRAMES_IN_FLIGHT> triVBs_{};
 
     void createLayout(VkDescriptorSetLayout frameSetLayout);
-    void createPipelines(VkRenderPass renderPass, const std::string& shaderDir);
-    VkPipeline buildPipeline(VkRenderPass renderPass, const std::string& shaderDir,
-                              VkPrimitiveTopology topology);
+    // PART4 4a-1: dynamic rendering. Pipelines are built against attachment
+    // formats (not a VkRenderPass).
+    VkFormat colorFormat_ = VK_FORMAT_UNDEFINED;
+    VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
+    void createPipelines(const std::string& shaderDir);
+    VkPipeline buildPipeline(const std::string& shaderDir, VkPrimitiveTopology topology);
     void createVertexBuffers();
     void destroyVertexBuffers();
 };

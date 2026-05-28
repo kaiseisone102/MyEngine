@@ -27,7 +27,8 @@ void WaterPass::init(const InitInfo& info) {
 
     WaterPipeline::InitInfo pi{};
     pi.ctx = info.ctx;
-    pi.renderPass = info.mainRenderPass;
+    pi.colorFormat = info.colorFormat;
+    pi.depthFormat = info.depthFormat;
     pi.frameSetLayout = info.frameSetLayout;
     pi.reflectionSetLayout = reflectionLayout_.get();
     pi.shaderDir = info.shaderDir;
