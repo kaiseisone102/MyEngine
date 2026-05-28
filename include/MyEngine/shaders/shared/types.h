@@ -289,27 +289,35 @@ struct CullObject {
 };
 
 // -----------------------------------------------------------------------------
-// HizParams: PART4 4c-B - per-dispatch parameter block for cull.comp's
+// HizParams: PART4 4c-B / 4c-C - per-dispatch parameter block for cull.comp's
 //   two-pass HZB occlusion test. CullingPass uploads one slot per (frame,
 //   pass) into a host-mapped BDA buffer; cull.comp pulls it via the
-//   hizParamsAddr push constant. Pass1 carries the previous-frame HZB info
-//   (mipCount/mip0 dims of pyramid(prevFrameIndex)); pass2 carries the
-//   current-frame info (pyramid(currentFrameIndex)). The sampler + HZB
-//   imageView itself is bound through descriptor set 1 (4c-C); only the
-//   "which test to run + what mip-chain shape" lives here.
+//   hizParamsAddr push constant. Pass1 (passIndex=1) carries the previous
+//   frame's HZB mip-chain shape, pass2 (passIndex=2) carries the current
+//   frame's. The sampler + HZB imageView is bound through descriptor set 1
+//   (CullingPass set 1); only the "which test to run + mip-chain shape +
+//   visibility-history pointer" lives here.
 //
 // Reverse-Z convention is hard-coded in cull.comp (the engine is reverse-Z
 // engine-wide since 4-前-0); we therefore don't carry a reverseZ flag.
 //
-// Layout (std430, 16-byte aligned, no BDA inside so one definition works for
-// both C++ and GLSL):
-//   mat4(64) + vec4(16) + uvec4(16) = 96 bytes.
+// PART4 4c-C: visHistoryAddr is a BDA to the persistent per-CullObject
+// visibility bitmap (1 bit per drawId). Pass1 READS it as "was visible last
+// frame" -> renders those again; pass2 reads it to skip pass1's set AND
+// writes the new visibility for next frame. The buffer is separate from the
+// per-dispatch scan-predicate visBuf (which is overwritten each pass).
+//
+// Layout (std430, 16-byte aligned, no BDA inside the struct definition's
+// numeric layout - visHistoryAddr is just two uints):
+//   mat4(64) + vec4(16) + uvec4(16) + uvec4(16) = 112 bytes.
 // -----------------------------------------------------------------------------
 struct HizParams {
-    mat4  viewProj;          // 0..63   - clip-space transform for AABB / sphere projection
-    vec4  invViewportSize;   // 64..79  - x=1/W, y=1/H, z=W, w=H (full screen, pixels)
-    uvec4 hizInfo;           // 80..95  - x=mipCount, y=mip0W, z=mip0H,
-                             //           w=passIndex (1 = legacy/pass1 / 2 = pass2 with HZB)
+    mat4  viewProj;          //  0.. 63  - clip-space transform for AABB / sphere projection
+    vec4  invViewportSize;   // 64.. 79  - x=1/W, y=1/H, z=W, w=H (full screen, pixels)
+    uvec4 hizInfo;           // 80.. 95  - x=mipCount, y=mip0W, z=mip0H,
+                             //             w=passIndex (1 = pass1 / 2 = pass2 with HZB)
+    uvec4 visHistoryAddr;    // 96..111  - xy=BDA of persistent visHistory (bit-packed),
+                             //             zw=reserved (future: pass1 HZB BDA for Tier 1 alpha)
 };
 
 // -----------------------------------------------------------------------------

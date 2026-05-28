@@ -50,6 +50,7 @@ void CullingPass::init(const InitInfo& info) {
     ctx_ = info.ctx;
     dq_ = info.deletionQueue;
     createBuffers(INITIAL_CAPACITY, INITIAL_BLOCKS);
+    createHizDescriptorInfra();  // PART4 4c-C: set 0 HZB samplers for cull.comp
     createPipelines(info.shaderDir);
 }
 
@@ -89,6 +90,16 @@ void CullingPass::createBuffers(uint32_t capacity, uint32_t blockCount) {
         o.workgroupTotals = VmaBuffer::createDeviceLocal(
             ctx_, wgTotalsBytes,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        // PART4 4c-C: persistent per-CullObject visibility history. Lazy-
+        // zeroed on first execute() per set (visHistoryInitialized = false).
+        // TRANSFER_DST so vkCmdFillBuffer can zero it; STORAGE + BDA so
+        // cull.comp can read/write via buffer_reference.
+        o.visHistory = VmaBuffer::createDeviceLocal(
+            ctx_, static_cast<VkDeviceSize>(visWordsFor(capacity)) * sizeof(uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        o.visHistoryInitialized = false;
     }
 
     // Per-frame staging + per-frame template (4-前-3 layout, shared across sets).
@@ -123,6 +134,8 @@ void CullingPass::destroyBuffersToDeletionQueue() {
         enqueue(o.countBuf1);
         enqueue(o.countBuf2);
         enqueue(o.workgroupTotals);
+        enqueue(o.visHistory);  // PART4 4c-C
+        o.visHistoryInitialized = false;  // new buffer needs re-zero on next execute()
     }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         enqueue(cullStaging_[i]);
@@ -185,7 +198,8 @@ VkUnique<VkPipeline> CullingPass::createComputePipeline(const std::string& spvPa
 }
 
 void CullingPass::createPipelines(const std::string& shaderDir) {
-    cullLayout_        = createComputePipelineLayout<CullPC>();
+    // PART4 4c-C: cull.comp uses set 0 = HZB samplers; scan_* stay BDA-only.
+    cullLayout_        = createCullPipelineLayout();
     scanLocalLayout_   = createComputePipelineLayout<ScanLocalPC>();
     scanGlobalsLayout_ = createComputePipelineLayout<ScanGlobalsPC>();
     scanScatterLayout_ = createComputePipelineLayout<ScanScatterPC>();
@@ -194,6 +208,112 @@ void CullingPass::createPipelines(const std::string& shaderDir) {
     scanLocalPipe_   = createComputePipeline(shaderDir + "/scan_local_comp.spv",   scanLocalLayout_.get());
     scanGlobalsPipe_ = createComputePipeline(shaderDir + "/scan_globals_comp.spv", scanGlobalsLayout_.get());
     scanScatterPipe_ = createComputePipeline(shaderDir + "/scan_scatter_comp.spv", scanScatterLayout_.get());
+}
+
+VkUnique<VkPipelineLayout> CullingPass::createCullPipelineLayout() {
+    // PART4 4c-C: cull pipeline layout = 1 push-constant range + 1 descriptor
+    // set (set 0 = HZB samplers). cull.comp samples set=0 binding=0 (hzbPrev)
+    // / binding=1 (hzbCurr). Pass1 doesn't sample (descriptor binding still
+    // bound but unread - safe per Vulkan spec). Pass2 samples binding=1.
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pc.offset = 0;
+    pc.size = sizeof(CullPC);
+
+    VkDescriptorSetLayout sets[1] = {hizSetLayout_.get()};
+
+    VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    li.setLayoutCount = 1;
+    li.pSetLayouts = sets;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges = &pc;
+    VkPipelineLayout pl = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(ctx_->device(), &li, nullptr, &pl) != VK_SUCCESS)
+        throw std::runtime_error("CullingPass: vkCreatePipelineLayout (cull) failed");
+    return VkUnique<VkPipelineLayout>(ctx_->device(), pl);
+}
+
+void CullingPass::createHizDescriptorInfra() {
+    // PART4 4c-C: set layout = 2 combined image samplers in COMPUTE.
+    VkDescriptorSetLayoutBinding b[2]{};
+    b[0].binding = 0;
+    b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b[0].descriptorCount = 1;
+    b[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    b[1] = b[0];
+    b[1].binding = 1;
+
+    VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    li.bindingCount = 2;
+    li.pBindings = b;
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(ctx_->device(), &li, nullptr, &layout) != VK_SUCCESS)
+        throw std::runtime_error("CullingPass: vkCreateDescriptorSetLayout (HZB) failed");
+    hizSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), layout);
+
+    // Pool: 2 sets * 2 samplers each = 4 combined image samplers total.
+    VkDescriptorPoolSize ps{};
+    ps.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    ps.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
+    VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pi.maxSets = MAX_FRAMES_IN_FLIGHT;
+    pi.poolSizeCount = 1;
+    pi.pPoolSizes = &ps;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(ctx_->device(), &pi, nullptr, &pool) != VK_SUCCESS)
+        throw std::runtime_error("CullingPass: vkCreateDescriptorPool (HZB) failed");
+    hizDescPool_ = VkUnique<VkDescriptorPool>(ctx_->device(), pool);
+
+    // Allocate one set per FIF; descriptors written lazily per dispatch.
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
+    for (auto& l : layouts) l = hizSetLayout_.get();
+    VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    ai.descriptorPool = hizDescPool_.get();
+    ai.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    ai.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(ctx_->device(), &ai, hizDescSet_.data()) != VK_SUCCESS)
+        throw std::runtime_error("CullingPass: vkAllocateDescriptorSets (HZB) failed");
+}
+
+void CullingPass::updateHizDescriptors(uint32_t frame, const ExecuteInfo& info) {
+    if (frame >= MAX_FRAMES_IN_FLIGHT) return;
+    // The descriptor set is REQUIRED by the pipeline layout, but cull.comp's
+    // pass1 path never samples it. Fall back to hizCurrView for both bindings
+    // when hizPrevView is null (e.g., first frame); fall back to a dummy
+    // self-bind when hizCurrView is also null (very first dispatch before
+    // HiZPass has run). The samplers must be non-null - pass_chain always
+    // provides hizSampler = HiZPass.minReductionSampler() once HiZPass.init
+    // has succeeded.
+    if (info.hizSampler == VK_NULL_HANDLE) return;  // can't update; layout requires both
+    VkImageView prev = info.hizPrevView != VK_NULL_HANDLE ? info.hizPrevView : info.hizCurrView;
+    VkImageView curr = info.hizCurrView != VK_NULL_HANDLE ? info.hizCurrView : info.hizPrevView;
+    if (prev == VK_NULL_HANDLE || curr == VK_NULL_HANDLE) return;  // nothing to bind
+
+    VkDescriptorImageInfo dii[2]{};
+    dii[0].sampler = info.hizSampler;
+    dii[0].imageView = prev;
+    dii[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    dii[1].sampler = info.hizSampler;
+    dii[1].imageView = curr;
+    dii[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet w[2]{};
+    w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[0].dstSet = hizDescSet_[frame];
+    w[0].dstBinding = 0;
+    w[0].descriptorCount = 1;
+    w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &dii[0];
+    w[1] = w[0];
+    w[1].dstBinding = 1;
+    w[1].pImageInfo = &dii[1];
+    vkUpdateDescriptorSets(ctx_->device(), 2, w, 0, nullptr);
+}
+
+VkDeviceAddress CullingPass::visHistoryAddress(CullSet set) const {
+    const size_t i = static_cast<size_t>(set);
+    if (i >= kNumCullSets) return 0;
+    return cullOutputs_[i].visHistory.deviceAddress();
 }
 
 void CullingPass::shutdown() {
@@ -214,7 +334,13 @@ void CullingPass::shutdown() {
         o.countBuf1.reset();
         o.countBuf2.reset();
         o.workgroupTotals.reset();
+        o.visHistory.reset();          // PART4 4c-C
+        o.visHistoryInitialized = false;
     }
+    // PART4 4c-C: HZB descriptor infra (sets are pool-owned and freed by pool reset).
+    for (auto& s : hizDescSet_) s = VK_NULL_HANDLE;
+    hizDescPool_.reset();
+    hizSetLayout_.reset();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         cullStaging_[i].reset();
         cmdBuf_[i].reset();
@@ -303,12 +429,21 @@ void CullingPass::execute(const ExecuteInfo& info) {
         }
     }
 
+    // PART4 4c-C: pass1 writes compactCmd1 + countBuf1; pass2 writes
+    // compactCmd2 + countBuf2. Pick the active output set once and use it
+    // throughout the scan_compact + final-barrier blocks below.
+    const bool isPass2 = (info.passIndex == 2);
+    VmaBuffer&            activeCompact = isPass2 ? outs.compactCmd2 : outs.compactCmd1;
+    VmaBuffer&            activeCount   = isPass2 ? outs.countBuf2   : outs.countBuf1;
+
     // 2) Stage -> device-local copy of the shared CullObject input (skipped
-    //    when an earlier cull set this frame already did it). Zero-fill THIS
-    //    set's compactCmd1 so the Legacy indirect_exec fallback gets
-    //    instanceCount = 0 on slots scan_scatter does not populate.
+    //    when an earlier cull set this frame already did it). Zero-fill the
+    //    ACTIVE compactCmd so the Legacy indirect_exec fallback gets
+    //    instanceCount = 0 on slots scan_scatter does not populate. Lazy-
+    //    zero visHistory on first dispatch ever per CullSet (4c-C).
+    const bool needVisHistoryInit = !outs.visHistoryInitialized;
     {
-        barrier::BufferBarrier transferToCompute[2];
+        barrier::BufferBarrier transferToCompute[3];
         uint32_t nb = 0;
         if (!info.inputAlreadyUploaded) {
             VkBufferCopy region{};
@@ -324,16 +459,42 @@ void CullingPass::execute(const ExecuteInfo& info) {
                 .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
             };
         }
-        vkCmdFillBuffer(info.cmd, outs.compactCmd1.buffer(), 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(info.cmd, activeCompact.buffer(), 0, VK_WHOLE_SIZE, 0);
         transferToCompute[nb++] = barrier::BufferBarrier{
-            .buffer = outs.compactCmd1.buffer(),
+            .buffer = activeCompact.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_CLEAR_BIT,
             .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .dstAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
         };
+        if (needVisHistoryInit) {
+            // PART4 4c-C: zero visHistory once so frame 1's pass1 reads
+            // "all invisible" -> draws nothing -> pass2 covers everything.
+            vkCmdFillBuffer(info.cmd, outs.visHistory.buffer(), 0, VK_WHOLE_SIZE, 0);
+            transferToCompute[nb++] = barrier::BufferBarrier{
+                .buffer = outs.visHistory.buffer(),
+                .srcStage  = VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccess = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            };
+            outs.visHistoryInitialized = true;
+        }
         barrier::recordBatch(*ctx_, info.cmd, {},
                               std::span<const barrier::BufferBarrier>{transferToCompute, nb}, {});
+    }
+
+    // PART4 4c-C: update + bind HZB descriptor set 0 for cull.comp. The
+    // pipeline layout always requires this set, even when pass1 doesn't
+    // sample (validation only complains about ACCESSED descriptors). Skip
+    // the update + bind only when the caller didn't provide a sampler
+    // (HiZPass not initialized yet) - in that case the set's contents are
+    // undefined but cull.comp avoids the sample path (pass1) or pass_chain
+    // skips the pass2 dispatch entirely.
+    if (info.hizSampler != VK_NULL_HANDLE) {
+        updateHizDescriptors(frame, info);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                  cullLayout_.get(), 0, 1, &hizDescSet_[frame], 0, nullptr);
     }
 
     // 3) Dispatch cull.comp: write THIS set's visBuf bit per drawId.
@@ -346,11 +507,15 @@ void CullingPass::execute(const ExecuteInfo& info) {
         pcs.cullAddr   = packAddr(cullBuf_.deviceAddress());
         pcs.visAddr    = packAddr(outs.visBuf.deviceAddress());
         pcs.objectCount = count;
-        // PART4 4c-B receptacle: hizParamsAddr stays at (0, 0) so cull.comp's
-        // pass2 / HZB branch (dead code today) is never entered. 4c-C will set
-        // this from CullingPass::hizParamsAddress(frame, passIndex) when
-        // pass_chain dispatches the two-pass orchestration.
-        pcs.hizParamsAddr = glm::uvec2(0u, 0u);
+        // PART4 4c-C: route cull.comp to its pass1 / pass2 branch ONLY when
+        // the caller explicitly opted in via twoPassEnabled. Set 0 (HZB
+        // samplers) may still be bound above for layout compatibility - this
+        // gate is what the shader's main() checks to decide whether to use
+        // the two-pass logic or fall through to its legacy frustum+cone
+        // predicate.
+        pcs.hizParamsAddr = (info.twoPassEnabled && info.hizSampler != VK_NULL_HANDLE)
+            ? packAddr(hizParamsAddress(frame, info.passIndex))
+            : glm::uvec2(0u, 0u);
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cullPipe_.get());
         vkCmdPushConstants(info.cmd, cullLayout_.get(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(CullPC), &pcs);
@@ -368,8 +533,9 @@ void CullingPass::execute(const ExecuteInfo& info) {
     const VkDeviceAddress visAddr     = outs.visBuf.deviceAddress();
     const VkDeviceAddress wgTotAddr   = outs.workgroupTotals.deviceAddress();
     const VkDeviceAddress cmdTplAddr  = cmdBuf_[frame].deviceAddress();
-    const VkDeviceAddress compactAddr = outs.compactCmd1.deviceAddress();
-    const VkDeviceAddress countAddr   = outs.countBuf1.deviceAddress();
+    // PART4 4c-C: scatter to compactCmd1/2 + countBuf1/2 based on passIndex.
+    const VkDeviceAddress compactAddr = activeCompact.deviceAddress();
+    const VkDeviceAddress countAddr   = activeCount.deviceAddress();
 
     uint32_t wgCursor = 0;  // running offset into workgroupTotalsBuf_
     for (uint32_t i = 0; i < info.blockRangeCount; ++i) {
@@ -438,17 +604,18 @@ void CullingPass::execute(const ExecuteInfo& info) {
         wgCursor += numWgs;
     }
 
-    // 5) Final barrier: compactCmd + countBuf -> DRAW_INDIRECT read.
+    // 5) Final barrier: compactCmd + countBuf -> DRAW_INDIRECT read (pass1
+    // or pass2's slot, picked by activeCompact/activeCount above).
     const barrier::BufferBarrier batched[2] = {
         {
-            .buffer = outs.compactCmd1.buffer(),
+            .buffer = activeCompact.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
             .dstAccess = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
         },
         {
-            .buffer = outs.countBuf1.buffer(),
+            .buffer = activeCount.buffer(),
             .srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccess = VK_ACCESS_2_SHADER_WRITE_BIT,
             .dstStage  = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,

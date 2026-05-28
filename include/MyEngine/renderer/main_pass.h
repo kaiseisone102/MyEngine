@@ -66,6 +66,19 @@ class MainPass {
         std::string shaderDir;
     };
 
+    // PART4 4c-C: two-pass orchestration. Single = legacy / shadow / today's
+    // single MainPass.execute (opaque CLEAR + non-opaque draws). FirstOpaque
+    // = pass1 of the two-pass occlusion sequence (opaque CLEAR, SKIP non-
+    // opaque; depth + GBuffer attachments stay in COLOR/DEPTH_ATTACHMENT
+    // afterwards). SecondAndNonOpaque = pass2 (opaque LOAD, then non-opaque
+    // section as Single does, then the post-pass barrier handoff to
+    // OverlayPass).
+    enum class Pass : uint32_t {
+        Single = 0,
+        FirstOpaque = 1,
+        SecondAndNonOpaque = 2,
+    };
+
     struct ExecuteInfo {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         uint32_t imageIndex = 0;
@@ -77,6 +90,10 @@ class MainPass {
         // Phase 1B-4b: BDA address for skin matrices (parallel to skinSet, replaces it in 1B-4c)
         VkDeviceAddress skinAddress = 0;
         const Mesh* mesh = nullptr;
+        // PART4 4c-C: see Pass enum above. pass_chain uses Single for the
+        // legacy / not-yet-two-pass path, FirstOpaque/SecondAndNonOpaque
+        // when running cull pass1 + pass2 on different opaque batches.
+        Pass pass = Pass::Single;
 
         glm::vec4 clearColor{0.4f, 0.6f, 0.9f, 1.0f};
 

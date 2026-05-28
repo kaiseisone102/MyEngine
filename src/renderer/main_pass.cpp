@@ -388,32 +388,39 @@ void MainPass::execute(const ExecuteInfo& info) {
     };
     barrier::recordBatch(*ctx_, info.cmd, {}, {}, toAttach);
 
+    // PART4 4c-C: pass2 (SecondAndNonOpaque) reuses pass1's color + depth
+    // contents instead of clearing - opaqueLoadOp/depthLoadOp switch to LOAD.
+    // Pass1 (FirstOpaque) and Single both CLEAR.
+    const VkAttachmentLoadOp opaqueLoadOp =
+        (info.pass == Pass::SecondAndNonOpaque) ? VK_ATTACHMENT_LOAD_OP_LOAD
+                                                : VK_ATTACHMENT_LOAD_OP_CLEAR;
+
     // ─── BeginRendering #1: opaque MRT (HDR + normal + motion + depth) ─
     VkRenderingAttachmentInfo opaqueColorAtts[3]{};
     opaqueColorAtts[0].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     opaqueColorAtts[0].imageView = hdrColorView_;
     opaqueColorAtts[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    opaqueColorAtts[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[0].loadOp = opaqueLoadOp;
     opaqueColorAtts[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     opaqueColorAtts[0].clearValue.color = {
         {info.clearColor.r, info.clearColor.g, info.clearColor.b, info.clearColor.a}};
     opaqueColorAtts[1].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     opaqueColorAtts[1].imageView = normalView_;
     opaqueColorAtts[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    opaqueColorAtts[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[1].loadOp = opaqueLoadOp;
     opaqueColorAtts[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     opaqueColorAtts[1].clearValue.color = {{0.5f, 0.5f, 1.0f, 0.0f}};  // octahedral 0 = up
     opaqueColorAtts[2].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     opaqueColorAtts[2].imageView = motionView_;
     opaqueColorAtts[2].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    opaqueColorAtts[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[2].loadOp = opaqueLoadOp;
     opaqueColorAtts[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     opaqueColorAtts[2].clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
 
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = swapchain_->depthView();
     depthAtt.imageLayout = depth_layouts::attachment(*ctx_);
-    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.loadOp = opaqueLoadOp;  // PART4 4c-C: LOAD on SecondAndNonOpaque
     depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;  // 4a-2: HZB / HUD will sample
     depthAtt.clearValue.depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)
 
@@ -606,6 +613,14 @@ void MainPass::execute(const ExecuteInfo& info) {
     // PassChain's OverlayPass step, nothing in this scope samples the
     // GBuffer attachments. HDR + depth carry through via loadOp=LOAD.
     vkCmdEndRendering(info.cmd);
+
+    // PART4 4c-C: pass1 (FirstOpaque) stops here. pass2 (SecondAndNonOpaque)
+    // will re-enter execute() with opaqueLoadOp = LOAD, draw the second
+    // batch into the same HDR / depth attachments, then run the non-opaque
+    // section + the post-pass GBuffer transition below. Single is unchanged
+    // (it falls through to the non-opaque section and the post-pass barrier
+    // immediately).
+    if (info.pass == Pass::FirstOpaque) return;
 
     VkRenderingAttachmentInfo nonOpaqueColorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     nonOpaqueColorAtt.imageView = hdrColorView_;

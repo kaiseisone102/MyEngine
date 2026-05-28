@@ -455,6 +455,11 @@ void PassChain::recordFrame(const RecordInfo& info) {
     }
 
     // ─── 2.6 CullingPass (Phase 2B): GPU frustum cull BEFORE MainPass ──
+    // PART4 4c-C: idempotent UNDEFINED -> GENERAL on every per-frame HZB
+    // pyramid slot so cull.comp can bind the HZB descriptor set 0 in pass1
+    // before HiZPass.execute() has run for this slot. No-op after the first
+    // kMaxFramesInFlight frames.
+    hizPass_.ensureAllSlotsInGeneral(info.cmd);
     {
         CullingPass::ExecuteInfo ce{};
         ce.cmd = info.cmd;
@@ -467,12 +472,24 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.inputAlreadyUploaded = false;
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
         ce.viewPos  = glm::vec3(info.normalLighting.viewPos);   // PART4 4-前-2: cone test
+        // PART4 4c-C: bind HZB descriptor set 0 (cullLayout_ now requires it).
+        // twoPassEnabled stays FALSE here so cull.comp falls through to its
+        // legacy frustum+cone predicate. Flipping twoPassEnabled = true plus
+        // wiring the FirstOpaque / SecondAndNonOpaque MainPass split (PART4
+        // 4c-D) activates the actual two-pass occlusion.
+        ce.hizSampler  = hizPass_.minReductionSampler();
+        ce.hizPrevView = hizPass_.previousPyramidView(info.frameIndex);
+        ce.hizCurrView = hizPass_.pyramidView(info.frameIndex);
+        ce.twoPassEnabled = false;
+        ce.passIndex = 1;
         cullingPass_.execute(ce);
 
         // PART4 4-前-5: second cull dispatch into the Shadow set. Same
         // CullObject input (already on-device from the Camera pass) - we only
         // re-run cull + scan with the light's view-projection so shadow_pass
-        // can read its own compactCmd / countBuf.
+        // can read its own compactCmd / countBuf. HZB sampler still bound
+        // (layout requirement); twoPassEnabled stays false (shadow two-pass
+        // is a future Phase per the design doc).
         ce.set = CullingPass::CullSet::Shadow;
         ce.inputAlreadyUploaded = true;
         ce.viewProj = info.normalLighting.lightVP;

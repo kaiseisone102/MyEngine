@@ -31,14 +31,42 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisBuffer {
     uint words[];
 };
 
-// PART4 4c-B: HizParams BDA (see shared/types.h). cull.comp 4c-C reads
-// viewProj + viewport + HZB mip-chain info from here when running pass2.
-// Today this binding is DEAD CODE - pc.hizParamsAddr is left as (0,0) by
-// CullingPass::execute, and the pass2 branch (which would dereference this)
-// is unreachable from the legacy path.
+// PART4 4c-B / 4c-C: HizParams BDA (see shared/types.h). Pass1 / pass2
+// dereference this for viewProj + viewport + HZB mip-chain info + the
+// visHistory BDA. CullingPass leaves pc.hizParamsAddr = (0,0) only when the
+// caller did NOT supply a HZB sampler (HiZPass not initialized yet, or
+// Shadow set today); main() short-circuits to the legacy frustum+cone path
+// in that case.
 layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer HizParamsBuffer {
     HizParams params;
 };
+
+// PART4 4c-C: persistent visibility history (1 bit per drawId, bit-packed).
+// Pass1 READS it to decide what to redraw; pass2 READS to skip pass1's set
+// AND WRITES the new visibility for next frame. BDA pulled from
+// HizParams.visHistoryAddr.xy so the same struct carries everything cull.comp
+// needs per dispatch.
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisHistoryBuffer {
+    uint words[];
+};
+
+// PART4 4c-C: HZB pyramid samplers (combined image samplers, set 0).
+//   binding 0 = pyramid of PREVIOUS frame (Tier 1 alpha receptacle - cull.comp
+//     does not sample it today but the descriptor is kept bound so the
+//     pipeline layout matches and a future asymmetric pass1 upgrade only
+//     needs to call hzbOccluded(hzbPrev, ...) without re-plumbing).
+//   binding 1 = pyramid of CURRENT frame (built by HiZPass.execute right
+//     before pass2 cull). cull.comp pass2 samples this for the AABB
+//     occlusion test.
+// Sampler reduction mode = MIN when samplerFilterMinmax is supported (1-tap
+// returns the min of the 2x2 footprint = conservative occluder under
+// reverse-Z); otherwise it's a plain NEAREST sampler and we do 4 fetches.
+// cull.comp can't query the reduction mode from GLSL, so the C++ side
+// embeds the choice as a spec const... TODO: for now we assume 4-tap is
+// always safe (it gives the same answer as the 1-tap MIN fast path; the
+// fast path is just cheaper). Phase 4d will add a spec const + branch.
+layout(set = 0, binding = 0) uniform sampler2D hzbPrev;
+layout(set = 0, binding = 1) uniform sampler2D hzbCurr;
 
 // PART4 4-前-4 + 4c-B: push constant grows to 144 B std430.
 //   planes[6] (96) + viewPos (16) + cullAddr (8) + visAddr (8) +
@@ -148,6 +176,43 @@ int mipFromScreenSize(vec4 uvBounds, uvec2 hizMip0Dims, uint mipCount) {
     return mip;
 }
 
+// PART4 4c-C: sample the HZB at the AABB's 4 footprint corners and take the
+// MIN of the .r (= per-region farthest opaque depth under reverse-Z). The MIN
+// across the 4 sub-regions is the conservative occluder for the whole
+// footprint: occluded only when the object is behind the FURTHEST opaque
+// pixel in EVERY sub-region. With samplerFilterMinmax + reductionMode=MIN
+// one fetch returns the min of the 2x2 footprint; we always do 4 fetches
+// here for portability (the SPV optimizer collapses redundant taps on
+// devices where the reduction sampler is in force - cheap either way).
+float hzbSampleMinR(sampler2D pyramid, vec4 uvBounds, int mip) {
+    vec2 uv00 = vec2(uvBounds.x, uvBounds.y);
+    vec2 uv10 = vec2(uvBounds.z, uvBounds.y);
+    vec2 uv01 = vec2(uvBounds.x, uvBounds.w);
+    vec2 uv11 = vec2(uvBounds.z, uvBounds.w);
+    float s00 = textureLod(pyramid, uv00, float(mip)).r;
+    float s10 = textureLod(pyramid, uv10, float(mip)).r;
+    float s01 = textureLod(pyramid, uv01, float(mip)).r;
+    float s11 = textureLod(pyramid, uv11, float(mip)).r;
+    return min(min(s00, s10), min(s01, s11));
+}
+
+// PART4 4c-C: combined AABB occlusion test under reverse-Z.
+//   true  = object is behind the conservative occluder in EVERY sub-region
+//   false = some sub-region could still show the object (visible)
+// h carries viewProj + viewport + HZB mip-chain shape.
+bool hzbOccluded(sampler2D pyramid, HizParams h, vec3 center, vec3 halfExtent) {
+    float maxReverseZ;
+    vec4 uvBounds = aabbScreenBounds(h.viewProj, center, halfExtent, maxReverseZ);
+    // aabbScreenBounds returns vec4(0,0,1,1) + maxReverseZ=1 when the AABB
+    // straddles the near plane - same as "object is at the camera" and we
+    // bail to visible (the MIN sample then would yield a fairly small value,
+    // and 1.0 > that, so the test naturally returns "not occluded"). The
+    // near-clip safety doubles as anti-popping for objects entering the view.
+    int mip = mipFromScreenSize(uvBounds, h.hizInfo.yz, h.hizInfo.x);
+    float occluderReverseZ = hzbSampleMinR(pyramid, uvBounds, mip);
+    return maxReverseZ < occluderReverseZ;
+}
+
 // PART4 4-前-3: write one drawId's bit. atomicOr / atomicAnd because 32 drawIds
 // share each uint32 word and threads addressing the same word must not race.
 void writeVis(VisBuffer vis, uint drawId, bool visible) {
@@ -155,6 +220,22 @@ void writeVis(VisBuffer vis, uint drawId, bool visible) {
     uint mask = 1u << (drawId & 31u);
     if (visible) atomicOr (vis.words[word],  mask);
     else         atomicAnd(vis.words[word], ~mask);
+}
+
+// PART4 4c-C: write one bit into a generic BDA bit-packed buffer (visBuf or
+// visHistory). Uses atomicOr/atomicAnd because 32 drawIds share each uint32
+// word.
+void writeVisHistoryBit(VisHistoryBuffer h, uint drawId, bool value) {
+    uint word = drawId >> 5;
+    uint mask = 1u << (drawId & 31u);
+    if (value) atomicOr (h.words[word],  mask);
+    else       atomicAnd(h.words[word], ~mask);
+}
+
+bool readVisHistoryBit(VisHistoryBuffer h, uint drawId) {
+    uint word = drawId >> 5;
+    uint mask = 1u << (drawId & 31u);
+    return (h.words[word] & mask) != 0u;
 }
 
 void main() {
@@ -167,13 +248,57 @@ void main() {
     CullObject o = objs.objects[id];
     vec3  center       = o.centerRadius.xyz;
     float radius       = o.centerRadius.w;
+    vec3  halfExtent   = o.extentDrawId.xyz;
     uint  drawId       = uint(o.extentDrawId.w);
     vec3  coneApex     = o.coneApexCutoff.xyz;
     float cosHalfAngle = o.coneApexCutoff.w;
     vec3  coneAxis     = o.coneAxisLodBias.xyz;
 
-    bool visible = sphereVisible(center, radius)
-                && coneVisible(coneApex, coneAxis, cosHalfAngle, pc.viewPos.xyz);
+    // Cheap frustum + cone reject. Both passes evaluate this; pass2 only
+    // pays the HZB cost if it passes.
+    bool frustumCone = sphereVisible(center, radius)
+                    && coneVisible(coneApex, coneAxis, cosHalfAngle, pc.viewPos.xyz);
 
-    writeVis(vis, drawId, visible);
+    // PART4 4c-C: branch on passIndex carried via HizParams. When
+    // hizParamsAddr is null (CullingPass didn't supply a HZB sampler -
+    // legacy single-pass call site or Shadow set), fall through to the
+    // legacy frustumCone predicate without any HZB read or visHistory
+    // touch.
+    if (pc.hizParamsAddr == uvec2(0u, 0u)) {
+        writeVis(vis, drawId, frustumCone);
+        return;
+    }
+
+    HizParamsBuffer  hb       = HizParamsBuffer(pc.hizParamsAddr);
+    HizParams        h        = hb.params;
+    uint             passIdx  = h.hizInfo.w;
+    VisHistoryBuffer history  = VisHistoryBuffer(h.visHistoryAddr.xy);
+    bool             prevVis  = readVisHistoryBit(history, drawId);
+
+    if (passIdx == 1u) {
+        // PASS 1 (cheap re-draw of last frame's visible set): draw items
+        // that were visible last frame AND are still in frustum. visHistory
+        // is not updated here; pass2 owns the writeback so the new value
+        // reflects this frame's full visibility check (Granite 2024 two-
+        // phase). Tier 1 alpha would add: && !hzbOccluded(hzbPrev, h, ...)
+        // here to early-cull items now hidden behind last frame's depth -
+        // the descriptor binding is already in place for that upgrade.
+        writeVis(vis, drawId, prevVis && frustumCone);
+    } else {
+        // PASS 2 (catch newly-visible against the just-built HZB): only
+        // draw what passes the current frame's occlusion test AND was NOT
+        // already drawn by pass1.
+        bool occluded = false;
+        if (frustumCone) {
+            occluded = hzbOccluded(hzbCurr, h, center, halfExtent);
+        }
+        bool visibleThisFrame = frustumCone && !occluded;
+        // drewByPass1: re-derive pass1's predicate (cheap - no HZB sample
+        // needed because pass1 doesn't use HZB in the design-doc spec).
+        bool drewByPass1 = prevVis && frustumCone;
+        bool drawInPass2 = visibleThisFrame && !drewByPass1;
+        writeVis(vis, drawId, drawInPass2);
+        // Writeback the new visibility for next frame's pass1.
+        writeVisHistoryBit(history, drawId, visibleThisFrame);
+    }
 }

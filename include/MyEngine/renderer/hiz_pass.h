@@ -93,6 +93,14 @@ class HiZPass {
     void onSwapchainResized(const InitInfo& info);
     void execute(const ExecuteInfo& info);
 
+    // PART4 4c-C: idempotent UNDEFINED -> GENERAL transition for every per-
+    // frame pyramid slot. pass_chain calls this at the very start of frame
+    // recording so cull.comp's pass1 dispatch (which binds the HZB
+    // descriptor set BEFORE HiZPass.execute() has run) doesn't trip
+    // validation on a pyramid still in UNDEFINED. After the first execute()
+    // per slot it's a no-op (pyramidInited is sticky).
+    void ensureAllSlotsInGeneral(VkCommandBuffer cmd);
+
     // Accessors for downstream consumers (4c cull.comp, 4b debug widget).
     // The sampled view covers the full mip chain; samplers should use a
     // LINEAR_MIPMAP_NEAREST or NEAREST sampler depending on cull semantics.
@@ -130,6 +138,19 @@ class HiZPass {
         return mips[mip < mips.size() ? mip : mips.size() - 1].get();
     }
     VkSampler pyramidSampler() const { return pyramidSampler_.get(); }
+    // PART4 4c-C: separate sampler for the cull.comp HZB occlusion fetch.
+    // When samplerFilterMinmax (Vulkan 1.2 core) is supported on the device,
+    // this is built with VK_SAMPLER_REDUCTION_MODE_MIN so a single
+    // textureLod() returns the min of the 2x2 footprint - the conservative
+    // occluder under reverse-Z (.r channel of the pyramid). Otherwise it's
+    // a plain NEAREST sampler and cull.comp falls back to a 4-tap manual
+    // reduction. Only use this sampler from cull.comp; the debug viewer
+    // should keep pyramidSampler() so it sees raw mip values.
+    VkSampler minReductionSampler() const { return minReductionSampler_.get(); }
+    // True when the device supports samplerFilterMinmax AND the reduction
+    // sampler above was created with reduction mode = MIN. cull.comp branches
+    // on this to skip the 4-tap manual reduction.
+    bool minReductionFastPath() const { return minReductionFastPath_; }
     uint32_t mipCount() const { return mipCount_; }
     uint32_t baseWidth() const { return mip0Width_; }   // mip0 of output (half input)
     uint32_t baseHeight() const { return mip0Height_; }
@@ -179,6 +200,12 @@ class HiZPass {
     VkUnique<VkSampler> depthSampler_;
     // sampler for downstream consumers (4c cull / debug widget).
     VkUnique<VkSampler> pyramidSampler_;
+    // PART4 4c-C: HZB occlusion sampler with reduction mode MIN when the
+    // device supports samplerFilterMinmax; else a plain NEAREST. cull.comp
+    // pass2 picks between the 1-tap fast path and the 4-tap fallback via
+    // the minReductionFastPath_ flag.
+    VkUnique<VkSampler> minReductionSampler_;
+    bool minReductionFastPath_ = false;
 
     VkUnique<VkDescriptorSetLayout> setLayout_;
     VkUnique<VkDescriptorPool> descPool_;

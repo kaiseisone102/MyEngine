@@ -371,6 +371,38 @@ void HiZPass::init(const InitInfo& info) {
             throw std::runtime_error("HiZPass: vkCreateSampler (pyramid) failed");
         pyramidSampler_ = VkUnique<VkSampler>(ctx_->device(), s);
     }
+    {
+        // PART4 4c-C: min-reduction sampler for cull.comp HZB occlusion. When
+        // samplerFilterMinmax is supported a single textureLod() returns the
+        // min of the 2x2 footprint (= the conservative occluder under
+        // reverse-Z, .r channel of the pyramid). Without it we fall back to a
+        // plain NEAREST sampler and cull.comp does 4 fetches.
+        VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        sc.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sc.addressModeU = sc.addressModeV = sc.addressModeW =
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sc.maxLod = static_cast<float>(kMaxMips);
+        VkSamplerReductionModeCreateInfo reductionCi{
+            VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO};
+        reductionCi.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
+        if (ctx_->samplerFilterMinmax()) {
+            // LINEAR + reduction = "MIN over the 2x2 LINEAR footprint".
+            sc.magFilter = VK_FILTER_LINEAR;
+            sc.minFilter = VK_FILTER_LINEAR;
+            sc.pNext = &reductionCi;
+            minReductionFastPath_ = true;
+        } else {
+            // No reduction feature: cull.comp branches on minReductionFastPath_
+            // and does 4 NEAREST taps to compute min by hand.
+            sc.magFilter = VK_FILTER_NEAREST;
+            sc.minFilter = VK_FILTER_NEAREST;
+            minReductionFastPath_ = false;
+        }
+        VkSampler s = VK_NULL_HANDLE;
+        if (vkCreateSampler(ctx_->device(), &sc, nullptr, &s) != VK_SUCCESS)
+            throw std::runtime_error("HiZPass: vkCreateSampler (minReduction) failed");
+        minReductionSampler_ = VkUnique<VkSampler>(ctx_->device(), s);
+    }
 
     createPyramids();
     createDescriptorInfra();
@@ -384,6 +416,7 @@ void HiZPass::shutdown() {
     descPool_.reset();
     setLayout_.reset();
     destroyPyramids();
+    minReductionSampler_.reset();  // PART4 4c-C
     pyramidSampler_.reset();
     depthSampler_.reset();
     ctx_ = nullptr;
@@ -409,6 +442,18 @@ void HiZPass::onSwapchainResized(const InitInfo& info) {
 // =============================================================================
 // execute
 // =============================================================================
+
+void HiZPass::ensureAllSlotsInGeneral(VkCommandBuffer cmd) {
+    // PART4 4c-C: pass_chain calls this once at the start of every frame so
+    // cull.comp's pass1 dispatch can bind the HZB descriptor set without
+    // tripping a "sampled image in UNDEFINED layout" validation error on
+    // pyramids whose own execute() hasn't run yet. initialTransitionToGeneral
+    // is idempotent, so this is a no-op after the first kMaxFramesInFlight
+    // frames.
+    for (uint32_t f = 0; f < kMaxFramesInFlight; ++f) {
+        initialTransitionToGeneral(cmd, f);
+    }
+}
 
 void HiZPass::initialTransitionToGeneral(VkCommandBuffer cmd, uint32_t frameIndex) {
     PerFrame& fr = frames_[frameIndex];

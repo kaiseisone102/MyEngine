@@ -126,6 +126,29 @@ class CullingPass {
         uint32_t blockRangeCount = 0;
         glm::mat4 viewProj{1.0f};
         glm::vec3 viewPos{0.0f};
+        // PART4 4c-C: two-pass occlusion control. Two independent knobs:
+        //   * hizSampler / hizPrev/CurrView - if set, execute() updates and
+        //     binds the HZB descriptor set 0 (required by cullLayout_).
+        //     pass_chain provides these always once HiZPass is up, even for
+        //     "legacy single-pass" call sites, so the descriptor set is
+        //     always bound. Validation only complains about ACCESSED
+        //     descriptors, so binding them when cull.comp doesn't sample is
+        //     a no-op.
+        //   * twoPassEnabled + passIndex - when true, execute() sets
+        //     pc.hizParamsAddr to the HizParams slot for this pass and
+        //     cull.comp enters its pass1 / pass2 branch (reads visHistory,
+        //     pass2 samples HZB). When false, pc.hizParamsAddr = 0 and
+        //     cull.comp falls through to its legacy frustum+cone predicate
+        //     regardless of which dispatch this is. Shadow sets always
+        //     twoPassEnabled = false today.
+        // Splitting the descriptor bind from the shader logic gate lets us
+        // wire the HZB descriptor set without committing the pass1 / pass2
+        // orchestration in the same change.
+        bool twoPassEnabled = false;
+        uint32_t passIndex = 1;
+        VkImageView hizPrevView = VK_NULL_HANDLE;
+        VkImageView hizCurrView = VK_NULL_HANDLE;
+        VkSampler   hizSampler  = VK_NULL_HANDLE;
     };
 
     void init(const InitInfo& info);
@@ -173,14 +196,18 @@ class CullingPass {
     // PART4 4c-B: HizParams BDA + writer. The per-frame buffer carries two
     // slots back-to-back (passIndex == 1 / 2) so addresses are deterministic
     // without a heap lookup. cull.comp dereferences the slot specified by
-    // pc.hizParamsAddr to fetch viewProj + viewport + HZB mip-chain info.
-    // 4c-B leaves the field as receptacle: ExecuteInfo's default sets
-    // hizParamsAddr = 0, so cull.comp's pass2 branch (dead code today)
-    // never fires and there's no validity requirement on the buffer
-    // contents until 4c-C wires the orchestration.
+    // pc.hizParamsAddr to fetch viewProj + viewport + HZB mip-chain info +
+    // visHistory BDA.
     VkDeviceAddress hizParamsAddress(uint32_t frameIndex, uint32_t passIndex) const;
     void writeHizParams(uint32_t frameIndex, uint32_t passIndex,
                         const myengine::shared::HizParams& params);
+
+    // PART4 4c-C: persistent visHistory bitmap for the given CullSet (one bit
+    // per drawId, bit-packed 32-per-uint32). pass_chain passes this BDA into
+    // HizParams.visHistoryAddr.xy so cull.comp pass1 / pass2 read+write a
+    // single shared buffer across the whole frame. Persistent = lives across
+    // frames; pass2 writes the new visibility for next frame's pass1.
+    VkDeviceAddress visHistoryAddress(CullSet set) const;
 
    private:
     // -- Push constants ------------------------------------------------------
@@ -237,12 +264,22 @@ class CullingPass {
     // are shared (the CullObject input is the same scene draw list); only the
     // visibility result and the scan workspace differ per consumer.
     struct CullOutputs {
-        VmaBuffer visBuf;             // device-local bit-packed predicate
-        VmaBuffer compactCmd1;        // device-local VkDrawIndexedIndirectCommand[]
-        VmaBuffer compactCmd2;        // 4c pass2 receptacle (allocated, unused today)
+        VmaBuffer visBuf;             // device-local bit-packed scan predicate
+        VmaBuffer compactCmd1;        // device-local VkDrawIndexedIndirectCommand[] (pass1)
+        VmaBuffer compactCmd2;        // device-local VkDrawIndexedIndirectCommand[] (pass2)
         VmaBuffer countBuf1;          // device-local uint[blockCount_]
-        VmaBuffer countBuf2;          // 4c pass2 receptacle
+        VmaBuffer countBuf2;          // device-local uint[blockCount_]
         VmaBuffer workgroupTotals;    // scratch uint[scanWgsFor(capacity_)]
+        // PART4 4c-C: persistent per-CullObject visibility history (1 bit per
+        // drawId). Pass1 READS to decide what to redraw, pass2 READS to skip
+        // pass1's set AND WRITES the new visibility for next frame. Separate
+        // from visBuf (which is the per-pass scan predicate).
+        VmaBuffer visHistory;
+        // True once visHistory has been zero-filled on the GPU (cmdFillBuffer)
+        // so frame 1's pass1 reads "everything was invisible last frame" and
+        // pass2 covers the whole scene. Reset to false when the buffer is
+        // recreated by ensureCapacity().
+        bool visHistoryInitialized = false;
     };
     static constexpr size_t kNumCullSets = 2;  // Camera + Shadow today; cascades grow this.
 
@@ -289,4 +326,19 @@ class CullingPass {
     VkUnique<VkPipeline>       scanGlobalsPipe_;
     VkUnique<VkPipelineLayout> scanScatterLayout_;
     VkUnique<VkPipeline>       scanScatterPipe_;
+
+    // PART4 4c-C: HZB descriptor infra for cull.comp set=0 (cull.comp is the
+    // only one of the 4 compute pipelines that has a descriptor set; scan_*
+    // stay descriptor-less BDA-only). Two combined image samplers
+    // (binding 0 = hzbPrev, binding 1 = hzbCurr). One descriptor set per
+    // frame in flight - rotated with the HZB pyramid slots and re-written
+    // each frame from the views the caller passes via ExecuteInfo. The
+    // pipeline layout sets setLayoutCount = 1 only for cullLayout_; the scan
+    // pipelines keep setLayoutCount = 0.
+    VkUnique<VkDescriptorSetLayout> hizSetLayout_;
+    VkUnique<VkDescriptorPool>      hizDescPool_;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> hizDescSet_{};
+    void createHizDescriptorInfra();
+    VkUnique<VkPipelineLayout> createCullPipelineLayout();
+    void updateHizDescriptors(uint32_t frame, const ExecuteInfo& info);
 };
