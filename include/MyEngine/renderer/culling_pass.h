@@ -170,15 +170,37 @@ class CullingPass {
     }
     uint32_t lastCpuVisible() const { return lastCpuVisible_; }
 
+    // PART4 4c-B: HizParams BDA + writer. The per-frame buffer carries two
+    // slots back-to-back (passIndex == 1 / 2) so addresses are deterministic
+    // without a heap lookup. cull.comp dereferences the slot specified by
+    // pc.hizParamsAddr to fetch viewProj + viewport + HZB mip-chain info.
+    // 4c-B leaves the field as receptacle: ExecuteInfo's default sets
+    // hizParamsAddr = 0, so cull.comp's pass2 branch (dead code today)
+    // never fires and there's no validity requirement on the buffer
+    // contents until 4c-C wires the orchestration.
+    VkDeviceAddress hizParamsAddress(uint32_t frameIndex, uint32_t passIndex) const;
+    void writeHizParams(uint32_t frameIndex, uint32_t passIndex,
+                        const myengine::shared::HizParams& params);
+
    private:
     // -- Push constants ------------------------------------------------------
-    // cull.comp (PART4 4-前-3 minus cmdAddr): 124 bytes.
+    // cull.comp (PART4 4-前-4 + 4c-B): 144 bytes std430.
+    //   planes[6] (96) + viewPos (16) + cullAddr (8) + visAddr (8) +
+    //   objectCount (4) + _pad (4) + hizParamsAddr (8) = 144 B.
+    // _pad realigns hizParamsAddr (uvec2) to its 8-byte boundary. 144B fits
+    // P620's maxPushConstantsSize (Pascal+ = 256B); mobile devices with the
+    // 128B spec minimum aren't a target yet (engine is desktop-first today;
+    // §1.5-C will gate this when mobile lands).
     struct CullPC {
-        glm::vec4  planes[6];   //  0 .. 95
-        glm::vec4  viewPos;     // 96 ..111
-        glm::uvec2 cullAddr;    //112 ..119
-        glm::uvec2 visAddr;     //120 ..127
-        uint32_t   objectCount; //128 ..131
+        glm::vec4  planes[6];     //  0 .. 95
+        glm::vec4  viewPos;       // 96 ..111
+        glm::uvec2 cullAddr;      //112 ..119
+        glm::uvec2 visAddr;       //120 ..127
+        uint32_t   objectCount;   //128 ..131
+        uint32_t   _pad;          //132 ..135  - align hizParamsAddr to 8 B
+        glm::uvec2 hizParamsAddr; //136 ..143  - PART4 4c-B HizParams BDA
+                                  //               (0 = HZB read disabled =
+                                  //                pass1 legacy / dead-code today)
     };
     // scan_local.comp (Pass A): 32 bytes.
     struct ScanLocalPC {
@@ -246,6 +268,10 @@ class CullingPass {
     VmaBuffer cullBuf_;                                       // device-local
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cullStaging_; // host-mapped
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cmdBuf_;      // host-mapped template
+
+    // PART4 4c-B: per-frame host-mapped HizParams[2] (pass1 / pass2 slots).
+    // Receptacle today (pass2 path is dead code); 4c-C wires it.
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> hizParamsBuf_;  // host-mapped, BDA
 
     // Per-CullSet outputs (PART4 4-前-5).
     std::array<CullOutputs, kNumCullSets> cullOutputs_;

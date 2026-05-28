@@ -99,6 +99,11 @@ void CullingPass::createBuffers(uint32_t capacity, uint32_t blockCount) {
         cmdBuf_[i] = VmaBuffer::createMappedStorageBDA(
             ctx_, cmdBufBytes,
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        // PART4 4c-B: HizParams[2] per frame (pass1 + pass2 slots). 96B each =
+        // 192B. createMappedStorageBDA gives host-mapped + STORAGE + BDA; no
+        // extra usage. Receptacle today.
+        hizParamsBuf_[i] = VmaBuffer::createMappedStorageBDA(
+            ctx_, static_cast<VkDeviceSize>(2) * sizeof(myengine::shared::HizParams));
         lastCount_[i] = 0;
     }
 }
@@ -122,6 +127,7 @@ void CullingPass::destroyBuffersToDeletionQueue() {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         enqueue(cullStaging_[i]);
         enqueue(cmdBuf_[i]);
+        enqueue(hizParamsBuf_[i]);  // PART4 4c-B
         lastCount_[i] = 0;
         lastVisible_[i] = 0;
     }
@@ -212,12 +218,36 @@ void CullingPass::shutdown() {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         cullStaging_[i].reset();
         cmdBuf_[i].reset();
+        hizParamsBuf_[i].reset();  // PART4 4c-B
         lastCount_[i] = 0;
     }
     capacity_ = 0;
     blockCount_ = 0;
     ctx_ = nullptr;
     dq_ = nullptr;
+}
+
+// PART4 4c-B: HizParams BDA + writer (receptacle today). The per-frame buffer
+// stores 2 HizParams back-to-back (slot 0 = pass1, slot 1 = pass2); the
+// address returned is base + (passIndex - 1) * sizeof(HizParams). Returning 0
+// for an out-of-range frame/pass lets cull.comp's gate-off receptacle behave
+// safely (the dead-code pass2 branch would just sample a null pointer that it
+// never reaches).
+VkDeviceAddress CullingPass::hizParamsAddress(uint32_t frameIndex, uint32_t passIndex) const {
+    if (frameIndex >= MAX_FRAMES_IN_FLIGHT) return 0;
+    if (passIndex < 1 || passIndex > 2) return 0;
+    const VkDeviceAddress base = hizParamsBuf_[frameIndex].deviceAddress();
+    if (base == 0) return 0;
+    return base + static_cast<VkDeviceSize>(passIndex - 1) * sizeof(myengine::shared::HizParams);
+}
+
+void CullingPass::writeHizParams(uint32_t frameIndex, uint32_t passIndex,
+                                  const myengine::shared::HizParams& params) {
+    if (frameIndex >= MAX_FRAMES_IN_FLIGHT) return;
+    if (passIndex < 1 || passIndex > 2) return;
+    auto* dst = static_cast<myengine::shared::HizParams*>(hizParamsBuf_[frameIndex].mapped());
+    if (!dst) return;
+    dst[passIndex - 1] = params;
 }
 
 void CullingPass::execute(const ExecuteInfo& info) {
@@ -308,7 +338,7 @@ void CullingPass::execute(const ExecuteInfo& info) {
 
     // 3) Dispatch cull.comp: write THIS set's visBuf bit per drawId.
     {
-        CullPC pcs{};
+        CullPC pcs{};  // value-init: _pad = 0, hizParamsAddr = (0, 0) by default
         Frustum fr;
         fr.extract(info.viewProj);
         for (int i = 0; i < 6; ++i) pcs.planes[i] = fr.planes[i];
@@ -316,6 +346,11 @@ void CullingPass::execute(const ExecuteInfo& info) {
         pcs.cullAddr   = packAddr(cullBuf_.deviceAddress());
         pcs.visAddr    = packAddr(outs.visBuf.deviceAddress());
         pcs.objectCount = count;
+        // PART4 4c-B receptacle: hizParamsAddr stays at (0, 0) so cull.comp's
+        // pass2 / HZB branch (dead code today) is never entered. 4c-C will set
+        // this from CullingPass::hizParamsAddress(frame, passIndex) when
+        // pass_chain dispatches the two-pass orchestration.
+        pcs.hizParamsAddr = glm::uvec2(0u, 0u);
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cullPipe_.get());
         vkCmdPushConstants(info.cmd, cullLayout_.get(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(CullPC), &pcs);

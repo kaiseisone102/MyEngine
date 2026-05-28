@@ -103,6 +103,32 @@ class VulkanContext {
     bool subgroupOps() const { return subgroupOps_; }
     uint32_t subgroupSize() const { return subgroupSize_; }
 
+    // PART4 4c-B: VK_EXT_sampler_filter_minmax (Vulkan 1.2 core feature
+    // samplerFilterMinmax). When true, a sampler created with reduction mode
+    // VK_SAMPLER_REDUCTION_MODE_MIN returns the min of the 2x2 footprint in
+    // ONE fetch. cull.comp 4c-C samples the HZB pyramid's .r (min) channel
+    // for reverse-Z occlusion; with this feature one tap suffices and the
+    // 4-tap manual reduction fallback is skipped. P620 capability needs
+    // runtime query (most Pascal+ NVIDIA drivers expose it).
+    bool samplerFilterMinmax() const { return samplerFilterMinmax_; }
+
+    // PART4 4c-B (§3.4-V receptacle promoted from 4d): a queue family that
+    // supports COMPUTE WITHOUT GRAPHICS, if the device exposes one (NVIDIA
+    // Pascal+ and most AMD/Intel discrete typically do; integrated may not).
+    // Used by HiZPass / CullingPass.executePass2 to overlap HZB generation +
+    // pass2 cull with the previous-pass main draw on a separate queue.
+    // When the device has no dedicated family these return graphicsFamily()
+    // / graphicsQueue() so the API form (queue argument) stays portable;
+    // hasDedicatedAsyncCompute() reports whether real overlap is possible.
+    // PART4 4c-B only adds the receptacle - all dispatches still run on the
+    // graphics queue. Foundations §2 will activate the overlap with the
+    // timeline-semaphore work.
+    uint32_t asyncComputeFamily() const { return asyncComputeFamily_; }
+    VkQueue  asyncComputeQueue()  const { return asyncComputeQueue_;  }
+    bool     hasDedicatedAsyncCompute() const {
+        return asyncComputeFamily_ != graphicsFamily_;
+    }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -149,6 +175,21 @@ class VulkanContext {
     // variant otherwise.
     bool subgroupOps_ = false;
     uint32_t subgroupSize_ = 0;
+
+    // PART4 4c-B: queried Vulkan 1.2 core samplerFilterMinmax feature.
+    // True = a sampler with VK_SAMPLER_REDUCTION_MODE_MIN returns the 2x2
+    // min in one fetch (cull.comp HZB sample fast path); false = cull.comp
+    // does a 4-tap manual min reduction.
+    bool samplerFilterMinmax_ = false;
+
+    // PART4 4c-B (§3.4-V receptacle): a queue family with COMPUTE without
+    // GRAPHICS if the device exposes one; else equal to graphicsFamily_.
+    // Detected in createDevice() by scanning queueFamilyProperties; the
+    // matching queue is created in the same vkCreateDevice call and the
+    // handle is fetched into asyncComputeQueue_. When the fallback path
+    // is in effect (no dedicated family), asyncComputeQueue_ = graphicsQueue_.
+    uint32_t asyncComputeFamily_ = VK_QUEUE_FAMILY_IGNORED;
+    VkQueue  asyncComputeQueue_  = VK_NULL_HANDLE;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

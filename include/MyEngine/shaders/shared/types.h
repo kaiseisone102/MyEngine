@@ -289,6 +289,30 @@ struct CullObject {
 };
 
 // -----------------------------------------------------------------------------
+// HizParams: PART4 4c-B - per-dispatch parameter block for cull.comp's
+//   two-pass HZB occlusion test. CullingPass uploads one slot per (frame,
+//   pass) into a host-mapped BDA buffer; cull.comp pulls it via the
+//   hizParamsAddr push constant. Pass1 carries the previous-frame HZB info
+//   (mipCount/mip0 dims of pyramid(prevFrameIndex)); pass2 carries the
+//   current-frame info (pyramid(currentFrameIndex)). The sampler + HZB
+//   imageView itself is bound through descriptor set 1 (4c-C); only the
+//   "which test to run + what mip-chain shape" lives here.
+//
+// Reverse-Z convention is hard-coded in cull.comp (the engine is reverse-Z
+// engine-wide since 4-前-0); we therefore don't carry a reverseZ flag.
+//
+// Layout (std430, 16-byte aligned, no BDA inside so one definition works for
+// both C++ and GLSL):
+//   mat4(64) + vec4(16) + uvec4(16) = 96 bytes.
+// -----------------------------------------------------------------------------
+struct HizParams {
+    mat4  viewProj;          // 0..63   - clip-space transform for AABB / sphere projection
+    vec4  invViewportSize;   // 64..79  - x=1/W, y=1/H, z=W, w=H (full screen, pixels)
+    uvec4 hizInfo;           // 80..95  - x=mipCount, y=mip0W, z=mip0H,
+                             //           w=passIndex (1 = legacy/pass1 / 2 = pass2 with HZB)
+};
+
+// -----------------------------------------------------------------------------
 // GpuMaterial: Phase 1K-2 - unified PBR material, stored in an SSBO indexed by
 //   materialId. Read via BDA (buffer address passed in the frame UBO).
 //   Texture indices are bindless slots; -1 means "no texture, use the factor".

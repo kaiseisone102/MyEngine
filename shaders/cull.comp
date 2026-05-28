@@ -31,15 +31,31 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisBuffer {
     uint words[];
 };
 
-// PART4 4-前-4: push constant shrinks from 140 B (with cmdAddr) to 124 B now
-// that scan_scatter owns cmdBuf reads. Fits inside the Vulkan 128 B
-// spec-minimum guarantee even before checking maxPushConstantsSize.
+// PART4 4c-B: HizParams BDA (see shared/types.h). cull.comp 4c-C reads
+// viewProj + viewport + HZB mip-chain info from here when running pass2.
+// Today this binding is DEAD CODE - pc.hizParamsAddr is left as (0,0) by
+// CullingPass::execute, and the pass2 branch (which would dereference this)
+// is unreachable from the legacy path.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer HizParamsBuffer {
+    HizParams params;
+};
+
+// PART4 4-前-4 + 4c-B: push constant grows to 144 B std430.
+//   planes[6] (96) + viewPos (16) + cullAddr (8) + visAddr (8) +
+//   objectCount (4) + _pad (4) + hizParamsAddr (8) = 144 B.
+// Exceeds Vulkan's 128 B minimum guarantee; relies on the device-reported
+// maxPushConstantsSize (Pascal+ = 256 B). Mobile portability is a Phase
+// future concern - swap hizParamsAddr into HizParams BDA payload if a
+// 128 B-only device needs to run cull.comp.
 layout(push_constant) uniform PC {
-    vec4  planes[6];   //   0 .. 95   frustum planes (a,b,c,d), inward, normalised
-    vec4  viewPos;     //  96 ..111   xyz = world camera position; w reserved
-    uvec2 cullAddr;    // 112 ..119   CullObjectBuffer device address
-    uvec2 visAddr;     // 120 ..127   VisBuffer device address (bit-packed)
-    uint  objectCount; // 128 ..131
+    vec4  planes[6];     //   0 .. 95   frustum planes (a,b,c,d), inward, normalised
+    vec4  viewPos;       //  96 ..111   xyz = world camera position; w reserved
+    uvec2 cullAddr;      // 112 ..119   CullObjectBuffer device address
+    uvec2 visAddr;       // 120 ..127   VisBuffer device address (bit-packed)
+    uint  objectCount;   // 128 ..131
+    uint  _pad;          // 132 ..135   - align hizParamsAddr to 8 B
+    uvec2 hizParamsAddr; // 136 ..143   PART4 4c-B HizParamsBuffer device address
+                         //               (0,0) = HZB read disabled (pass1 legacy)
 } pc;
 
 // Same test as CPU Frustum::sphereVisible (renderer/frustum.h).
@@ -59,6 +75,77 @@ bool coneVisible(vec3 apex, vec3 axis, float cosHalfAngle, vec3 viewPos) {
     if (cosHalfAngle > 1.0) return true;
     vec3 toCamera = normalize(viewPos - apex);
     return dot(toCamera, axis) >= cosHalfAngle;
+}
+
+// =============================================================================
+// PART4 4c-B helper functions (DEAD CODE TODAY)
+// =============================================================================
+// These project an AABB to screen space and pick the right HZB mip for a
+// conservative occlusion test. 4c-B leaves them unused (pc.hizParamsAddr =
+// (0,0), pass2 branch unreachable from the legacy path); 4c-C adds the
+// descriptor set 1 HZB sampler and the hzbOccluded() call site that wires
+// these helpers into a real two-pass occlusion test. The GLSL compiler will
+// dead-strip unused functions from the SPV - shipping them now lets the
+// pass1 / pass2 split in 4c-C be a single-commit orchestration change.
+// -----------------------------------------------------------------------------
+
+// PART4 4c-B (Tier 1 γ + AABB precision §0.1-C): project the AABB's 8
+// world-space corners through viewProj, build the screen-space UV bounds AND
+// track the largest reverse-Z (= closest-to-camera face). NEAR-CLIP SAFE: if
+// ANY corner has clip.w <= 0 (camera straddles or pierces the AABB) we bail
+// to "full screen + nearest possible depth" so the caller's occlusion test
+// conservatively treats the object as VISIBLE. This avoids the classic NaN
+// screen-UV bug that swallows occluders close to the camera (called out as a
+// pitfall in Luc Momber's two-pass HZB article).
+//
+// Returns vec4(uMin, vMin, uMax, vMax) clamped to [0, 1].
+// maxReverseZ is the closest face under reverse-Z (the engine convention
+// since 4-前-0): largest projected ndc.z across the 8 corners.
+vec4 aabbScreenBounds(mat4 viewProj, vec3 center, vec3 halfExtent, out float maxReverseZ) {
+    vec2 uvMin = vec2( 1.0e30,  1.0e30);
+    vec2 uvMax = vec2(-1.0e30, -1.0e30);
+    maxReverseZ = -1.0e30;
+    for (int i = 0; i < 8; ++i) {
+        vec3 sign3 = vec3(
+            (i & 1) != 0 ? 1.0 : -1.0,
+            (i & 2) != 0 ? 1.0 : -1.0,
+            (i & 4) != 0 ? 1.0 : -1.0);
+        vec3 corner = center + halfExtent * sign3;
+        vec4 clip = viewProj * vec4(corner, 1.0);
+        if (clip.w <= 0.0) {
+            // Near-clip straddle: bail to conservative all-visible.
+            maxReverseZ = 1.0;
+            return vec4(0.0, 0.0, 1.0, 1.0);
+        }
+        vec3 ndc = clip.xyz / clip.w;
+        // Vulkan NDC.y points DOWN (after the engine's negative-viewport-
+        // height convention is reversed) - sampling UV is ndc.xy * 0.5 + 0.5.
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        uvMin = min(uvMin, uv);
+        uvMax = max(uvMax, uv);
+        maxReverseZ = max(maxReverseZ, ndc.z);
+    }
+    uvMin = clamp(uvMin, vec2(0.0), vec2(1.0));
+    uvMax = clamp(uvMax, vec2(0.0), vec2(1.0));
+    return vec4(uvMin, uvMax);
+}
+
+// PART4 4c-B (Tier 1 β / Granite 2024): pick the smallest HZB mip whose
+// 2x2 footprint covers the AABB's screen rect.
+//   mip = findMSB(maxDeltaPx - 1) + 1   = ceil(log2(maxDeltaPx))
+// findMSB(0) == -1, so the +1 / clamp covers the maxDeltaPx == 1 edge case.
+// Choosing 1 mip HIGHER than floor(log2(...)) is the conservative bias that
+// avoids a 3x3 footprint slipping past a 4-tap sample (the classic single-
+// mip pitfall in Luc Momber's article).
+int mipFromScreenSize(vec4 uvBounds, uvec2 hizMip0Dims, uint mipCount) {
+    vec2 deltaUv = uvBounds.zw - uvBounds.xy;
+    vec2 deltaPx = deltaUv * vec2(hizMip0Dims);
+    float maxDelta = max(deltaPx.x, deltaPx.y);
+    int maxDeltaPx = int(max(1.0, ceil(maxDelta)));
+    int mip = findMSB(maxDeltaPx - 1) + 1;
+    if (mip < 0) mip = 0;
+    if (mip >= int(mipCount)) mip = int(mipCount) - 1;
+    return mip;
 }
 
 // PART4 4-前-3: write one drawId's bit. atomicOr / atomicAnd because 32 drawIds

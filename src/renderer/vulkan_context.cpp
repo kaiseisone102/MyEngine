@@ -364,8 +364,30 @@ void VulkanContext::createDevice() {
     const char* deviceExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     const float priority = 1.f;
 
-    // graphics と present が同じキューファミリーなら 1 つだけ作成
-    std::set<uint32_t> uniqueFamilies = {graphicsFamily_, presentFamily_};
+    // PART4 4c-B (§3.4-V receptacle): pick a queue family that supports
+    // COMPUTE without GRAPHICS so HiZPass / CullingPass.executePass2 can
+    // overlap with the previous-pass main draw on a dedicated async queue.
+    // NVIDIA Pascal+ exposes one (typically family index 2 on Quadro/GeForce);
+    // integrated GPUs may not. Fall back to graphicsFamily_ so the API form
+    // (queue argument) stays portable even on devices without async compute.
+    asyncComputeFamily_ = graphicsFamily_;  // safe fallback
+    {
+        uint32_t qCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &qCount, nullptr);
+        std::vector<VkQueueFamilyProperties> qProps(qCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &qCount, qProps.data());
+        for (uint32_t i = 0; i < qCount; ++i) {
+            const VkQueueFlags f = qProps[i].queueFlags;
+            if ((f & VK_QUEUE_COMPUTE_BIT) != 0 &&
+                (f & VK_QUEUE_GRAPHICS_BIT) == 0) {
+                asyncComputeFamily_ = i;  // first dedicated compute family wins
+                break;
+            }
+        }
+    }
+
+    // graphics と present (と async compute) が同じキューファミリーなら 1 つだけ作成
+    std::set<uint32_t> uniqueFamilies = {graphicsFamily_, presentFamily_, asyncComputeFamily_};
     std::vector<VkDeviceQueueCreateInfo> queueCis;
     for (uint32_t fam : uniqueFamilies) {
         VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -407,6 +429,9 @@ void VulkanContext::createDevice() {
     drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
     dynamicRendering_ = (supportedVk13.dynamicRendering == VK_TRUE);
     separateDepthStencilLayouts_ = (supportedVk12.separateDepthStencilLayouts == VK_TRUE);
+    // PART4 4c-B: Vulkan 1.2 core samplerFilterMinmax. cull.comp's HZB sample
+    // takes the 1-tap fast path when this is true, 4-tap manual min otherwise.
+    samplerFilterMinmax_ = (supportedVk12.samplerFilterMinmax == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -460,7 +485,11 @@ void VulkanContext::createDevice() {
               << " dynamicRendering=" << (dynamicRendering_ ? 1 : 0)
               << " separateDepthStencilLayouts=" << (separateDepthStencilLayouts_ ? 1 : 0)
               << " subgroupOps=" << (subgroupOps_ ? 1 : 0)
-              << " subgroupSize=" << subgroupSize_ << "\n";
+              << " subgroupSize=" << subgroupSize_
+              << " samplerFilterMinmax=" << (samplerFilterMinmax_ ? 1 : 0)
+              << " asyncComputeFamily=" << asyncComputeFamily_
+              << " (dedicated=" << (asyncComputeFamily_ != graphicsFamily_ ? 1 : 0) << ")"
+              << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
@@ -495,6 +524,9 @@ void VulkanContext::createDevice() {
     // the bit is false.
     vk12Features.separateDepthStencilLayouts =
         separateDepthStencilLayouts_ ? VK_TRUE : VK_FALSE;
+    // PART4 4c-B: samplerFilterMinmax for the cull.comp HZB sample fast path.
+    // Optional Vulkan 1.2 feature, so gate on the query.
+    vk12Features.samplerFilterMinmax = samplerFilterMinmax_ ? VK_TRUE : VK_FALSE;
 
     // Vulkan13 §1 (W): enable synchronization2 when supported. Chained after
     // vk12Features in pNext. Future PART4 4-前-4 / 4b / 4c additions in
@@ -528,6 +560,14 @@ void VulkanContext::createDevice() {
     }
     vkGetDeviceQueue(device_, graphicsFamily_, 0, &graphicsQueue_);
     vkGetDeviceQueue(device_, presentFamily_, 0, &presentQueue_);
+    // PART4 4c-B: async-compute queue handle. If the device has a dedicated
+    // compute family we get a separate queue; otherwise asyncComputeQueue_
+    // aliases graphicsQueue_ so callers can pass it without branching.
+    if (asyncComputeFamily_ != graphicsFamily_) {
+        vkGetDeviceQueue(device_, asyncComputeFamily_, 0, &asyncComputeQueue_);
+    } else {
+        asyncComputeQueue_ = graphicsQueue_;
+    }
 }
 
 // =============================================================================
