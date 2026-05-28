@@ -428,30 +428,36 @@ void MainPass::execute(const ExecuteInfo& info) {
             const std::vector<static_cull::PreparedDraw>& draws = *info.preparedOpaque;
             const bool useIndirect =
                 info.indirectCommandBuffer != VK_NULL_HANDLE && ctx_->drawIndirectFirstInstance();
-            if (useIndirect) {
+            if (useIndirect && info.preparedOpaqueRanges) {
+                // PART4 4-前-1: builder pre-sorted draws by blockIndex and emitted
+                // one BlockRange per unique block. One bindBlock + one indirect
+                // call per range (CPU indirect calls collapse from per-encounter
+                // run to per-block; was ~17-18, now ~4 on the current scene).
                 const uint32_t stride = static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand));
-                const uint32_t drawCount = static_cast<uint32_t>(draws.size());
-                uint32_t runStart = 0;
-                while (runStart < drawCount) {
-                    const uint32_t block = draws[runStart].blockIndex;
-                    uint32_t runEnd = runStart + 1;
-                    while (runEnd < drawCount && draws[runEnd].blockIndex == block) ++runEnd;
-                    info.geometry->bindBlock(info.cmd, block);
-                    const uint32_t runLen = runEnd - runStart;
-                    const VkDeviceSize off = static_cast<VkDeviceSize>(runStart) * stride;
+                for (const static_cull::BlockRange& range : *info.preparedOpaqueRanges) {
+                    if (range.drawCount == 0) continue;
+                    info.geometry->bindBlock(info.cmd, range.blockIndex);
+                    const VkDeviceSize off = static_cast<VkDeviceSize>(range.firstDraw) * stride;
                     if (ctx_->multiDrawIndirect()) {
-                        vkCmdDrawIndexedIndirect(info.cmd, info.indirectCommandBuffer, off, runLen, stride);
+                        vkCmdDrawIndexedIndirect(info.cmd, info.indirectCommandBuffer,
+                                                  off, range.drawCount, stride);
                     } else {
-                        for (uint32_t k = 0; k < runLen; ++k)
+                        for (uint32_t k = 0; k < range.drawCount; ++k)
                             vkCmdDrawIndexedIndirect(info.cmd, info.indirectCommandBuffer,
                                                      off + static_cast<VkDeviceSize>(k) * stride, 1, stride);
                     }
-                    runStart = runEnd;
                 }
             } else {
+                // Direct CPU draw fallback (firstInstance is unrestricted for direct
+                // draws). Draws are already block-sorted by the builder so block
+                // switches inside this loop are bounded by the number of unique
+                // blocks regardless of encounter order.
                 uint32_t boundBlock = UINT32_MAX;
                 for (const static_cull::PreparedDraw& pd : draws) {
-                    if (pd.blockIndex != boundBlock) { info.geometry->bindBlock(info.cmd, pd.blockIndex); boundBlock = pd.blockIndex; }
+                    if (pd.blockIndex != boundBlock) {
+                        info.geometry->bindBlock(info.cmd, pd.blockIndex);
+                        boundBlock = pd.blockIndex;
+                    }
                     vkCmdDrawIndexed(info.cmd, pd.indexCount, 1, pd.firstIndex, pd.vertexOffset, pd.drawSlot);
                 }
             }

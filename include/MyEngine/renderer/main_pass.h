@@ -29,7 +29,7 @@ class HudDrawList;
 class WaterPass;
 class DrawDataPool;
 class GeometryBuffer;
-namespace static_cull { struct PreparedDraw; }
+namespace static_cull { struct PreparedDraw; struct BlockRange; }
 
 class MainPass {
    public:
@@ -73,6 +73,7 @@ class MainPass {
         DrawDataPool* drawDataPool = nullptr;   // Phase 2B PART3b: per-frame pushOne target
         const GeometryBuffer* geometry = nullptr;  // Phase 2B PART3c: block bind for opaque static
         const std::vector<static_cull::PreparedDraw>* preparedOpaque = nullptr;  // PART3c
+        const std::vector<static_cull::BlockRange>* preparedOpaqueRanges = nullptr;  // PART4 4-前-1
         VkBuffer indirectCommandBuffer = VK_NULL_HANDLE;  // Phase 2B PART3c-2: CullingPass cmdBuf (indirect draw source)
         const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;

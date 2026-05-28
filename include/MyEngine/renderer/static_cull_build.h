@@ -19,7 +19,9 @@
 // =============================================================================
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -46,10 +48,22 @@ struct PreparedDraw {
     uint32_t drawSlot = 0;     // DrawData slot == firstInstance
 };
 
+// PART4 4-前-1: one contiguous run of draws that share a GeometryBuffer block.
+// build() sorts draws by blockIndex so blocks are naturally contiguous; main_pass
+// then issues exactly one vkCmdDrawIndexedIndirect per BlockRange instead of
+// detecting runs ad-hoc. CPU indirect calls collapse from "one per encounter run"
+// (~17-18 on the current scene) down to "one per unique block" (~4).
+struct BlockRange {
+    uint32_t blockIndex = 0;
+    uint32_t firstDraw  = 0;   // starting drawId in cullObjects/drawTemplates/draws
+    uint32_t drawCount  = 0;
+};
+
 struct BuildResult {
     std::vector<myengine::shared::CullObject> cullObjects;
-    std::vector<CullingPass::DrawTemplate> drawTemplates;
-    std::vector<PreparedDraw> draws;   // parallel to the above, for CPU/MDI draw
+    std::vector<CullingPass::DrawTemplate>    drawTemplates;
+    std::vector<PreparedDraw>                 draws;        // parallel to the above
+    std::vector<BlockRange>                   blockRanges;  // contiguous runs after block sort
 };
 
 // cube is generated foot-based: [-0.5,0.5] x [0,1] x [-0.5,0.5].
@@ -136,6 +150,50 @@ inline BuildResult build(DrawDataPool& pool, uint32_t frameIndex, const Mesh* cu
     // built in the streaming Phase. It is intentionally NOT emitted here; main
     // draws terrain via the legacy CPU loop (static_draw::drawTerrainList).
     (void)terrainList;
+
+    // --- PART4 4-前-1: block sort + BlockRange emission -----------------------
+    // Reorder cullObjects/drawTemplates/draws so all entries that bind the same
+    // GeometryBuffer block sit next to each other. drawId is the position in
+    // these arrays, so after the permutation we must re-bake
+    // cullObjects[i].extentDrawId.w = i (cull.comp writes cmds[drawId]).
+    // DrawData slots (firstInstance) are NOT permuted - they keep pointing at the
+    // pool entries pushed in emit order, which preserves vertex-shader data.
+    // stable_sort keeps the encounter order inside the same block (predictable).
+    const size_t drawN = result.draws.size();
+    if (drawN > 1) {
+        std::vector<uint32_t> perm(drawN);
+        std::iota(perm.begin(), perm.end(), 0u);
+        std::stable_sort(perm.begin(), perm.end(), [&](uint32_t a, uint32_t b) {
+            return result.draws[a].blockIndex < result.draws[b].blockIndex;
+        });
+
+        std::vector<myengine::shared::CullObject>  sortedCull;
+        std::vector<CullingPass::DrawTemplate>     sortedTemplates;
+        std::vector<PreparedDraw>                  sortedDraws;
+        sortedCull     .reserve(drawN);
+        sortedTemplates.reserve(drawN);
+        sortedDraws    .reserve(drawN);
+        for (uint32_t newId = 0; newId < drawN; ++newId) {
+            const uint32_t oldId = perm[newId];
+            myengine::shared::CullObject cullObject = result.cullObjects[oldId];
+            cullObject.extentDrawId.w = static_cast<float>(newId);  // re-bake drawId
+            sortedCull     .push_back(cullObject);
+            sortedTemplates.push_back(result.drawTemplates[oldId]);
+            sortedDraws    .push_back(result.draws[oldId]);
+        }
+        result.cullObjects   = std::move(sortedCull);
+        result.drawTemplates = std::move(sortedTemplates);
+        result.draws         = std::move(sortedDraws);
+    }
+
+    // Emit one BlockRange per contiguous run of identical blockIndex.
+    for (uint32_t runStart = 0; runStart < drawN;) {
+        const uint32_t block = result.draws[runStart].blockIndex;
+        uint32_t runEnd = runStart + 1;
+        while (runEnd < drawN && result.draws[runEnd].blockIndex == block) ++runEnd;
+        result.blockRanges.push_back(BlockRange{block, runStart, runEnd - runStart});
+        runStart = runEnd;
+    }
 
     return result;
 }

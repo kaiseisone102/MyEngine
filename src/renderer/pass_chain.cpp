@@ -486,8 +486,9 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.instanceBufferAddress = instancePool_.bufferAddress(info.frameIndex);
         mi.drawDataPool = &drawDataPool_;                                  // Phase 2B PART3b
         mi.drawBufferAddress = drawDataPool_.bufferAddress(info.frameIndex);
-        mi.preparedOpaque = &built.draws;            // Phase 2B PART3c: opaque static draws
-        mi.geometry = &info.assets->geometry();      // Phase 2B PART3c: block bind
+        mi.preparedOpaque = &built.draws;                 // Phase 2B PART3c: opaque static draws
+        mi.preparedOpaqueRanges = &built.blockRanges;     // PART4 4-前-1: block-sorted ranges
+        mi.geometry = &info.assets->geometry();           // Phase 2B PART3c: block bind
 
 
         mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2: indirect draw source
