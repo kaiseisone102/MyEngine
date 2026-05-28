@@ -234,3 +234,22 @@ inline BoundingSphere worldBoundingSphere(const glm::mat4& model, const AABB& lo
     const float radius = glm::length(w.max - center);
     return BoundingSphere{center, radius};
 }
+
+// PART4 4c: world-space center + radius + half-extent in a single 8-corner
+// transform. Fills CullObject.centerRadius (sphere) AND extentDrawId.xyz
+// (AABB half-extent) from one pass over the corners, so two-pass HZB
+// occlusion (cull.comp 4c-B/C) can use the sphere as a cheap early-reject and
+// the AABB for precise screen-space projection without re-transforming.
+struct WorldBounds {
+    glm::vec3 center{};
+    float radius = 0.f;
+    glm::vec3 halfExtent{};
+};
+inline WorldBounds worldBounds(const glm::mat4& model, const AABB& local) {
+    const AABB w = transformAABB(model, local);
+    WorldBounds bounds;
+    bounds.center = (w.min + w.max) * 0.5f;
+    bounds.halfExtent = (w.max - w.min) * 0.5f;
+    bounds.radius = glm::length(bounds.halfExtent);  // diag/2 == max corner offset
+    return bounds;
+}

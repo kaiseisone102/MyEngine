@@ -100,6 +100,26 @@ class HiZPass {
         return (frameIndex < kMaxFramesInFlight) ? frames_[frameIndex].sampledView.get()
                                                   : VK_NULL_HANDLE;
     }
+    // PART4 4c (Nanite-style pass1): the PREVIOUS frame's pyramid is what
+    // pass1 samples to early-reject objects that were already occluded the
+    // last frame. Pass2 then samples pyramidView(currentFrameIndex) after
+    // HiZPass.execute() has rebuilt the pyramid from THIS frame's depth.
+    // The caller always passes the current frameIndex; this returns the slot
+    // written one frame ago (wraps modulo kMaxFramesInFlight).
+    VkImageView previousPyramidView(uint32_t frameIndex) const {
+        if (frameIndex >= kMaxFramesInFlight) return VK_NULL_HANDLE;
+        const uint32_t prev = (frameIndex + kMaxFramesInFlight - 1u) % kMaxFramesInFlight;
+        return frames_[prev].sampledView.get();
+    }
+    // True once the previous slot has had at least one execute() (UNDEFINED ->
+    // GENERAL transition + first content write). On the very first frame both
+    // slots are UNDEFINED, so pass1 must conservatively skip the HZB test then
+    // (= treat every object as not-occluded by the prior frame).
+    bool previousPyramidReady(uint32_t frameIndex) const {
+        if (frameIndex >= kMaxFramesInFlight) return false;
+        const uint32_t prev = (frameIndex + kMaxFramesInFlight - 1u) % kMaxFramesInFlight;
+        return frames_[prev].pyramidInited;
+    }
     // Per-mip storage view for the debug widget (ImGui::Image samples one
     // mip at a time). Returns the highest real mip view if mip is
     // out-of-range.

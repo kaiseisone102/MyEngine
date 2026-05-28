@@ -130,9 +130,14 @@ inline BuildResult build(DrawDataPool& pool, uint32_t frameIndex, const Mesh* cu
     if (cubeMesh) {
         const AABB cubeLocal = cubeLocalAABB();
         for (const MeshDrawItem& item : meshList) {
-            const BoundingSphere boundingSphere = worldBoundingSphere(item.model, cubeLocal);
+            // PART4 4c-A: fill BOTH sphere (centerRadius) and AABB half-extent
+            // (extentDrawId.xyz) in one transform pass. cull.comp 4c-B will use
+            // the sphere for cheap early-reject and the half-extent for precise
+            // screen-space AABB occlusion against the HZB pyramid.
+            const WorldBounds bounds = worldBounds(item.model, cubeLocal);
             myengine::shared::CullObject cullObject{};
-            cullObject.centerRadius = glm::vec4(boundingSphere.center, boundingSphere.radius);
+            cullObject.centerRadius = glm::vec4(bounds.center, bounds.radius);
+            cullObject.extentDrawId = glm::vec4(bounds.halfExtent, 0.0f);  // .w set in emit() = drawId
             const uint32_t materialId = item.material ? item.material->materialId() : 0u;
             emit(result, pool, frameIndex, item.model, item.alpha, materialId,
                  cubeMesh->blockIndex(), cubeMesh->indexCount(),
@@ -143,14 +148,19 @@ inline BuildResult build(DrawDataPool& pool, uint32_t frameIndex, const Mesh* cu
     // --- static models (per submesh) ---
     for (const StaticModelDrawItem& item : modelList) {
         if (!item.sourceModel) continue;
-        const BoundingSphere boundingSphere =
-            worldBoundingSphere(item.model, item.sourceModel->localAABB());
+        // PART4 4c-A: model-level bounds (sphere + half-extent) reused for every
+        // submesh. Using the whole-model AABB is conservative for individual
+        // submeshes but matches the existing sphere-per-submesh behaviour and
+        // avoids per-submesh AABB transforms. Phase 3B will tighten this to
+        // per-submesh / per-meshlet bounds when mesh-shader path lands.
+        const WorldBounds bounds =
+            worldBounds(item.model, item.sourceModel->localAABB());
         const std::vector<Material>& materials = item.sourceModel->materials();
         for (const SubMesh& subMesh : item.sourceModel->subMeshes()) {
             if (subMesh.indexCount == 0) continue;
             myengine::shared::CullObject cullObject{};
-            cullObject.centerRadius =
-                glm::vec4(boundingSphere.center, boundingSphere.radius);  // model sphere per submesh
+            cullObject.centerRadius = glm::vec4(bounds.center, bounds.radius);
+            cullObject.extentDrawId = glm::vec4(bounds.halfExtent, 0.0f);  // .w set in emit() = drawId
             const uint32_t materialId =
                 (subMesh.materialIndex < materials.size())
                     ? materials[subMesh.materialIndex].materialId() : 0u;
