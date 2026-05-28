@@ -26,6 +26,10 @@ layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
 layout(location = 7) out vec4 fragInstColor;
 layout(location = 8) out vec4 fragInstParams;
+// PART4 4a-2: motion vector inputs. Grass already uses 7/8 for instance
+// data, so motion takes the next free pair.
+layout(location = 9) out vec4 fragCurClip;
+layout(location = 10) out vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -56,7 +60,8 @@ void main() {
         worldPos.z += cos(tsec * 1.3 + phase) * 0.12 * bend;
     }
 
-    gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
+    vec4 curClip = ubo.frame.proj * ubo.frame.view * worldPos;
+    gl_Position = curClip;
     fragWorldPos = vec3(worldPos);
     fragLightPos = ubo.frame.lightVP * worldPos;
     fragNormal = normalize(mat3(model) * inNormal);
@@ -65,4 +70,9 @@ void main() {
     fragAlpha = push.alpha;
     fragInstColor = instColor;
     fragInstParams = instParams;
+    // PART4 4a-2: prev position from prevViewProj * sameWorldPos. Wind sway
+    // is not back-projected for the previous frame; the high-frequency
+    // displacement averages out in TAA and isn't worth a CPU-side history.
+    fragCurClip  = curClip;
+    fragPrevClip = ubo.frame.prevViewProj * worldPos;
 }

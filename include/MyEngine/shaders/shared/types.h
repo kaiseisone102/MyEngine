@@ -65,6 +65,14 @@ struct FrameUBO {
     vec4 cameraParams;  // x=nearZ, y=farZ (+INFINITY for reverse-Z infinite far), z=fov(rad), w=aspect
                         // NDC z convention: 1=near, 0=far (reverse-Z, Vulkan 0..1).
 
+    // === PART4 4a-2: previous frame view-projection for motion vectors ===
+    // Opaque vertex shaders compute prev-frame NDC = prevViewProj * model *
+    // pos and emit the (cur-prev) screen-space difference to the motion RT.
+    // For dynamic objects the model matrix is treated as time-constant here;
+    // a per-object prevModel SSBO is the natural Phase 3 upgrade and slots
+    // into the same shader path without changing the vertex contract.
+    mat4 prevViewProj;
+
     // === Phase 1K-2: unified material SSBO address (BDA) ===
     uvec4 materialBuffer;  // xy = 64-bit GPU address (lo,hi); zw reserved
 };

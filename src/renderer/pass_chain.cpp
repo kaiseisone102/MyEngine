@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <iostream>
 
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
+
 #include "scene/scene_data.h"  // SceneData::cullObjects() for the cull pass
 
 #define GLM_FORCE_RADIANS
@@ -42,6 +45,7 @@ void PassChain::init(const InitInfo& info) {
     }
 
     swapchain_ = info.swapchain;
+    ctx_ = info.ctx;  // PART4 4a-2: needed for the GBuffer viewer sampler
 
     // ─── ShadowPass ──────────────────────────────────────────────
     {
@@ -68,6 +72,18 @@ void PassChain::init(const InitInfo& info) {
         mi.hdrColorView = info.hdrColorView;  // Phase 1H-2
         mi.hdrColorImage = info.hdrColorImage;  // PART4 4a-1
         mi.hdrColorFormat = info.hdrColorFormat;
+        // PART4 4a-2: GBuffer attachments.
+        mi.normalView = info.normalView;
+        mi.normalImage = info.normalImage;
+        mi.normalFormat = info.normalFormat;
+        mi.motionView = info.motionView;
+        mi.motionImage = info.motionImage;
+        mi.motionFormat = info.motionFormat;
+
+        // PART4 4a-2: HDR target handles cached for OverlayPass's barrier
+        // and for the GBuffer widget's lazy registration.
+        hdrColorView_ = info.hdrColorView;
+        hdrColorImage_ = info.hdrColorImage;
         mi.shaderDir = info.shaderDir;
         mainPass_.init(mi);
     }
@@ -150,9 +166,16 @@ void PassChain::init(const InitInfo& info) {
         hi.ctx = info.ctx;
         hi.swapchain = info.swapchain;
         hi.colorFormat = mainColorFormat;
-        hi.depthFormat = mainDepthFormat;
         hi.shaderDir = info.shaderDir;
         hudPass_.init(hi);
+    }
+
+    // ─── OverlayPass (PART4 4a-2) ────────────────────────────────
+    {
+        OverlayPass::InitInfo oi{};
+        oi.ctx = info.ctx;
+        oi.colorFormat = mainColorFormat;
+        overlayPass_.init(oi);
     }
 
     // ─── WaterPass ───────────────────────────────────────────────
@@ -195,15 +218,27 @@ void PassChain::init(const InitInfo& info) {
         ii.window = info.window;
         ii.ctx = info.ctx;
         ii.swapchainImageCount = info.swapchain->imageCount();
-        ii.colorFormat = mainColorFormat;  // PART4 4a-1
-        ii.depthFormat = mainDepthFormat;
+        ii.colorFormat = mainColorFormat;  // PART4 4a-1 / 4a-2 (color-only)
         ii.minImageCount = 2;
         imgui_.init(ii);
     }
+
+    // PART4 4a-2: GBuffer debug widget. ImGui backend is up by now so the
+    // widget's lazy AddTexture (on first draw) will land in the live pool.
+    // The widget queries depth_layouts::readOnly(ctx) directly, mirroring
+    // main_pass's post-barrier layout choice.
+    gbufferWidget_.init(info.ctx);
+    gbufferWidget_.setAttachments(info.normalView, info.motionView,
+                                   info.swapchain->depthView());
 }
 
 void PassChain::shutdown() {
+    // PART4 4a-2: widget releases its ImGui descriptor sets first so the
+    // ImGui Vulkan backend is still alive when ImGui_ImplVulkan_RemoveTexture
+    // runs.
+    gbufferWidget_.shutdown();
     imgui_.shutdown();
+    overlayPass_.shutdown();
     waterPass_.shutdown();
     reflectionPass_.shutdown();
     hudPass_.shutdown();
@@ -228,32 +263,41 @@ void PassChain::onReflectionQualityChanged(ReflectionQuality quality) {
     }
 }
 
-void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSampler,
-                                   uint32_t bloomBaseW, uint32_t bloomBaseH,
-                                   VkImage hdrColorImage) {
+void PassChain::onSwapchainResized(const ResizeInfo& info) {
     // Phase 1H-2 / PART4 4a-1: forward new HDR view + image to MainPass before
     // its next execute. With dynamic rendering main_pass no longer rebuilds a
     // framebuffer here.
-    if (hdrColorView != VK_NULL_HANDLE) {
-        mainPass_.setHdrColorView(hdrColorView);
+    if (info.hdrColorView != VK_NULL_HANDLE) {
+        mainPass_.setHdrColorView(info.hdrColorView);
     }
-    if (hdrColorImage != VK_NULL_HANDLE) {
-        mainPass_.setHdrColorImage(hdrColorImage);
+    if (info.hdrColorImage != VK_NULL_HANDLE) {
+        mainPass_.setHdrColorImage(info.hdrColorImage);
     }
+    // PART4 4a-2: forward GBuffer attachments + refresh widget views.
+    if (info.normalView != VK_NULL_HANDLE) {
+        mainPass_.setNormalAttachment(info.normalView, info.normalImage);
+    }
+    if (info.motionView != VK_NULL_HANDLE) {
+        mainPass_.setMotionAttachment(info.motionView, info.motionImage);
+    }
+    if (info.hdrColorView != VK_NULL_HANDLE) hdrColorView_ = info.hdrColorView;
+    if (info.hdrColorImage != VK_NULL_HANDLE) hdrColorImage_ = info.hdrColorImage;
+    gbufferWidget_.setAttachments(info.normalView, info.motionView,
+                                   swapchain_ ? swapchain_->depthView() : VK_NULL_HANDLE);
     mainPass_.onSwapchainResized();
     // Phase 1I: rebuild bloom mip chain at the new base extent FIRST, so its new
     // mip0 view/sampler can be forwarded to PostPass below.
-    if (bloomBaseW != 0 && bloomBaseH != 0) {
+    if (info.bloomBaseW != 0 && info.bloomBaseH != 0) {
         BloomPass::InitInfo bi{};
-        bi.hdrColorView = hdrColorView;
-        bi.hdrColorSampler = hdrColorSampler;
-        bi.baseWidth = bloomBaseW;
-        bi.baseHeight = bloomBaseH;
+        bi.hdrColorView = info.hdrColorView;
+        bi.hdrColorSampler = info.hdrColorSampler;
+        bi.baseWidth = info.bloomBaseW;
+        bi.baseHeight = info.bloomBaseH;
         bloomPass_.onSwapchainResized(bi);
     }
     // Phase 1H-3: forward new HDR view + sampler + new bloom mip0 to PostPass
-    if (hdrColorView != VK_NULL_HANDLE) {
-        postPass_.onSwapchainResized(hdrColorView, hdrColorSampler,
+    if (info.hdrColorView != VK_NULL_HANDLE) {
+        postPass_.onSwapchainResized(info.hdrColorView, info.hdrColorSampler,
                                      bloomPass_.bloomView(), bloomPass_.bloomSampler());
     }
     // swapchain サイズ変更時、 反射 texture も新サイズに合わせて再作成。
@@ -268,7 +312,11 @@ void PassChain::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorS
     }
 }
 
-void PassChain::beginUI() { imgui_.beginFrame(); }
+void PassChain::beginUI() {
+    imgui_.beginFrame();
+    // PART4 4a-2: GBuffer attachment viewer (right-docked, FirstUseEver).
+    gbufferWidget_.draw();
+}
 void PassChain::endUI() { imgui_.endFrame(); }
 
 void PassChain::recordFrame(const RecordInfo& info) {
@@ -444,16 +492,14 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.waterUseReflection = waterUseReflection;
         mi.waterReflectVP = reflectVP;
 
-        mi.imgui = &imgui_;
+        // 4a-2 redesign: HUD + ImGui pulled out of main_pass into the
+        // OverlayPass step below; only scene-coupled overlays (debug_line +
+        // particles) stay in main_pass's non-opaque BeginRendering.
         mi.debugLinePass = &debugLinePass_;
         mi.debugLines = info.debugLines;
         mi.particlePass = &particlePass_;
         mi.particles = info.particles;
         mi.particleCullingDistance = info.scene->cullingDistance();
-        mi.hudPass = &hudPass_;
-        mi.hud = info.hud;
-        mi.screenW = info.screenW;
-        mi.screenH = info.screenH;
 
         // === Phase 1F: instanced grass scattered on the ground, frustum-culled ===
         instancePool_.beginFrame(info.frameIndex);
@@ -551,6 +597,21 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 0);
 
         mainPass_.execute(mi);
+    }
+
+    // ─── OverlayPass (PART4 4a-2) ────────────────────────────────
+    {
+        OverlayPass::ExecuteInfo oe{};
+        oe.cmd = info.cmd;
+        oe.extent = swapchain_->extent();
+        oe.hdrColorView = hdrColorView_;
+        oe.hdrColorImage = hdrColorImage_;
+        oe.hudPass = &hudPass_;
+        oe.hud = info.hud;
+        oe.screenW = info.screenW;
+        oe.screenH = info.screenH;
+        oe.imgui = &imgui_;
+        overlayPass_.execute(oe);
     }
 
     // Phase 1I: generate bloom texture from HDR (before tonemap composites it)

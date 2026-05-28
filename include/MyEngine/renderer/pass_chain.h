@@ -16,6 +16,8 @@
 #include "hud_pass.h"
 #include "imgui_layer.h"
 #include "main_pass.h"
+#include "overlay_pass.h"
+#include "gbuffer_debug_widget.h"
 #include "instance_buffer_pool.h"
 #include "draw_data_pool.h"
 #include "culling_pass.h"
@@ -55,6 +57,13 @@ class PassChain {
         VkImage hdrColorImage = VK_NULL_HANDLE;  // PART4 4a-1: dynamic-rendering layout transition
         VkFormat hdrColorFormat = VK_FORMAT_UNDEFINED;
         VkSampler hdrColorSampler = VK_NULL_HANDLE;  // Phase 1H-3
+        // PART4 4a-2: GBuffer attachments written by main_pass's opaque pass.
+        VkImageView normalView = VK_NULL_HANDLE;
+        VkImage normalImage = VK_NULL_HANDLE;
+        VkFormat normalFormat = VK_FORMAT_UNDEFINED;
+        VkImageView motionView = VK_NULL_HANDLE;
+        VkImage motionImage = VK_NULL_HANDLE;
+        VkFormat motionFormat = VK_FORMAT_UNDEFINED;
         // Phase 1I: compute mip-chain bloom. BloomPass owns its own mip chain;
         // we only pass the format, base (mip0) extent, and mip count.
         VkFormat bloomFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -105,9 +114,21 @@ class PassChain {
     // visible is the previous same-frame dispatch, read after the frame fence.
     int lastCullGpuVisible() const { return lastCullGpuVisible_; }
     int lastCullTotal() const { return lastCullTotal_; }
-    void onSwapchainResized(VkImageView hdrColorView = VK_NULL_HANDLE, VkSampler hdrColorSampler = VK_NULL_HANDLE,
-                            uint32_t bloomBaseW = 0, uint32_t bloomBaseH = 0,
-                            VkImage hdrColorImage = VK_NULL_HANDLE);  // Phase 1H-2/3 + 1I + PART4 4a-1
+    // PART4 4a-1/4a-2: forwards new HDR view + image and GBuffer
+    // normal/motion attachments after a swapchain rebuild. All targets are
+    // recreated together by VulkanRenderer::createHdrTarget.
+    struct ResizeInfo {
+        VkImageView hdrColorView = VK_NULL_HANDLE;
+        VkSampler hdrColorSampler = VK_NULL_HANDLE;
+        VkImage hdrColorImage = VK_NULL_HANDLE;
+        VkImageView normalView = VK_NULL_HANDLE;
+        VkImage normalImage = VK_NULL_HANDLE;
+        VkImageView motionView = VK_NULL_HANDLE;
+        VkImage motionImage = VK_NULL_HANDLE;
+        uint32_t bloomBaseW = 0;
+        uint32_t bloomBaseH = 0;
+    };
+    void onSwapchainResized(const ResizeInfo& info);
 
     void onReflectionQualityChanged(ReflectionQuality quality);
     void setTonemapMode(int mode) { postPass_.setTonemapMode(mode); }
@@ -133,6 +154,11 @@ class PassChain {
     int lastCullTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3
     BloomPass bloomPass_;  // Phase 1I
+    // PART4 4a-2: HUD + ImGui overlay rendered after main_pass and before
+    // bloom/post. Owns the dynamic-rendering scope; HudPass / ImGuiLayer
+    // remain owned by PassChain (init/shutdown here) and are driven through
+    // OverlayPass.execute()'s ExecuteInfo pointers.
+    OverlayPass overlayPass_;
     bool bloomEnabled_ = true;
     DebugLinePass debugLinePass_;
     ParticlePass particlePass_;
@@ -142,4 +168,11 @@ class PassChain {
     ImGuiLayer imgui_;
 
     Swapchain* swapchain_ = nullptr;
+    VulkanContext* ctx_ = nullptr;  // PART4 4a-2: needed for the viewer sampler
+
+    // PART4 4a-2: HDR target handles cached for OverlayPass and viewer
+    // forwarding. Refreshed on init / onSwapchainResized.
+    VkImageView hdrColorView_ = VK_NULL_HANDLE;
+    VkImage hdrColorImage_ = VK_NULL_HANDLE;
+    GBufferDebugWidget gbufferWidget_;
 };

@@ -26,11 +26,9 @@ class ImGuiLayer {
         SDL_Window* window = nullptr;
         VulkanContext* ctx = nullptr;
         uint32_t swapchainImageCount = 0;
-        // PART4 4a-1: ImGui Vulkan backend supports dynamic rendering directly
-        // (UseDynamicRendering + PipelineRenderingCreateInfo). We hand it the
-        // color / depth formats main_pass renders to.
+        // PART4 4a-1 / 4a-2: ImGui draws inside OverlayPass's color-only
+        // BeginRendering scope (HDR target). No depth slot.
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         uint32_t minImageCount = 2;
     };
 

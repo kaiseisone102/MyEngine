@@ -46,9 +46,9 @@ class HudPipeline {
         alignas(16) glm::vec4 extraParams{0.f};
     };
 
-    // PART4 4a-1: dynamic rendering — formats instead of VkRenderPass.
-    void init(VulkanContext* ctx, VkFormat colorFormat, VkFormat depthFormat,
-              const std::string& shaderDir);
+    // PART4 4a-1 / 4a-2: dynamic rendering, color-only (no depth slot - HUD
+    // is depth-less by design).
+    void init(VulkanContext* ctx, VkFormat colorFormat, const std::string& shaderDir);
     void shutdown();
 
     VkPipeline pipeline() const { return pipeline_.get(); }
@@ -57,7 +57,6 @@ class HudPipeline {
    private:
     VulkanContext* ctx_ = nullptr;
     VkFormat colorFormat_ = VK_FORMAT_UNDEFINED;
-    VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
     VkUnique<VkPipelineLayout> layout_;
     VkUnique<VkPipeline> pipeline_;
 

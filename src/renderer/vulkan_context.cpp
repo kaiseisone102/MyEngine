@@ -406,6 +406,7 @@ void VulkanContext::createDevice() {
     synchronization2_ = (supportedVk13.synchronization2 == VK_TRUE);
     drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
     dynamicRendering_ = (supportedVk13.dynamicRendering == VK_TRUE);
+    separateDepthStencilLayouts_ = (supportedVk12.separateDepthStencilLayouts == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -431,7 +432,8 @@ void VulkanContext::createDevice() {
               << " synchronization2=" << (synchronization2_ ? 1 : 0)
               << " drawIndirectCount=" << (drawIndirectCount_ ? 1 : 0)
               << " deviceGeneratedCommands=" << (deviceGeneratedCommands_ ? 1 : 0)
-              << " dynamicRendering=" << (dynamicRendering_ ? 1 : 0) << "\n";
+              << " dynamicRendering=" << (dynamicRendering_ ? 1 : 0)
+              << " separateDepthStencilLayouts=" << (separateDepthStencilLayouts_ ? 1 : 0) << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
@@ -452,6 +454,13 @@ void VulkanContext::createDevice() {
     // Required for vkCmdDrawIndexedIndirectCount used by indirect_exec when
     // compaction is on.
     vk12Features.drawIndirectCount = drawIndirectCount_ ? VK_TRUE : VK_FALSE;
+    // PART4 4a-2 modernization: separate depth/stencil layouts (Vulkan 1.2
+    // core but OPTIONAL - enabling unconditionally trips
+    // VK_ERROR_FEATURE_NOT_PRESENT on drivers that don't expose it). Gate on
+    // the query above; main_pass falls back to the combined layouts when
+    // the bit is false.
+    vk12Features.separateDepthStencilLayouts =
+        separateDepthStencilLayouts_ ? VK_TRUE : VK_FALSE;
 
     // Vulkan13 §1 (W): enable synchronization2 when supported. Chained after
     // vk12Features in pNext. Future PART4 4-前-4 / 4b / 4c additions in

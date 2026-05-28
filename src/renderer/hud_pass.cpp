@@ -10,7 +10,7 @@
 void HudPass::init(const InitInfo& info) {
     ctx_ = info.ctx;
     swapchain_ = info.swapchain;
-    pipeline_.init(ctx_, info.colorFormat, info.depthFormat, info.shaderDir);
+    pipeline_.init(ctx_, info.colorFormat, info.shaderDir);
 }
 
 void HudPass::shutdown() {

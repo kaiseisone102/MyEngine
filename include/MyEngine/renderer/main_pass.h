@@ -52,6 +52,15 @@ class MainPass {
         // COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL transition that
         // VkRenderPass used to do implicitly via finalLayout.
         VkImage hdrColorImage = VK_NULL_HANDLE;
+        // PART4 4a-2: GBuffer attachments (location=1 normal, location=2 motion).
+        // Opaque-pass MRT; non-opaque draws use a separate begin/end with HDR
+        // only.
+        VkImageView normalView = VK_NULL_HANDLE;
+        VkImage normalImage = VK_NULL_HANDLE;
+        VkFormat normalFormat = VK_FORMAT_UNDEFINED;
+        VkImageView motionView = VK_NULL_HANDLE;
+        VkImage motionImage = VK_NULL_HANDLE;
+        VkFormat motionFormat = VK_FORMAT_UNDEFINED;
         // Phase 1D: bindless texture array set layout (set=1 in bindless pipeline)
         VkDescriptorSetLayout bindlessSetLayout = VK_NULL_HANDLE;
         std::string shaderDir;
@@ -101,16 +110,18 @@ class MainPass {
         bool waterUseReflection = false;
         glm::mat4 waterReflectVP{1.f};
 
-        ImGuiLayer* imgui = nullptr;
+        // PART4 4a-2 redesign: HUD + ImGui are no longer drawn inside
+        // main_pass. They live in PassChain's OverlayPass step, which runs
+        // after main_pass has finished and transitioned the GBuffer
+        // attachments to read-only layouts. This eliminates the mid-pass
+        // barrier dance the original 4a-2 needed (and which TDR'd on first
+        // launch) and lets the debug viewer sample GBuffer textures without
+        // a feedback-loop hazard.
         DebugLinePass* debugLinePass = nullptr;
         const DebugLineRenderer* debugLines = nullptr;
         ParticlePass* particlePass = nullptr;
         const std::vector<particle::Particle>* particles = nullptr;
         float particleCullingDistance = 100.f;
-        HudPass* hudPass = nullptr;
-        const HudDrawList* hud = nullptr;
-        float screenW = 0.f;
-        float screenH = 0.f;
     };
 
     void init(const InitInfo& info);
@@ -121,6 +132,17 @@ class MainPass {
     // PART4 4a-1: dynamic rendering needs the VkImage to issue the post-pass
     // layout transition that VkRenderPass used to do via finalLayout.
     void setHdrColorImage(VkImage image) { hdrColorImage_ = image; }
+    // PART4 4a-2: GBuffer attachments. Set during init and on swapchain
+    // resize; views/images recreate together so they always match the depth /
+    // hdr extent.
+    void setNormalAttachment(VkImageView view, VkImage image) {
+        normalView_ = view;
+        normalImage_ = image;
+    }
+    void setMotionAttachment(VkImageView view, VkImage image) {
+        motionView_ = view;
+        motionImage_ = image;
+    }
 
     // PART4 4a-1: replace VkRenderPass exposure with format accessors. Child
     // passes (debug_line / hud / particle / water / imgui) need to know which
@@ -152,6 +174,13 @@ class MainPass {
     VkImage hdrColorImage_ = VK_NULL_HANDLE;
     VkFormat hdrColorFormat_ = VK_FORMAT_UNDEFINED;
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
+    // PART4 4a-2: GBuffer attachments (location=1 normal, location=2 motion).
+    VkImageView normalView_ = VK_NULL_HANDLE;
+    VkImage normalImage_ = VK_NULL_HANDLE;
+    VkFormat normalFormat_ = VK_FORMAT_UNDEFINED;
+    VkImageView motionView_ = VK_NULL_HANDLE;
+    VkImage motionImage_ = VK_NULL_HANDLE;
+    VkFormat motionFormat_ = VK_FORMAT_UNDEFINED;
 
     VkUnique<VkPipelineLayout> staticLayout_;
     VkUnique<VkPipeline> staticPipelineOpaque_;

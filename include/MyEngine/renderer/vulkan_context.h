@@ -86,6 +86,12 @@ class VulkanContext {
     // here so the receptacle (4a-1) is symmetric with sync2 / drawIndirectCount.
     bool dynamicRendering() const { return dynamicRendering_; }
 
+    // PART4 4a-2: Vulkan 1.2 separate depth/stencil layouts. Lets D32_SFLOAT
+    // use the precise VK_IMAGE_LAYOUT_DEPTH_*_OPTIMAL forms instead of the
+    // legacy combined DEPTH_STENCIL_*_OPTIMAL. Querying here so device
+    // creation only enables it when present.
+    bool separateDepthStencilLayouts() const { return separateDepthStencilLayouts_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -119,6 +125,12 @@ class VulkanContext {
 
     // PART4 4a-1: queried VK_KHR_dynamic_rendering capability flag.
     bool dynamicRendering_ = false;
+
+    // PART4 4a-2: queried Vulkan 1.2 separate depth/stencil layouts feature.
+    // Some Pascal/Maxwell drivers expose Vulkan 1.2 without this optional
+    // feature, so enabling it unconditionally on the device CreateInfo would
+    // make vkCreateDevice return VK_ERROR_FEATURE_NOT_PRESENT.
+    bool separateDepthStencilLayouts_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

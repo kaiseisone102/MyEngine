@@ -49,6 +49,10 @@ class Swapchain {
     uint32_t imageCount() const { return static_cast<uint32_t>(images_.size()); }
     VkImageView colorView(uint32_t i) const { return views_[i].get(); }
     VkImageView depthView() const { return depthView_.get(); }
+    // PART4 4a-2: HZB compute (4b) and the 4a-2 debug HUD need the raw VkImage
+    // to issue the post-main_pass DEPTH_STENCIL_ATTACHMENT_OPTIMAL ->
+    // DEPTH_STENCIL_READ_ONLY_OPTIMAL transition.
+    VkImage depthImage() const { return depthImage_.image(); }
 
    private:
     const VulkanContext* ctx_ = nullptr;

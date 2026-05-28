@@ -31,6 +31,9 @@ layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
+// PART4 4a-2: motion vector inputs (see triangle.vert for design notes).
+layout(location = 7) out vec4 fragCurClip;
+layout(location = 8) out vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -61,7 +64,8 @@ void main() {
     vec3 skinnedNormal = mat3(skinMatrix) * inNormal;
 
     vec4 worldPos = push.model * skinnedPos;
-    gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
+    vec4 curClip  = ubo.frame.proj * ubo.frame.view * worldPos;
+    gl_Position = curClip;
 
     fragWorldPos = vec3(worldPos);
     fragLightPos = ubo.frame.lightVP * worldPos;
@@ -69,4 +73,9 @@ void main() {
     fragColor = inColor;
     fragTexCoord = inTexCoord;
     fragAlpha = push.alpha;
+    // PART4 4a-2: prev clip from prevViewProj + same world pos. Per-bone
+    // prev-pose history is a Phase 3 addition; current motion captures camera
+    // movement which is the dominant TAA signal.
+    fragCurClip  = curClip;
+    fragPrevClip = ubo.frame.prevViewProj * worldPos;
 }

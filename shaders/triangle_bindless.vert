@@ -21,6 +21,9 @@ layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
 layout(location = 6) flat out int fragAlbedoIdx;
+// PART4 4a-2: motion vector inputs (see triangle.vert).
+layout(location = 7) out vec4 fragCurClip;
+layout(location = 8) out vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -32,11 +35,14 @@ layout(push_constant) uniform PC {
 
 void main() {
     vec4 worldPos = push.model * vec4(inPosition, 1.0);
-    gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
+    vec4 curClip  = ubo.frame.proj * ubo.frame.view * worldPos;
+    gl_Position = curClip;
     fragLightPos = ubo.frame.lightVP * worldPos;
     fragNormal = normalize(mat3(push.model) * inNormal);
     fragWorldPos = worldPos.xyz;
     fragTexCoord = inTexCoord;
     fragAlpha = push.alpha;
     fragAlbedoIdx = push.albedoIdx;
+    fragCurClip  = curClip;
+    fragPrevClip = ubo.frame.prevViewProj * worldPos;
 }

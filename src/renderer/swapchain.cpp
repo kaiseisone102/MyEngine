@@ -218,9 +218,13 @@ void Swapchain::createDepthResources() {
     VkImage di = VK_NULL_HANDLE;
     // depth image memory is now VMA-managed via VmaImage::createAttachment.
     // ctx_ is const; createAttachment needs non-const (allocator()), so cast.
+    // PART4 4a-2: depth image is also sampled by the HUD/visualizer (and by
+    // 4b's HZB compute pass) so it needs SAMPLED in addition to the legacy
+    // DEPTH_STENCIL_ATTACHMENT usage.
     depthImage_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
                                              extent_.width, extent_.height, depthFormat_,
-                                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+                                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                                                 VK_IMAGE_USAGE_SAMPLED_BIT);
 
     // depth view: フォーマットに stencil 成分があれば STENCIL_BIT も追加 (安全側)
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT;

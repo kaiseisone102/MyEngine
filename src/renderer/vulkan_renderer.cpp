@@ -52,6 +52,13 @@ void VulkanRenderer::init(SDL_Window* window) {
         info.hdrColorImage = hdrTarget_.image();  // PART4 4a-1: dynamic-rendering barrier
         info.hdrColorSampler = hdrTarget_.sampler();  // Phase 1H-3  // Phase 1H-2
         info.hdrColorFormat = hdrTarget_.format();
+        // PART4 4a-2: GBuffer attachments.
+        info.normalView = normalTarget_.view();
+        info.normalImage = normalTarget_.image();
+        info.normalFormat = normalTarget_.format();
+        info.motionView = motionTarget_.view();
+        info.motionImage = motionTarget_.image();
+        info.motionFormat = motionTarget_.format();
         info.shaderDir = shaderDir_;
         info.bloomFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
         info.bloomBaseWidth = swapchain_.extent().width / 2;
@@ -64,6 +71,8 @@ void VulkanRenderer::init(SDL_Window* window) {
 void VulkanRenderer::destroyRenderTargets() {
     // Single source of truth for tearing down swapchain-sized targets.
     hdrTarget_.shutdown();
+    normalTarget_.shutdown();  // PART4 4a-2
+    motionTarget_.shutdown();  // PART4 4a-2
 }
 
 void VulkanRenderer::recreateSwapchain() {
@@ -76,9 +85,17 @@ void VulkanRenderer::recreateSwapchain() {
     // Bloom mip chain is owned by BloomPass and rebuilt inside onSwapchainResized.
     destroyRenderTargets();
     createHdrTarget();
-    passChain_.onSwapchainResized(hdrTarget_.view(), hdrTarget_.sampler(),
-                                  swapchain_.extent().width / 2, swapchain_.extent().height / 2,
-                                  hdrTarget_.image());
+    PassChain::ResizeInfo ri{};
+    ri.hdrColorView = hdrTarget_.view();
+    ri.hdrColorSampler = hdrTarget_.sampler();
+    ri.hdrColorImage = hdrTarget_.image();
+    ri.normalView = normalTarget_.view();
+    ri.normalImage = normalTarget_.image();
+    ri.motionView = motionTarget_.view();
+    ri.motionImage = motionTarget_.image();
+    ri.bloomBaseW = swapchain_.extent().width / 2;
+    ri.bloomBaseH = swapchain_.extent().height / 2;
+    passChain_.onSwapchainResized(ri);
 }
 
 void VulkanRenderer::onResize() {
@@ -110,6 +127,11 @@ FrameUniforms::LightingUBO VulkanRenderer::buildCompleteFrameUBO() const {
 
     // Material SSBO address (BDA) for the shaders' buffer_reference.
     ubo.materialBuffer = assets_.materialRegistry().bufferAddressPacked();
+
+    // PART4 4a-2: previous frame VP for motion vectors. Captured at the end
+    // of the prior drawFrame; identity on frame 0 so the first frame's motion
+    // RT collapses to (0,0) instead of producing garbage.
+    ubo.prevViewProj = prevViewProj_;
     return ubo;
 }
 
@@ -144,6 +166,10 @@ void VulkanRenderer::drawFrame(std::function<void()> uiCallback) {
     // One fully-populated UBO, used by both the main and reflection passes.
     const auto lighting = buildCompleteFrameUBO();
     frameUniforms_.update(acq.frameIndex, lighting);
+    // PART4 4a-2: snapshot this frame's VP as "previous" for the next frame's
+    // motion vector. Done after buildCompleteFrameUBO so the next frame's
+    // prevViewProj is exactly what this frame rendered with.
+    prevViewProj_ = lighting.proj * lighting.view;
 
     passChain_.beginUI();
     if (uiCallback) uiCallback();
@@ -221,4 +247,32 @@ void VulkanRenderer::createHdrTarget() {
     hdrDesc.samplerFilter = VK_FILTER_LINEAR;
     hdrTarget_.init(&ctx_, &resources_, hdrDesc);
     std::cout << "[VulkanRenderer] HDR target created (" << hdrDesc.width << "x" << hdrDesc.height << ")\n";
+
+    // PART4 4a-2: GBuffer normal RT. R10G10B10A2_UNORM = 20-bit octahedral
+    // normal in .rg, 12 bits free for material/roughness/ID (Frostbite,
+    // UE5). main_pass's opaque pass writes here at location=1; SS effects
+    // (SSAO/SSGI/SSR/DoF) and the 4a-2 debug HUD sample it.
+    RenderTarget::Desc normalDesc{};
+    normalDesc.width = swapchain_.extent().width;
+    normalDesc.height = swapchain_.extent().height;
+    normalDesc.format = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+    normalDesc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    normalDesc.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    normalDesc.createSampler = true;
+    normalDesc.samplerFilter = VK_FILTER_NEAREST;
+    normalTarget_.init(&ctx_, &resources_, normalDesc);
+
+    // PART4 4a-2: GBuffer motion vector RT. RG16F = NDC ΔXY (current-prev
+    // before perspective divide). Phase 3 TAA/TSR/FSR/DLSS all consume this
+    // attachment.
+    RenderTarget::Desc motionDesc{};
+    motionDesc.width = swapchain_.extent().width;
+    motionDesc.height = swapchain_.extent().height;
+    motionDesc.format = VK_FORMAT_R16G16_SFLOAT;
+    motionDesc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    motionDesc.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    motionDesc.createSampler = true;
+    motionDesc.samplerFilter = VK_FILTER_NEAREST;
+    motionTarget_.init(&ctx_, &resources_, motionDesc);
+    std::cout << "[VulkanRenderer] GBuffer normal+motion targets created\n";
 }

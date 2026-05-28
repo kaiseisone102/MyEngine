@@ -26,6 +26,12 @@ layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
 layout(location = 6) flat out uint fragMaterialId;
+// PART4 4a-2: clip-space positions for motion vector. Per-object prevModel is
+// not yet plumbed through DrawData so static objects pass the current model
+// twice (motion = 0 for non-camera movement); the contract is in place for
+// Phase 3 to add prevModel without touching the fragment shader.
+layout(location = 7) out vec4 fragCurClip;
+layout(location = 8) out vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -45,7 +51,8 @@ void main() {
     DrawData d = db.data[gl_InstanceIndex];
 
     vec4 worldPos = d.model * vec4(inPosition, 1.0);
-    gl_Position = ubo.frame.proj * ubo.frame.view * worldPos;
+    vec4 curClip  = ubo.frame.proj * ubo.frame.view * worldPos;
+    gl_Position = curClip;
     fragWorldPos = vec3(worldPos);
     fragLightPos = ubo.frame.lightVP * worldPos;
     fragNormal = normalize(mat3(d.model) * inNormal);
@@ -53,4 +60,9 @@ void main() {
     fragTexCoord = inTexCoord;
     fragAlpha = d.alpha;
     fragMaterialId = d.materialId;
+    // PART4 4a-2: prevModel is not yet per-object so treat the static model as
+    // time-constant. Camera motion alone produces a motion vector; per-object
+    // motion will be added in Phase 3 by extending DrawData with prevModel.
+    fragCurClip  = curClip;
+    fragPrevClip = ubo.frame.prevViewProj * worldPos;
 }

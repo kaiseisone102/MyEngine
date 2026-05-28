@@ -183,7 +183,7 @@ void ResourceFactory::transitionImageLayout(VkImage image, VkImageLayout oldLayo
 
     if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
         newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        b.srcStage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.srcStage  = VK_PIPELINE_STAGE_2_NONE;
         b.srcAccess = 0;
         b.dstStage  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         b.dstAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -196,7 +196,7 @@ void ResourceFactory::transitionImageLayout(VkImage image, VkImageLayout oldLayo
     } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
                newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
         // Used to initialise empty textures.
-        b.srcStage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.srcStage  = VK_PIPELINE_STAGE_2_NONE;
         b.srcAccess = 0;
         b.dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         b.dstAccess = VK_ACCESS_2_SHADER_READ_BIT;

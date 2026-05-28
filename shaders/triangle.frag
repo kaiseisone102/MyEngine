@@ -10,6 +10,7 @@
 #include "shared/types.h"
 #include "shared/shadow_sampling.glsl"
 #include "shared/pbr.glsl"
+#include "shared/gbuffer.glsl"  // PART4 4a-2
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -18,6 +19,9 @@ layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
 layout(location = 6) flat in uint fragMaterialId;
+// PART4 4a-2: motion vector inputs (see triangle.vert).
+layout(location = 7) in vec4 fragCurClip;
+layout(location = 8) in vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -33,6 +37,9 @@ layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Ma
 
 
 layout(location = 0) out vec4 outColor;
+// PART4 4a-2: GBuffer outputs (R10G10B10A2_UNORM normal, RG16F motion).
+layout(location = 1) out vec4 outNormal;
+layout(location = 2) out vec2 outMotion;
 
 const float kShadowBias = 0.0015;
 
@@ -106,4 +113,10 @@ void main() {
     vec3 Lo = pbrDirectLighting(N, V, L, radiance, albedo, metallic, roughness) * litFactor;
     vec3 color = pbrAmbient(ubo.frame.ambient.rgb, albedo) + Lo;
     outColor = vec4(color, baseColor.a * fragAlpha);
+
+    // PART4 4a-2: GBuffer outputs. Normal is octahedral-encoded into RG of the
+    // R10G10B10A2 RT; BA are free for future material id / roughness packing.
+    // Motion is the (cur-prev) NDC delta consumed by Phase 3 TAA/TSR/FSR/DLSS.
+    outNormal = vec4(encodeNormal(N), 0.0, 0.0);
+    outMotion = computeMotion(fragCurClip, fragPrevClip);
 }

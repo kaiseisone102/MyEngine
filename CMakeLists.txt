@@ -129,6 +129,8 @@ add_executable(${PROJECT_NAME}
     src/renderer/swapchain.cpp
     src/renderer/texture.cpp
     src/renderer/main_pass.cpp
+    src/renderer/overlay_pass.cpp
+    src/renderer/gbuffer_debug_widget.cpp
     src/renderer/mesh.cpp
     src/renderer/model.cpp
     src/renderer/model_loader.cpp

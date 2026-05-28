@@ -105,8 +105,12 @@ void ImGuiLayer::init(const InitInfo& info) {
     ii.PipelineCache = VK_NULL_HANDLE;
     ii.Allocator = nullptr;
     ii.CheckVkResultFn = nullptr;
-    // PART4 4a-1: main_pass uses Vulkan 1.3 dynamic rendering. Hand the
-    // attachment formats to ImGui's pipeline.
+    // PART4 4a-1 / 4a-2: dynamic rendering, color-only. ImGui draws inside
+    // OverlayPass which uses a color-only BeginRendering scope (HDR target),
+    // so we declare no depth slot. ImGui already runs with depthTestEnable=
+    // FALSE so dropping the depth attachment is functionally neutral and
+    // saves the OverlayPass from carrying a depth attachment just for
+    // pipeline compatibility (the legacy shape).
     ii.UseDynamicRendering = true;
 
     ii.PipelineInfoMain.RenderPass = VK_NULL_HANDLE;
@@ -116,7 +120,7 @@ void ImGuiLayer::init(const InitInfo& info) {
         VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     ii.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
     ii.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &info.colorFormat;
-    ii.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = info.depthFormat;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 
     if (!ImGui_ImplVulkan_Init(&ii)) {
         vkDestroyDescriptorPool(g_device, g_descriptorPool, nullptr);

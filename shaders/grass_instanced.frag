@@ -14,6 +14,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_nonuniform_qualifier : require
 #include "shared/types.h"
+#include "shared/gbuffer.glsl"  // PART4 4a-2
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -23,6 +24,9 @@ layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
 layout(location = 7) in vec4 fragInstColor;
 layout(location = 8) in vec4 fragInstParams;
+// PART4 4a-2: motion vector inputs.
+layout(location = 9) in vec4 fragCurClip;
+layout(location = 10) in vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -41,6 +45,9 @@ layout(push_constant) uniform PC {
 };
 
 layout(location = 0) out vec4 outColor;
+// PART4 4a-2: GBuffer outputs.
+layout(location = 1) out vec4 outNormal;
+layout(location = 2) out vec2 outMotion;
 
 const float kAlphaCutoff = 0.5;
 
@@ -69,4 +76,8 @@ void main() {
 
     // Per-instance tint (white = no change; varied = color variation)
     outColor = vec4(albedo.rgb * lighting * fragInstColor.rgb, 1.0);
+
+    // PART4 4a-2: GBuffer outputs.
+    outNormal = vec4(encodeNormal(N), 0.0, 0.0);
+    outMotion = computeMotion(fragCurClip, fragPrevClip);
 }

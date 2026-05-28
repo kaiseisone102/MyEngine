@@ -10,6 +10,7 @@
 #include "shared/types.h"
 #include "shared/shadow_sampling.glsl"
 #include "shared/pbr.glsl"
+#include "shared/gbuffer.glsl"  // PART4 4a-2
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragTexCoord;
@@ -17,6 +18,11 @@ layout(location = 2) in vec3 fragNormal;
 layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
+// PART4 4a-2: motion vector inputs. Extra location-1/2 fragment outputs are
+// silently ignored by the transparent pipeline (1-attachment dynamic
+// rendering), and consumed by the opaque pipeline (3-attachment MRT).
+layout(location = 7) in vec4 fragCurClip;
+layout(location = 8) in vec4 fragPrevClip;
 
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
@@ -36,6 +42,9 @@ layout(push_constant) uniform PC {
 };
 
 layout(location = 0) out vec4 outColor;
+// PART4 4a-2: GBuffer outputs (ignored in transparent path; written in opaque).
+layout(location = 1) out vec4 outNormal;
+layout(location = 2) out vec2 outMotion;
 
 const float kShadowBias = 0.0015;
 
@@ -71,4 +80,8 @@ void main() {
     vec3 Lo = pbrDirectLighting(N, V, L, radiance, albedo, metallic, roughness) * litFactor;
     vec3 color = pbrAmbient(ubo.frame.ambient.rgb, albedo) + Lo;
     outColor = vec4(color, baseColor.a * fragAlpha);
+
+    // PART4 4a-2: GBuffer outputs.
+    outNormal = vec4(encodeNormal(N), 0.0, 0.0);
+    outMotion = computeMotion(fragCurClip, fragPrevClip);
 }

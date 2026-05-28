@@ -11,6 +11,7 @@
 
 #include "renderer/barrier.h"
 #include "renderer/debug_line_pass.h"
+#include "renderer/depth_layouts.h"
 #include "renderer/debug_line_renderer.h"
 #include "renderer/hud_draw_list.h"
 #include "renderer/hud_pass.h"
@@ -74,6 +75,13 @@ void MainPass::init(const InitInfo& info) {
     // Dynamic rendering takes the format directly (no VkRenderPass) so all
     // child passes must use the same format when building their pipelines.
     depthFormat_ = swapchain_->depthFormat();
+    // PART4 4a-2: GBuffer attachments (opaque MRT).
+    normalView_ = info.normalView;
+    normalImage_ = info.normalImage;
+    normalFormat_ = info.normalFormat;
+    motionView_ = info.motionView;
+    motionImage_ = info.motionImage;
+    motionFormat_ = info.motionFormat;
 
     createStaticLayout(info.frameSetLayout, info.bindlessSetLayout);  // S4-c: set=1 is now the bindless array
     {
@@ -229,37 +237,48 @@ VkPipeline MainPass::buildPipeline(const PipelineBuildArgs& args, const std::str
     ds.depthWriteEnable = args.transparent ? VK_FALSE : VK_TRUE;
     ds.depthCompareOp = VK_COMPARE_OP_GREATER;  // reverse-Z (see renderer/projection.h)
 
-    VkPipelineColorBlendAttachmentState blendAtt{};
-    blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    if (args.transparent) {
-        blendAtt.blendEnable = VK_TRUE;
-        blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        blendAtt.colorBlendOp = VK_BLEND_OP_ADD;
-        blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        blendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
-    } else {
-        blendAtt.blendEnable = VK_FALSE;
+    // PART4 4a-2: opaque pipelines render into the 3-attachment MRT (HDR +
+    // normal + motion); transparent pipelines stay 1-attachment and run in
+    // the non-opaque BeginRendering. Blend state mirrors the attachment
+    // count so VUID-06195 (pipeline colorAttachmentCount == active rendering
+    // colorAttachmentCount) is satisfied.
+    VkPipelineColorBlendAttachmentState opaqueBlendAtts[3]{};
+    for (int i = 0; i < 3; ++i) {
+        opaqueBlendAtts[i].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        opaqueBlendAtts[i].blendEnable = VK_FALSE;
     }
+
+    VkPipelineColorBlendAttachmentState transparentBlendAtt{};
+    transparentBlendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    transparentBlendAtt.blendEnable = VK_TRUE;
+    transparentBlendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    transparentBlendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    transparentBlendAtt.colorBlendOp = VK_BLEND_OP_ADD;
+    transparentBlendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    transparentBlendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    transparentBlendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
 
     VkPipelineColorBlendStateCreateInfo cb{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &blendAtt;
+    cb.attachmentCount = args.transparent ? 1u : 3u;
+    cb.pAttachments = args.transparent ? &transparentBlendAtt : opaqueBlendAtts;
 
     VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
-    // PART4 4a-1: dynamic rendering. Chain VkPipelineRenderingCreateInfo
+    // PART4 4a-1/4a-2: dynamic rendering. Chain VkPipelineRenderingCreateInfo
     // describing the attachment formats; renderPass = VK_NULL_HANDLE.
-    VkFormat colorFormats[1] = {hdrColorFormat_};
+    // Opaque draws use the 3-attachment GBuffer (HDR + normal + motion);
+    // transparent uses 1-attachment HDR.
+    VkFormat colorFormatsMrt[3] = {hdrColorFormat_, normalFormat_, motionFormat_};
+    VkFormat colorFormatsOne[1] = {hdrColorFormat_};
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = 1;
-    rci.pColorAttachmentFormats = colorFormats;
+    rci.colorAttachmentCount = args.transparent ? 1u : 3u;
+    rci.pColorAttachmentFormats = args.transparent ? colorFormatsOne : colorFormatsMrt;
     rci.depthAttachmentFormat = depthFormat_;
 
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -301,35 +320,108 @@ void MainPass::execute(const ExecuteInfo& info) {
 
     const VkExtent2D extent = swapchain_->extent();
 
-    // PART4 4a-1: dynamic rendering. The HDR color attachment used to have
-    // initialLayout=UNDEFINED + finalLayout=SHADER_READ_ONLY via VkRenderPass;
-    // here the responsibility is split: the swapchain owner has already
-    // transitioned the HDR image to COLOR_ATTACHMENT_OPTIMAL before this pass
-    // (or it stays in that layout from the previous frame), and PostPass
-    // issues its own transition to SHADER_READ_ONLY before sampling. The
-    // depth view stays in DEPTH_STENCIL_ATTACHMENT_OPTIMAL across frames; the
-    // legacy renderpass UNDEFINED->ATTACHMENT path also did an implicit
-    // transition so we mirror that contract via a clear loadOp.
-    VkRenderingAttachmentInfo colorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAtt.imageView = hdrColorView_;
-    colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAtt.clearValue.color = {
+    // PART4 4a-2: opaque draws now write a 3-attachment MRT (HDR color,
+    // GBuffer normal, motion vector) while non-opaque draws (water /
+    // transparent / particle / debug_line / hud / imgui) stay 1-attachment
+    // HDR. Vulkan 1.3 dynamic rendering requires the bound pipeline's
+    // colorAttachmentCount to match the active vkCmdBeginRendering set, so
+    // we split into two beginRender / endRender blocks instead of using
+    // colorWriteMask=0 (legacy workaround). See
+    // PART4 design §3.4-S and the 2026-05 MRT survey.
+
+    // PART4 4a-2: dynamic rendering does not auto-transition image layouts
+    // (VkRenderPass used initial/final layouts; vkCmdBeginRendering does
+    // not). Every attachment must be in the layout declared by
+    // VkRenderingAttachmentInfo on entry. We discard previous contents on
+    // all four attachments (oldLayout=UNDEFINED, srcAccess=0): the first
+    // frame's images really are UNDEFINED, and on every subsequent frame
+    // PostPass / OverlayPass / this pass's post-barrier have left them in
+    // *_READ_ONLY layouts that we'd overwrite with loadOp=CLEAR anyway.
+    // sync2 NONE for the source stage matches "no prior work to sync."
+    // sync2 modern idiom: VK_PIPELINE_STAGE_2_NONE for the producer side of
+    // an UNDEFINED -> X transition (no prior work to synchronize against).
+    // Depth uses VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL (Vulkan 1.2 separate
+    // depth/stencil layouts) - D32_SFLOAT has no stencil so this is the
+    // precise layout; the combined DEPTH_STENCIL_*_OPTIMAL form is the legacy
+    // shape kept for stencil-bearing formats.
+    barrier::ImageBarrier toAttach[4] = {
+        {
+            .image = hdrColorImage_,
+            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcStage = VK_PIPELINE_STAGE_2_NONE,
+            .srcAccess = 0,
+            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        },
+        {
+            .image = normalImage_,
+            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcStage = VK_PIPELINE_STAGE_2_NONE,
+            .srcAccess = 0,
+            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        },
+        {
+            .image = motionImage_,
+            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcStage = VK_PIPELINE_STAGE_2_NONE,
+            .srcAccess = 0,
+            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        },
+        {
+            .image = swapchain_->depthImage(),
+            .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = depth_layouts::attachment(*ctx_),
+            .srcStage = VK_PIPELINE_STAGE_2_NONE,
+            .srcAccess = 0,
+            .dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            .dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        },
+    };
+    barrier::recordBatch(*ctx_, info.cmd, {}, {}, toAttach);
+
+    // ─── BeginRendering #1: opaque MRT (HDR + normal + motion + depth) ─
+    VkRenderingAttachmentInfo opaqueColorAtts[3]{};
+    opaqueColorAtts[0].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    opaqueColorAtts[0].imageView = hdrColorView_;
+    opaqueColorAtts[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    opaqueColorAtts[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    opaqueColorAtts[0].clearValue.color = {
         {info.clearColor.r, info.clearColor.g, info.clearColor.b, info.clearColor.a}};
+    opaqueColorAtts[1].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    opaqueColorAtts[1].imageView = normalView_;
+    opaqueColorAtts[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    opaqueColorAtts[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    opaqueColorAtts[1].clearValue.color = {{0.5f, 0.5f, 1.0f, 0.0f}};  // octahedral 0 = up
+    opaqueColorAtts[2].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    opaqueColorAtts[2].imageView = motionView_;
+    opaqueColorAtts[2].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    opaqueColorAtts[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    opaqueColorAtts[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    opaqueColorAtts[2].clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
 
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = swapchain_->depthView();
-    depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAtt.imageLayout = depth_layouts::attachment(*ctx_);
     depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;  // 4a-2: HZB / HUD will sample
     depthAtt.clearValue.depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)
 
     VkRenderingInfo rp{VK_STRUCTURE_TYPE_RENDERING_INFO};
     rp.renderArea = {{0, 0}, extent};
     rp.layerCount = 1;
-    rp.colorAttachmentCount = 1;
-    rp.pColorAttachments = &colorAtt;
+    rp.colorAttachmentCount = 3;
+    rp.pColorAttachments = opaqueColorAtts;
     rp.pDepthAttachment = &depthAtt;
 
     vkCmdBeginRendering(info.cmd, &rp);
@@ -481,6 +573,62 @@ void MainPass::execute(const ExecuteInfo& info) {
     }
 
     // ============================================================
+    // Phase 1D-2d: bindless test cube (opaque demo, moved into the opaque MRT
+    // pass by PART4 4a-2 so it writes to all three attachments and is no
+    // longer drawn on top of transparent geometry).
+    // ============================================================
+    if (bindlessPipelineOpaque_ && info.bindlessSet != VK_NULL_HANDLE && info.mesh) {
+        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_.get());
+        vkCmdSetViewport(info.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(info.cmd, 0, 1, &scissor);
+
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 0, 1,
+                                &info.frameSet, 0, nullptr);
+        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 1, 1,
+                                &info.bindlessSet, 0, nullptr);
+
+        info.mesh->bind(info.cmd);
+
+        StaticBindlessPushConstants pc{};
+        pc.model = glm::translate(glm::mat4(1.f), glm::vec3(3.f, 5.f, 3.f));
+        pc.alpha = 1.0f;
+        pc.albedoIdx = 5;  // grass_field
+
+        vkCmdPushConstants(info.cmd, bindlessLayout_.get(),
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(pc), &pc);
+        vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
+    }
+
+    // PART4 4a-2 redesign: end the opaque MRT and begin a 1-attachment
+    // non-opaque rendering for water + transparent + debug_line + particle.
+    // No mid-pass barriers are needed: with HUD and ImGui pulled out into
+    // PassChain's OverlayPass step, nothing in this scope samples the
+    // GBuffer attachments. HDR + depth carry through via loadOp=LOAD.
+    vkCmdEndRendering(info.cmd);
+
+    VkRenderingAttachmentInfo nonOpaqueColorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    nonOpaqueColorAtt.imageView = hdrColorView_;
+    nonOpaqueColorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    nonOpaqueColorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    nonOpaqueColorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingAttachmentInfo nonOpaqueDepthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    nonOpaqueDepthAtt.imageView = swapchain_->depthView();
+    nonOpaqueDepthAtt.imageLayout = depth_layouts::attachment(*ctx_);
+    nonOpaqueDepthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    nonOpaqueDepthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo rp2{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    rp2.renderArea = {{0, 0}, extent};
+    rp2.layerCount = 1;
+    rp2.colorAttachmentCount = 1;
+    rp2.pColorAttachments = &nonOpaqueColorAtt;
+    rp2.pDepthAttachment = &nonOpaqueDepthAtt;
+
+    vkCmdBeginRendering(info.cmd, &rp2);
+
+    // ============================================================
     // PHASE 1.5: 水面 (opaque と transparent の間)
     // ============================================================
     if (info.waterPass && info.waterDrawList && !info.waterDrawList->empty()) {
@@ -571,80 +719,51 @@ void MainPass::execute(const ExecuteInfo& info) {
         info.particlePass->execute(pi);
     }
 
-    if (info.hudPass && info.hud) {
-        HudPass::ExecuteInfo hi{};
-        hi.cmd = info.cmd;
-        hi.drawList = info.hud;
-        hi.screenW = info.screenW;
-        hi.screenH = info.screenH;
-        info.hudPass->execute(hi);
-    }
-
-    if (info.imgui) info.imgui->recordDrawCommands(info.cmd);
-
-    // ============================================================
-    // Phase 1D-2d: bindless test cube (floating above world origin)
-    //   Demonstrates that a SINGLE draw using the bindless texture array
-    //   can pick any texture by index, without any per-material descriptor
-    //   set binding. Here we use index 5 (grass_field) on a cube.
-    // ============================================================
-    if (bindlessPipelineOpaque_ && info.bindlessSet != VK_NULL_HANDLE &&
-        info.mesh) {
-        vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_.get());
-
-        VkViewport vp{};
-        vp.x = 0.f;
-        vp.y = 0.f;
-        vp.width = static_cast<float>(extent.width);
-        vp.height = static_cast<float>(extent.height);
-        vp.minDepth = 0.f;
-        vp.maxDepth = 1.f;
-        VkRect2D sc{{0, 0}, extent};
-        vkCmdSetViewport(info.cmd, 0, 1, &vp);
-        vkCmdSetScissor(info.cmd, 0, 1, &sc);
-
-        // set=0 frame uniforms
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 0, 1,
-                                &info.frameSet, 0, nullptr);
-        // set=1 bindless texture array (1024 capacity)
-        vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessLayout_.get(), 1, 1,
-                                &info.bindlessSet, 0, nullptr);
-
-        // Cube geometry (already created in AssetRegistry::defaultMesh_)
-        info.mesh->bind(info.cmd);
-
-        // Push constant: position + texture index
-        StaticBindlessPushConstants pc{};
-        pc.model = glm::translate(glm::mat4(1.f), glm::vec3(3.f, 5.f, 3.f));
-        pc.alpha = 1.0f;
-        pc.albedoIdx = 5;  // grass_field
-
-        vkCmdPushConstants(info.cmd, bindlessLayout_.get(),
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(pc), &pc);
-
-        // Use the default mesh (cube) index count.
-        // Note: info.mesh is a Mesh* whose indexCount() returns the cube's index count.
-        vkCmdDrawIndexed(info.cmd, info.mesh->indexCount(), 1, 0, 0, 0);
-    }
+    // HUD + ImGui moved to PassChain::recordOverlay (4a-2 redesign).
 
     vkCmdEndRendering(info.cmd);
 
-    // PART4 4a-1: legacy VkRenderPass had finalLayout=SHADER_READ_ONLY_OPTIMAL
-    // on the HDR color attachment, which produced an implicit transition at
-    // EndRenderPass time. Dynamic rendering has no finalLayout, so we issue
-    // the COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL transition
-    // here so PostPass can sample the HDR target with the same contract.
-    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
-        .image = hdrColorImage_,
-        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
-    });
+    // PART4 4a-2 redesign: clean handoff to the overlay step. HDR stays in
+    // COLOR_ATTACHMENT_OPTIMAL so OverlayPass can keep writing (loadOp=LOAD).
+    // GBuffer attachments (normal / motion / depth) transition to read-only
+    // here so OverlayPass's debug viewer (and any future SS effect) samples
+    // them safely. depth uses DEPTH_STENCIL_READ_ONLY_OPTIMAL so the
+    // overlay's read-only depth attachment / sampled-image read both work.
+    barrier::ImageBarrier toRead[3] = {
+        {
+            .image = normalImage_,
+            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+        },
+        {
+            .image = motionImage_,
+            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+        },
+        {
+            .image = swapchain_->depthImage(),
+            .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+            .oldLayout = depth_layouts::attachment(*ctx_),
+            .newLayout = depth_layouts::readOnly(*ctx_),
+            .srcStage  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            .srcAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                         VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            .dstAccess = VK_ACCESS_2_SHADER_READ_BIT |
+                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+        },
+    };
+    barrier::recordBatch(*ctx_, info.cmd, {}, {}, toRead);
 }
 
 void MainPass::shutdown() {

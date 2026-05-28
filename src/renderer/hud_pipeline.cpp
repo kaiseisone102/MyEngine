@@ -8,11 +8,10 @@
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
 
-void HudPipeline::init(VulkanContext* ctx, VkFormat colorFormat, VkFormat depthFormat,
+void HudPipeline::init(VulkanContext* ctx, VkFormat colorFormat,
                        const std::string& shaderDir) {
     ctx_ = ctx;
     colorFormat_ = colorFormat;
-    depthFormat_ = depthFormat;
     createLayout();
     createPipeline(shaderDir);
 }
@@ -111,12 +110,15 @@ void HudPipeline::createPipeline(const std::string& shaderDir) {
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
-    // PART4 4a-1: dynamic rendering.
+    // PART4 4a-1 / 4a-2: dynamic rendering, color-only. HUD draws after
+    // main_pass into the HDR target (OverlayPass scope). depthTestEnable is
+    // already FALSE here so we declare no depth slot - the BeginRendering
+    // scope is color-only, which is the modern Vulkan idiom for UI overlays.
     VkFormat colorFormats[1] = {colorFormat_};
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rci.colorAttachmentCount = 1;
     rci.pColorAttachmentFormats = colorFormats;
-    rci.depthAttachmentFormat = depthFormat_;
+    rci.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 
     VkGraphicsPipelineCreateInfo pi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pi.pNext = &rci;

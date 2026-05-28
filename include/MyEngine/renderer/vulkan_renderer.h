@@ -134,6 +134,11 @@ class VulkanRenderer {
     // here is freed by both paths).
     void destroyRenderTargets();  // Phase 1I
     RenderTarget hdrTarget_;  // Phase 1H (bloom mip chain is owned by BloomPass)
+    // PART4 4a-2: GBuffer attachments. Normal = R10G10B10A2_UNORM (octahedral
+    // + 12 free bits), motion = RG16F NDC delta. Both written by main_pass's
+    // opaque pass, sampled by the 4a-2 debug HUD and Phase 3 SS effects.
+    RenderTarget normalTarget_;
+    RenderTarget motionTarget_;
     SkinBufferPool skinBufferPool_;
     PassChain passChain_;
     SceneData scene_;
@@ -151,6 +156,11 @@ class VulkanRenderer {
     float elapsedTime_ = 0.f;
 
     FrameUniforms::LightingUBO currentLighting_{};
+    // PART4 4a-2: previous frame view-projection, captured at end of the
+    // previous drawFrame and fed back into FrameUBO.prevViewProj for motion
+    // vector generation. Identity on the first frame, after a teleport, or
+    // after camera-cut.
+    glm::mat4 prevViewProj_{1.f};
     float waterTime_ = 0.f;
     bool reflectShadows_ = true;
     int shadowQuality_ = 1;  // 0=hard(1tap), 1=PCF3x3, 2=PCF5x5

@@ -23,9 +23,9 @@ class HudPass {
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         Swapchain* swapchain = nullptr;
-        // PART4 4a-1: dynamic rendering. See debug_line_pass.h.
+        // PART4 4a-1 / 4a-2: dynamic rendering. HudPass draws inside
+        // OverlayPass's color-only BeginRendering scope - no depth.
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         std::string shaderDir;
     };
 
