@@ -361,6 +361,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.cullObjects = &built.cullObjects;        // PART3c: per-SubMesh
         ce.drawTemplates = &built.drawTemplates;    // PART3c: real templates
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
+        ce.viewPos  = glm::vec3(info.normalLighting.viewPos);  // PART4 4-前-2: cone test
         cullingPass_.execute(ce);
     }
 

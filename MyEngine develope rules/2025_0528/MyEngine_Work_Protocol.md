@@ -1,6 +1,6 @@
-# MyEngine 作業プロトコル (rev.15)
+# MyEngine 作業プロトコル (rev.16)
 
-最終更新: 2026-05-28 (rev.15: §2 冒頭に**ソース内コメントは英語で書く**ルールを明文化。新規・変更箇所は英語、既存日本語コメントは触る機会に順次英語化 (Foundations_Audit §8.9 DEBT-11)。資料ファイル本文は引き続き日本語。コミットメッセージは過去ログのスタイルに合わせ英語 / rev.14: §2-2 に**命名規約**を明文化。慣習的短名 (i/j/k/x/y/z/t/dt/e/it) は OK・**頭文字圧縮型 (state→s / sin→s / cos→c / source→s / map→m / model→m) は禁止**。理由は検索可能性 (grep-ability) > タイプ数削減。既存違反例 (`const float c = std::cos / s = std::sin` が gameplay_layer/combat_system/gate_system/particle_system に10箇所) をリファクタ候補として列挙 / rev.13: 運用モードを Claude Code (Read/Edit/Glob/Grep/Bash/PowerShell ツール直接利用) 前提に切替。chat 経由の「ユーザーが dump して貼る・PowerShell 置換テンプレで `$ok` フラグ + WriteAllText・対話プロンプト分岐の罠」前提だった §1-2/§1-3/§2-1〜§2-7 を削除し、§1-2 をハイブリッド原則 (怖い置換は変更前後を提示してから commit)、§1-3 を Edit ツール作法に書換。§2 は壊れた UTF-8 修復 (旧§2-8) と cryptic 識別子リネーム (旧§2-9) だけを Edit ツール用に簡略化して残置。§3 のビルド/起動コマンドは Claude が直接実行する形に再構成。§6 を「Edit で資料ファイル直接更新」に書換。思想ルール (§0/§1-1 精神/§1-4/§4 三層 RAII/§5 やらないこと/§5b〜§5e 確定設計) は不変 / rev.12: §5e を PART3c-2 完了 (indirect 差し替え・CPU draw 撤去, 1cf23b9 = Phase 2B 完了) に更新 / rev.11: §1-4 を新設=「設計・スコープの判断は資料を確認してから (推測禁止のソース版)」、§5e を新設=PART3c スコープと 3c-1 確定事項 / rev.10: §5d を新設=PART3b per-draw SSBO プールの cursor リセット教訓 / rev.9: scene/model.h 記述を削除済み確定に修正 / rev.8: §3-0 にビルド環境を Ninja+clangd 構成として明文化 / rev.7: §2-9 に cryptic 識別子リネーム手順を追加 / rev.6: §1-1 にコンストラクタ依存変更時の完全型確認、§2-8 に文字化けコメント修復手順を追加 / rev.5: §5c に PART3a 完了反映 / rev.4: §5b 開発中前提・§5c GeometryBuffer 確定設計を新設) / 対象: MyEngine の実装作業をする際の手順と禁則
+最終更新: 2026-05-28 (rev.16: §3-1a を新設=**shared header (types.h 構造体サイズ変更) の commit では必ず clean rebuild**。Ninja の depfile が一部 obj に伝播せず、古い sizeof のまま .obj が残ると最初のシーン描画で sliently exit code 3 で落ちる (validation 出ない最難クラス)。PART4 4-前-2 (CullObject 32→80B 拡張) で実際に踏んだ事例を記録 / rev.15: §2 冒頭に**ソース内コメントは英語で書く**ルールを明文化。新規・変更箇所は英語、既存日本語コメントは触る機会に順次英語化 (Foundations_Audit §8.9 DEBT-11)。資料ファイル本文は引き続き日本語。コミットメッセージは過去ログのスタイルに合わせ英語 / rev.14: §2-2 に**命名規約**を明文化。慣習的短名 (i/j/k/x/y/z/t/dt/e/it) は OK・**頭文字圧縮型 (state→s / sin→s / cos→c / source→s / map→m / model→m) は禁止**。理由は検索可能性 (grep-ability) > タイプ数削減。既存違反例 (`const float c = std::cos / s = std::sin` が gameplay_layer/combat_system/gate_system/particle_system に10箇所) をリファクタ候補として列挙 / rev.13: 運用モードを Claude Code (Read/Edit/Glob/Grep/Bash/PowerShell ツール直接利用) 前提に切替。chat 経由の「ユーザーが dump して貼る・PowerShell 置換テンプレで `$ok` フラグ + WriteAllText・対話プロンプト分岐の罠」前提だった §1-2/§1-3/§2-1〜§2-7 を削除し、§1-2 をハイブリッド原則 (怖い置換は変更前後を提示してから commit)、§1-3 を Edit ツール作法に書換。§2 は壊れた UTF-8 修復 (旧§2-8) と cryptic 識別子リネーム (旧§2-9) だけを Edit ツール用に簡略化して残置。§3 のビルド/起動コマンドは Claude が直接実行する形に再構成。§6 を「Edit で資料ファイル直接更新」に書換。思想ルール (§0/§1-1 精神/§1-4/§4 三層 RAII/§5 やらないこと/§5b〜§5e 確定設計) は不変 / rev.12: §5e を PART3c-2 完了 (indirect 差し替え・CPU draw 撤去, 1cf23b9 = Phase 2B 完了) に更新 / rev.11: §1-4 を新設=「設計・スコープの判断は資料を確認してから (推測禁止のソース版)」、§5e を新設=PART3c スコープと 3c-1 確定事項 / rev.10: §5d を新設=PART3b per-draw SSBO プールの cursor リセット教訓 / rev.9: scene/model.h 記述を削除済み確定に修正 / rev.8: §3-0 にビルド環境を Ninja+clangd 構成として明文化 / rev.7: §2-9 に cryptic 識別子リネーム手順を追加 / rev.6: §1-1 にコンストラクタ依存変更時の完全型確認、§2-8 に文字化けコメント修復手順を追加 / rev.5: §5c に PART3a 完了反映 / rev.4: §5b 開発中前提・§5c GeometryBuffer 確定設計を新設) / 対象: MyEngine の実装作業をする際の手順と禁則
 
 このドキュメントは「どう作業するか」の正本。新規チャットの Claude はこれに従う。
 ゴール・現在地は START_HERE、何を作るかはロードマップ、どの順かは依存マップ。このファイルは**手順と事故防止**を担う。
@@ -94,6 +94,15 @@
 - 日本語ビルドメッセージは文字化けして見えるが実体は正常。error の有無だけで判定する。
 - exe 生成確認: ビルドログに `-> C:\MyEngine\build\MyEngine.exe` の行があれば OK。出ない場合は「再コンパイル対象が無く最新」なだけのこともある (§3-1b で確認)。
 - ※ CMake の C++ ソースは `add_executable` に**明示列挙**されている (GLOB ではない)。新規 .cpp はこの列挙に Edit で追記しないとビルドに乗らない。追記後は `cmake --preset windows-vcpkg-ninja` (VsDevShell 読み込み後) で再 configure してからビルドする。
+
+### 3-1a. shared header (types.h / 構造体サイズが変わる header) を変更したら clean rebuild ★最重要 (2026-05-28 確立)
+**shared/types.h の構造体 (`CullObject` / `DrawData` / `FrameUBO` 等) のサイズが変わる変更をしたら、必ず `cmake --build --preset ninja-debug --target clean` してからフルビルドする。** 通常のインクリメンタルビルドだと一部 .obj が古い `sizeof(struct)` のままリンクされ、起動はするが**最初のシーン描画で device-lost / 無音 exit code 3** などの謎クラッシュになる (validation が出ない・経験上原因特定が最も難しいクラスのバグ)。
+- 起きた事例 (2026-05-28, PART4 4-前-2): types.h の `CullObject` を 32B → 80B に拡張。インクリメンタルビルドで culling_pass.cpp 等は再コンパイル済みだったが、 transitively 通じて types.h を見ている古い .obj (scene_renderer / scene_data 周辺ほか) が前回 (May 26) ビルドの 32B sizeof のまま残置。リンクは通り起動も Vulkan ready まで通るが、77 draw を描画する最初のフレームで sizeof 不一致が露呈し sliently crash。**Ninja の depfile は include 推移を捕捉するが、何らかの理由で漏れた obj が存在する**。
+- 対策: shared header の構造体サイズが変わる commit では:
+  1. `cmake --build --preset ninja-debug --target clean`
+  2. `cmake --build --preset ninja-debug`
+  3. 検証起動。挙動が変わってないことを必ず確認。
+- 適用対象は **構造体サイズが変わる場合のみ** (フィールド追加/削除/型変更/並べ替え)。コメント変更や挙動不変のロジック変更ならインクリメンタルで OK。
 
 ### 3-1b. 反映チェック (error 0 と「そもそも再ビルドされていない」を区別する) ★重要
 「error が出なかった」だけでは、変更がバイナリに反映されたか分からない。Edit は通っても CMake への追記漏れ等でビルド対象に乗っていなければ、古い exe が起動して「直った」と誤判定する事故がある。**ソースを変更したビルドでは、exe が実際に焼き直されたかをタイムスタンプで確認する。**

@@ -244,15 +244,24 @@ struct DrawData {
 
 // -----------------------------------------------------------------------------
 // CullObject: Phase 2B - one cullable draw item for GPU frustum culling.
-//   A conservative bounding sphere (from the world-space AABB) plus the AABB
-//   half-extent (kept for future precise AABB-vs-plane culling) and a drawId
-//   that maps to the indirect draw command slot.
-//   vec4(16) + vec4(16) = 32 bytes, std430 16-byte aligned.
-//   No BDA inside, so one definition serves both C++ and GLSL.
+// Extended by PART4 4-前-2 to be meshlet-ready: normal cone (backface cluster
+// test) + reserved cluster ID slots for a future Nanite-style cluster DAG.
+//   - cone is filled with a "disabled" sentinel today (cosHalfAngle = 2.0 ->
+//     coneVisible() always returns true). Real cones land when Phase 3B mesh
+//     shader work fills them; cull.comp keeps working unchanged.
+//   - clusterIds (parent/child) are placeholders only; cull.comp does not read
+//     them at object granularity. They become live when mesh shader meshlet
+//     traversal is wired up.
+//   5 * vec4(16) = 80 bytes, std430 16-byte aligned. buffer_reference_align=16
+//   in cull.comp is unchanged (80 is a multiple of 16). No BDA inside the
+//   struct, so one definition still serves both C++ and GLSL.
 // -----------------------------------------------------------------------------
 struct CullObject {
-    vec4 centerRadius;   // xyz = world AABB center, w = bounding sphere radius
-    vec4 extentDrawId;   // xyz = world AABB half-extent, w = drawId (as float)
+    vec4 centerRadius;       // xyz = world AABB center, w = bounding sphere radius
+    vec4 extentDrawId;       // xyz = world AABB half-extent, w = drawId (as float)
+    vec4 coneApexCutoff;     // xyz = cone apex (world), w = cos(half-angle); w > 1.0 disables
+    vec4 coneAxisLodBias;    // xyz = cone axis (world, normalized), w = reserved (future LOD bias)
+    uvec4 clusterIds;        // x = parentClusterId (UINT32_MAX = none), y = childClusterIdMask, zw reserved
 };
 
 // -----------------------------------------------------------------------------

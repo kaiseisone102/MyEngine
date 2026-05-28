@@ -36,8 +36,14 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer DrawCmdBuffe
     DrawCmd cmds[];
 };
 
+// PART4 4-前-2: layout extended with viewPos so the cone test can compute the
+// view direction. Layout: planes(96) + viewPos(16) + cullAddr(8) + cmdAddr(8)
+// + objectCount(4) = 132 bytes. Comfortably within typical maxPushConstantsSize
+// (P620 advertises 256 in practice; Vulkan spec guarantees 128 minimum so a
+// future capability check at CullingPass init can guard).
 layout(push_constant) uniform PC {
     vec4  planes[6];   // frustum planes (a,b,c,d), inward, normalized
+    vec4  viewPos;     // xyz = camera world position; w reserved
     uvec2 cullAddr;    // CullObjectBuffer device address
     uvec2 cmdAddr;     // DrawCmdBuffer device address
     uint  objectCount; // number of CullObjects
@@ -52,6 +58,20 @@ bool sphereVisible(vec3 center, float radius) {
     return true;
 }
 
+// PART4 4-前-2 (meshlet-ready receptacle, §3.2-G):
+// Normal-cone backface cluster test. All surface normals on the cluster lie
+// within cosHalfAngle of `axis`. The cluster is fully back-facing if the view
+// direction (apex -> camera) has dot(viewDir, axis) < cosHalfAngle, i.e., the
+// axis points "away" enough that every normal in the cone faces away.
+// Convention: cosHalfAngle > 1.0 means "no cone information" -> always visible.
+// (Sphere/cube/grass/symmetric objects use this sentinel today; real cones land
+// in Phase 3B when meshlet preprocessing is wired up.)
+bool coneVisible(vec3 apex, vec3 axis, float cosHalfAngle, vec3 viewPos) {
+    if (cosHalfAngle > 1.0) return true;  // sentinel: no cone defined
+    vec3 toCamera = normalize(viewPos - apex);
+    return dot(toCamera, axis) >= cosHalfAngle;
+}
+
 void main() {
     uint id = gl_GlobalInvocationID.x;
     if (id >= pc.objectCount) return;
@@ -60,9 +80,15 @@ void main() {
     DrawCmdBuffer    cmds = DrawCmdBuffer(pc.cmdAddr);
 
     CullObject o = objs.objects[id];
-    vec3  center = o.centerRadius.xyz;
-    float radius = o.centerRadius.w;
-    uint  drawId = uint(o.extentDrawId.w);  // packed as float in PART1
+    vec3  center       = o.centerRadius.xyz;
+    float radius       = o.centerRadius.w;
+    uint  drawId       = uint(o.extentDrawId.w);  // packed as float in PART1
+    vec3  coneApex     = o.coneApexCutoff.xyz;
+    float cosHalfAngle = o.coneApexCutoff.w;
+    vec3  coneAxis     = o.coneAxisLodBias.xyz;
 
-    cmds.cmds[drawId].instanceCount = sphereVisible(center, radius) ? 1u : 0u;
+    bool visible = sphereVisible(center, radius)
+                && coneVisible(coneApex, coneAxis, cosHalfAngle, pc.viewPos.xyz);
+
+    cmds.cmds[drawId].instanceCount = visible ? 1u : 0u;
 }

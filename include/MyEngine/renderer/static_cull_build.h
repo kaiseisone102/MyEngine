@@ -38,6 +38,18 @@
 
 namespace static_cull {
 
+// PART4 4-前-2: sentinel meaning "no normal cone -> always visible".
+// cull.comp: w > 1.0 short-circuits coneVisible() to true regardless of axis.
+// Real cones land in Phase 3B mesh-shader work; until then every prop uses
+// this value (cubes / grass / models are all treated as omnidirectional).
+constexpr float kConeDisabledCutoff = 2.0f;  // any value > 1.0 works as the sentinel
+
+inline void writeDisabledCone(myengine::shared::CullObject& cullObject) {
+    cullObject.coneApexCutoff  = glm::vec4(0.0f, 0.0f, 0.0f, kConeDisabledCutoff);
+    cullObject.coneAxisLodBias = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);  // dummy axis (unused while disabled)
+    cullObject.clusterIds      = glm::uvec4(UINT32_MAX, 0u, 0u, 0u);  // no parent, no children
+}
+
 // One prepared opaque-static draw. drawId == index into cullObjects/drawTemplates
 // == the indirect command slot; firstInstance (in the template) == DrawData slot.
 struct PreparedDraw {
@@ -90,6 +102,7 @@ inline void emit(BuildResult& result, DrawDataPool& pool, uint32_t frameIndex,
     const uint32_t drawId = static_cast<uint32_t>(result.draws.size());
     myengine::shared::CullObject cullObject = cull;
     cullObject.extentDrawId.w = static_cast<float>(drawId);  // cull.comp writes cmds[drawId]
+    writeDisabledCone(cullObject);  // PART4 4-前-2: meshlet-ready receptacle, sentinel for now
     result.cullObjects.push_back(cullObject);
 
     CullingPass::DrawTemplate drawTemplate{};

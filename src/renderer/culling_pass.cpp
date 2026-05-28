@@ -133,11 +133,12 @@ void CullingPass::execute(const ExecuteInfo& info) {
     }
 
     // 3) push constants: frustum planes (CPU-extracted, same test as the shader)
-    //    + buffer addresses + object count.
+    //    + camera position (for the cone test) + buffer addresses + object count.
     Frustum fr;
     fr.extract(info.viewProj);
     PushConstants pcs{};
     for (int i = 0; i < 6; ++i) pcs.planes[i] = fr.planes[i];
+    pcs.viewPos = glm::vec4(info.viewPos, 0.0f);  // PART4 4-前-2: cone test needs camera position
     const VkDeviceAddress cullAddr = cullBuf_[frame].deviceAddress();
     const VkDeviceAddress cmdAddr = cmdBuf_[frame].deviceAddress();
     pcs.cullAddr = glm::uvec2(static_cast<uint32_t>(cullAddr & 0xFFFFFFFFu),
