@@ -1,0 +1,217 @@
+# MyEngine コードベースガイド (rev.11)
+
+最終更新: 2026-05-28 (rev.11: 運用モード切替に伴い §1 末尾の「ユーザーが PowerShell で dump して貼る方式」前提を削除し、§2 冒頭のディレクトリ取得を `Glob` 推奨に、§5 の使い方を Read/Grep 直接利用に書換。Work_Protocol rev.13 と整合。設計内容は不変 / rev.10: 2B PART3c-2 完了 = Phase 2B 完了。§3.5 の PART3c を完了に、§3 に indirect 描画の確定事実 (`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect・HUD 検証足場) を追記、§2 vulkan_context に能力 getter を追記、main_pass の indirect 経路を §2 に反映 / rev.9: 2B PART3c-1 完了 (static_cull_build.h)・Phase 2F (terrain bucket) 新設 / rev.8: 2B PART3b 完了 (static_draw.h/draw_data_pool.h・per-draw SSBO 経路) / rev.7: ビルドを Ninja に一本化 (compile_commands.json 生成のため) / rev.6: scene/model.h 削除・shadow_light.h 新設・cryptic 識別子リネーム / rev.5: LayerContext に集約 / rev.4: Phase 2B PART3a 完了 (geometry_buffer/deletion_queue) / rev.3: PART2 完了) / 対象: MyEngine のコードを触る際の地図とリファレンス
+
+このドキュメントは「コードベースの地図」と「二層ラッパーの仕様」と「用語集」。
+ルート: `C:\MyEngine` (Windows)。include は `C:\MyEngine\include\MyEngine\...`、実装は `C:\MyEngine\src\...`。
+
+> 重要: このガイドの細部 (正確なシグネチャ・ディレクトリの完全構成) は前回更新時点のスナップショット。**該当ファイルを触る前に、実ソースを Read/Grep で確認すること** (Work_Protocol §1-1)。「要確認」と付した箇所は特に。
+
+---
+
+## 1. 二層ラッパー仕様 (新パスを書くとき必ず使う)
+
+GPU リソースは 3 種のラッパーに一元化されている (VkUnique / VmaBuffer / VmaImage)。新規コードもこれらを使う (生メモリ・生ハンドルを新規に書かない)。
+
+### 1-1. VkUnique<Handle> — 純 Vulkan ハンドルの RAII ラッパー
+- ヘッダ: `include/MyEngine/renderer/vk_unique.h` (ヘッダオンリー)
+- move-only。device_ + handle_ を持ち、reset()/デストラクタで型別 deleter を1回呼ぶ。noexcept ムーブ (vector で使える)。
+- 主なメンバ (要確認だが前セッションで使用実績):
+  - コンストラクタ `VkUnique<T>(VkDevice device, T handle)` — 生成済みハンドルを wrap
+  - `.get()` — 生ハンドルを返す (値で渡す箇所で使う)
+  - `.reset()` — 解放して空に
+  - `explicit operator bool()` — 非空判定 (`if (member_)` / `if (!member_)`)
+- 登録済み型 (MYENGINE_DEFINE_VK_DELETER で deleter 登録。前セッション確認分):
+  VkImage / VkImageView / VkSampler / VkBuffer / VkPipeline / VkPipelineLayout / VkRenderPass / VkFramebuffer / VkDescriptorSetLayout / VkDescriptorPool / VkShaderModule / VkSemaphore / VkFence / VkCommandPool / VkSwapchainKHR / VkDeviceMemory
+  - 新しい型が要るときは vk_unique.h に `MYENGINE_DEFINE_VK_DELETER(VkXxx, vkDestroyXxx);` を1行足す。未登録のまま使うとリンクエラー。
+
+### 1-2. VmaBuffer — VMA リソース (VkBuffer + VmaAllocation) のラッパー
+- ヘッダ: `include/MyEngine/renderer/vma_buffer.h` / 実装: `src/renderer/vma_buffer.cpp`
+- move-only。vmaDestroyBuffer で解放。VMA 本体 (vk_mem_alloc.h) は .cpp のみ include、.h は前方宣言のみ (`VK_DEFINE_HANDLE(VmaAllocation)` / `VK_DEFINE_HANDLE(VmaAllocator)`)。
+- getter (確認済み): `.buffer()` / `.allocation()` / `.mapped()` / `.deviceAddress()` / `.size()` / `explicit operator bool()`
+- allocator は `ctx->allocator()` から取得 (非所有)。static ファクトリが値返しで `out.allocator_ = ctx->allocator()` → `vmaCreateBuffer`。
+- static ファクトリ 2 種:
+  - `VmaBuffer::createMappedStorageBDA(ctx, size)` — SSBO + BDA + persistent mapped。STORAGE | SHADER_DEVICE_ADDRESS 固定。buffer pool 用 (インスタンスデータ・skin matrices 等)
+  - `VmaBuffer::createMappedHostVisible(ctx, size, usage)` — 任意 usage の persistent mapped。BDA なし。vertex/index/uniform 用。フラグ = HOST_ACCESS_SEQUENTIAL_WRITE | MAPPED
+- 使い方: create → `.mapped()` へ memcpy → bind は `.buffer()` → 破棄は `.reset()`。手動 map/unmap しない。
+
+### 1-3. VmaImage — VMA リソース (VkImage + VmaAllocation) のラッパー 【実装済み・移行進行中】
+- ヘッダ: `include/MyEngine/renderer/vma_image.h` / 実装: `src/renderer/vma_image.cpp` (2026-05-25 作成, commit b9ac20b)
+- VmaBuffer と**完全対称**の move-only ラッパー。**VkImage + VmaAllocation のみ所有**。vmaDestroyImage で解放。VMA 本体は .cpp のみ include、.h は VMA ハンドルを前方宣言。
+- **VkImageView / VkSampler は所有しない**。View/Sampler は所有者側 (RenderTarget 等) の VkUnique のまま (VmaBuffer が buffer+allocation だけ持つのと対称)。
+- getter: `.image()` / `.allocation()` / `.extent()` / `.format()` / `explicit operator bool()`。`.reset()` で vmaDestroyImage。
+- static ファクトリ:
+  - `VmaImage::createAttachment(ctx, w, h, format, usage)` — 2D / 1 mip / 1 layer / OPTIMAL の color・depth アタッチメント。**dedicated allocation** (VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT。解像度変更で再生成する render target の定石)
+  - `VmaImage::create(ctx, const VkImageCreateInfo&, bool dedicated)` — 低レベル。mip / array / 別 usage が要る image 用 (Texture 移行で使う想定)
+- **storage image 対応 (確定)**: `createAttachment(ctx, w, h, format, usage)` の `usage` は呼び出し側がフルに指定する (vma_image.cpp で `ci.usage = usage` にそのまま渡す)。よって `VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT` を渡せば compute の storage image 兼 sampled image として使える。低レベル `create` でも同様。compute bloom の mip 列はこれで確保する。
+- **priority について**: dedicated 時に `ai.priority = 0.75f` を立てるが、アロケータ生成 (vulkan_context.cpp) が `VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT` を立てていないため**現状は無視 (無害)**。効かせたい場合のみアロケータ生成にビット追加を検討 (今は不要)。
+
+#### 移行状況 (image メモリの VMA 化) — 【全完了 2026-05-25】
+- **完了: RenderTarget** (commit d5e7eaf)。2 メンバ (VkUnique<VkImage> + VkUnique<VkDeviceMemory>) を `VmaImage image_` 1 個に集約。`init` は `VmaImage::createAttachment(...)`。`image()` は `image_.image()` (シグネチャ不変)。**ShadowPass output と ReflectionTarget (RenderTarget×2) も自動カバー**。
+- **完了: Texture** (commit ad8fa08)。mip 連鎖は無し (mipLevels=1) だったので `createAttachment` (TRANSFER_DST | SAMPLED) で対応。`ctx_` が const のため `const_cast<VulkanContext*>(ctx_)`。Rule of Zero 維持。staging buffer は `createBuffer` のまま (buffer なので対象外)。
+- **完了: Swapchain depth** (commit 70f30b6)。`createAttachment` (DEPTH_STENCIL_ATTACHMENT)。color image は swapchain (KHR) 所有なので不変。recreate (resize) 経路でも VmaImage の destroy→create が回る。
+- **deprecated 削除** (commit 1349a04)。全 image が VmaImage 経由になったので、`ResourceFactory::createImage` (生メモリ版) と `createImageVMA` (未使用) を宣言・定義ごと削除。`createBuffer` / `createBufferVMA` / `findMemoryType` (createBuffer と共有) / transfer ヘルパは無傷で残す。
+- **結果: image メモリは完全に VMA 一本化。エンジン内に image 用の生 vkAllocateMemory は無い。** 「メモリは全部 VMA」が image 側で完成 (buffer 側は下記の残作業あり)。
+
+#### 現状の image メモリの持ち方 (切り分け)
+- **RenderTarget / ReflectionTarget / ShadowPass output / Texture / Swapchain depth**: 全て VmaImage 済み (メモリも VMA)。
+- **Swapchain color image**: swapchain (KHR) 所有で、こちらが確保するものではない (VMA 対象外。view だけ VkUnique で持つ)。
+- mesh / terrain_mesh / model_loader の `VkDeviceMemory`、および Texture の staging buffer は**頂点・インデックス・staging バッファ** (image ではない)。VmaImage の対象外で、`ResourceFactory::createBuffer` (生メモリ版) のまま残る = **buffer 系 VMA 化が次の土台残作業** (別タスク)。
+
+#### 残る土台残作業 (buffer 側・別タスク)
+- `ResourceFactory::createBuffer` (生メモリ版) の利用者: mesh.cpp / model_loader.cpp / terrain_mesh.cpp / texture.cpp(staging)。これらを VmaBuffer 化すれば createBuffer も削除でき、buffer 側も VMA 一本化する。
+- `ResourceFactory::createBufferVMA` は現状呼び出し元が見当たらない (要精査)。buffer 系 VMA 化のときに、VmaBuffer ファクトリで足りるか / これを使うか含めて判断し、不要なら削除。
+
+---
+
+## 2. ファイル構成 (主要なものだけ。要確認 = 実ソースで確認推奨)
+
+> 完全なディレクトリツリーはセッション開始時に `Glob` (例: `src/**/*.cpp` や `include/MyEngine/**/*.h`) で取ると良い。以下は前回更新時点で触れた主要ファイル。
+> **CMake のソース収集 (確定)**: C++ ソースは `CMakeLists.txt` の `add_executable(...)` に**明示列挙**されている (GLOB ではない)。新規 .cpp はこの列挙に追記しないとビルドに乗らない (追記後 `cmake --preset windows-vcpkg-ninja` で再 configure)。一方シェーダ (`*.vert/*.frag/*.comp`) は `file(GLOB ...)` 収集なので追加は自動。`shaders/shared/*.glsl` (include 専用) も GLOB 監視対象だが単独コンパイルはされない。
+
+### renderer/ (描画コア)
+- `vk_unique.h` / `vma_buffer.h` / `vma_buffer.cpp` / `vma_image.h` / `vma_image.cpp` — 三層ラッパー (上記 §1)
+- `vulkan_context.h/.cpp` — VkDevice / graphicsQueue / graphicsFamily / **allocator()** 等を持つ中核コンテキスト (`ctx_->device()` / `ctx_->allocator()`)。アロケータ生成は vulkan_context.cpp で `VmaAllocatorCreateInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` のみ (PRIORITY ビット無し = §1-3 の priority 無視の理由)
+- `swapchain.h/.cpp` — スワップチェーン (RAII 化済み)。`extent()` / `depthView()` 等。**depth image のメモリは生確保 (VmaImage 未移行 = PART E)**
+- `frame_sync.h/.cpp` — フレーム同期 (command pool / semaphore / fence)。RAII 化済み。AcquireResult / acquireNextImage / submitAndPresent
+- `pass_chain.h/.cpp` — **全描画パスを束ねる司令塔。** 各パスの init/shutdown/execute/onSwapchainResized を順に呼ぶ。パスを増やす/順序を変えるならここ
+- 描画パス (全て RAII 化済み):
+  - `shadow_pass.*` — シャドウマップ (static + skinned)。output() で RenderTarget を公開 (= VMA 済み)。バリアで `target_.image()` を使う
+  - `reflection_pass.*` — 水面反射用。target() で ReflectionTarget を公開
+  - `main_pass.*` — **本体描画 (最大)。** static/skinned/grass/bindless の opaque/transparent、water、debug line、particle、HUD、ImGui を束ねる。renderPass() を他パスに渡す
+  - `post_pass.*` — HDR→swapchain トーンマップ (最終出力)
+  - `bloom_pass.*` — **Phase 1I: compute mip-chain bloom (Jimenez/CoD, commit d03f3ff)。エンジン初の compute pass。** mip 列 (storage+sampled VmaImage を N 段、既定6) を **BloomPass 内に所有**。bright (HDR→mip0) → downsample (13-tap, mip0→1 のみ Karis average) → upsample (3x3 tent, 加算) を全て `vkCmdDispatch` で実行。render pass も framebuffer も無い。外へは `bloomView()/bloomSampler()` (=mip0) だけ公開し PostPass が合成 (post_tonemap.frag L116-117 の `hdr += bloom*0.5` は不変)。VulkanRenderer は bloom target を持たない (旧 bloomTargetA_/B_・createBloomTargets は削除済み)。品質ノブ: maxMips (段数)・threshold・softKnee・filterRadius。詳細な compute 作法は §3 参照。
+  - `culling_pass.*` — **【2B PART2 で新設, commit 5cbc7e6】エンジン2つ目の compute pass。GPU フラスタムカリング。** BloomPass を雛形にしつつ **descriptor を一切持たない全 BDA 構成** (mip/image/sampler/descriptor 系は全部無い)。per-frame で 2 本の BDA buffer を所有: `cullBuf_[i]` (CullObject[]、`createMappedStorageBDA`) と `cmdBuf_[i]` (`VkDrawIndexedIndirectCommand[]`、`createMappedStorageBDA(..., INDIRECT_BUFFER)`)。pipeline layout は **set 0 本 + push constant のみ**。`execute` が CullObject を memcpy → DrawCmd テンプレ用意 (instanceCount=0 初期化) → push constant (6平面+2アドレス+count) → `vkCmdDispatch(ceil(count/64))` → COMPUTE→DRAW_INDIRECT buffer バリア。getter: `commandAddress(frame)` (PART3 が indirect draw する BDA)・`drawCount(frame)`・PART2 検証用 `gpuVisibleCount`/`lastGpuVisible`/`lastCpuVisible`。**現状 (PART2) は MainPass がまだ CPU draw なので、この pass は instanceCount を書くだけで描画には未接続。PART3 で接続。** 詳細は §3.5。
+  - `geometry_buffer.*` — **【2B PART3a で新設, commit ac7bbd1】全 static prop ジオメトリ (cube/grass/Model SubMesh) を統合する共有 megabuffer = indirect 化の前提。** 無制限の **multi-block** 構成: `std::vector<Block>`、各 Block = `{VmaBuffer vbuf; VmaBuffer ibuf; VmaVirtualBlock vtxVirt; VmaVirtualBlock idxVirt;}`。満杯で新ブロックを自動追加 (既存据え置き=コピーなし・ハンドル不変)。サブアロケーションは **VMA 公式 VmaVirtualBlock を要素単位 (頂点数/index数) で使う** (76バイト stride を byte で渡すと device lost。Work_Protocol §5c 必読)。`alloc(verts, indices)` が `MeshHandle{blockIndex, firstIndex, vertexOffset, indexCount, vertexCount, vtxAlloc, idxAlloc}` を返す。`bindBlock(cmd, blockIndex)` で該当ブロックを bind (Mesh/SubMesh::bind が自分の blockIndex で呼ぶ)。`free()` は vmaVirtualFree を DeletionQueue 経由。staging は同期コピー後に即破棄。AssetRegistry が所有 (`geometry()`)。**現状は prop 専用 (cube/grass/Model SubMesh)。terrain は load しない (Phase 2F で terrain 専用の別 GeometryBuffer インスタンス = 別 bucket を作る。混ぜると断片化)。**
+  - `deletion_queue.*` — **【2B PART3a 準備で新設, commit a8a0ad4】frameIndex リング (MAX_FRAMES_IN_FLIGHT バケツ) の遅延破棄。** `enqueue(fn)`/`enqueueBuffer`/`enqueueImage` が current frameIndex バケツに deleter を積み、`collectFrame(i)` が acquire 直後 (fence 通過後) に flush、`flushAll()` は GPU idle 時。VulkanRenderer 所有、drawFrame の acquire 直後に collectFrame、shutdown/recreateSwapchain の waitIdle 後に flushAll。**drawFrame 中の動的破棄専用** (起動時の同期コピー staging には使わない=collectFrame が走らず溜まる。Work_Protocol §5c)。
+  - `draw_data_pool.h` — **【2B PART3b で新設, header-only, commit 68a5c31】static 描画の per-draw データ (DrawData) を入れる per-frame 線形 SSBO+BDA プール。** InstanceBufferPool と同型 (BDA・descriptor 無し・persistent mapped・`init/shutdown/beginFrame/bufferAddress`)。違いは要素型が `DrawData` で、draws が **1 個ずつ `pushOne(frameIndex, d)` → 戻り slot を vkCmdDrawIndexed の firstInstance に渡す**点。VmaBuffer の公開 API しか使わないので header-only (別 TU・CMake 追記なし)。容量 `MAX_DRAWS = CullingPass::MAX_DRAWS`。**複数パスで共有する場合 beginFrame は全消費者の前で1回** (§3.5 / Work_Protocol の cursor リセット教訓)。pass_chain 所有 (`drawDataPool_`)。
+  - `static_draw.h` — **【2B PART3b で新設, header-only, commit a1b93cf→c5adced】main_pass と reflection_pass で重複していた static 描画ヘルパ (drawMeshList / drawStaticModelList / drawTerrainList) を 1 か所に集約した inline 関数群。** 各ヘルパは `DrawDataPool::pushOne` で per-draw データを積み、戻り slot を `Mesh/SubMesh::bindAndDraw(cmd, 1, slot)` (terrain は `vkCmdDrawIndexed(...,slot)`) の firstInstance に渡す。materialId の出どころは `useRealMaterial` フラグで分岐 (main=実 ID / reflection=0)。呼び出し側 (main/reflection execute) は描画前に DrawData SSBO アドレスを `StaticDrawPushConstants` で 1 回 push。**PART3c-1 以降、main の opaque prop は static_cull_build.h の PreparedDraw 経路に移行 (下記)。reflection と transparent と terrain (Phase 2F まで legacy) は引き続きこの static_draw.h を使う。**
+  - `static_cull_build.h` — **【2B PART3c-1 で新設, header-only, namespace `static_cull`, commit 88a041f】main の opaque prop (cube + Model SubMesh) を SubMesh 粒度で走査し、GPU-driven 描画に必要な4つを drawId 連番で同時生成するビルダ。** `build(pool, frameIndex, cubeMesh, meshList, modelList, terrainList)` → `BuildResult{cullObjects, drawTemplates, draws}`。各 prop draw に対し `pool.pushOne`→絶対 slot を取り、`CullObject` (drawId を `extentDrawId.w` に焼く)・`CullingPass::DrawTemplate` (firstInstance=slot)・`PreparedDraw{blockIndex,indexCount,firstIndex,vertexOffset,drawSlot}` を生成。**drawId = cullObjects/drawTemplates の index = command index、firstInstance = DrawData slot で三者一致。** bounds: cube=単位 AABB 直書き、Model=`localAABB()` を全 SubMesh に流用。**terrain 引数は受けるが emit しない (terrain は Phase 2F の別 bucket)。** 変数は読める名前 (result/cullObject/boundingSphere/preparedDraw/item/subMesh 等)。pass_chain が reflection 後・cull 前に呼ぶ。詳細は §3.5 / Work_Protocol §5e。
+- パイプライン/リソース系 (RAII 化済み): `hud_pipeline` / `water_pipeline` / `water_mesh` / `water_pass` / `bindless_texture_registry` / `frame_uniforms` / `particle_pass` / `debug_line_pass` / `render_target` (VMA 済み) / `reflection_target` (RenderTarget×2 内包) / `material_registry` / `mesh` / `terrain_mesh` / `texture` (image メモリは VMA 未移行) / `model` / `instance_buffer_pool` / `skin_buffer_pool`
+- `resource_factory.*` — **createImage / createImageVMA は削除済み** (全 image が VmaImage 経由になったため。commit 1349a04)。残るのは `createBuffer` (生メモリ版・`[[deprecated]]`。mesh/terrain/model_loader/texture staging が現役利用 = buffer 系 VMA 化の残作業で削除予定)、`createBufferVMA` (現状未使用・要精査)、`findMemoryType` (createBuffer と共有)、transfer ヘルパ (copyBuffer/copyBufferToImage/transitionImageLayout)。**image 用の生メモリ経路はもう無い。**
+- `shader_util.h` — loadShaderModule 等
+- `shadow_light.h` — **【2026-05-26 新設, commit 00a693c】directional シャドウマップ用の正射影行列を集約した include 専用ヘッダ。** `shadow_light::directionalLightProj()` が `glm::ortho(-15,15,-15,15,0.1,50)` + Vulkan Y 反転を返す。title_layer / camera_system が同一式を別々に書いていた重複を解消したもの (**挙動不変の純リファクタ**)。view 行列 (lookAt) は呼び出し側で異なる (title=固定 target / camera=playerPos 追従) ため射影のみ共通化。タイトな fit・安定化 (texel snapping)・カスケード化 (CSM) は Phase 2E で別途 (ここでは行わない)。
+
+### shaders/
+- `shaders/shared/types.h` — **C++/GLSL 共有の構造体定義。** PushConstants 各種・InstanceData・**DrawData (1K相当の per-draw SSBO 要素, 80B) / StaticDrawPushConstants (PART3b, 8B/VERTEX, DrawData SSBO アドレスのみ)** 等。C++ と GLSL の両方から include される単一の正
+  - **アライメント規約は types.h 冒頭 (L13-17 付近の LAYOUT RULES コメント) に明文化済み (実ソース確認 2026-05-25)。** 規約: 全 vec3 は vec4 にパディング / mat4 は16-byte 境界 / vec3+float より vec4 / VkDeviceAddress(uint64) は8-byte 整列でペアにして16に揃える / C++/GLSL 両用は BDA を含むときだけ `#ifdef __cplusplus` 分岐 (BDA 無しは1定義両用)。実例 = InstanceData(96B)/GpuMaterial(64B, _pad で明示)/CullObject(32B, BDA無し1定義)。**新しい共有構造体を足すときはこの規約に従う** (推測で足さない)。※ 旧記述では「未明文化 TODO」としていたが、実ソースに明文化済みと判明したので確定記述に修正 (§3.5 は元から「明文化済み」と書いており、こちらが正しかった)。
+- `shaders/shared/shadow_sampling.glsl` — **【1G で新設】影フィルタの共有 include。** Vogel ディスク PCF + PCSS (コンタクトハードニング) を `sampleShadowFactor(shadowMap, uv, currentDepth, bias, quality)` に集約。4 つの lighting frag (triangle / triangle_instanced / triangle_skinned / triangle_bindless) が include して呼ぶ。`#include "shared/shadow_sampling.glsl"` で解決 (CMake が `-I include/MyEngine/shaders` を渡す)。単独コンパイルされない include 専用ファイル。将来 2E CSM もここを直せば一括反映
+- `shaders/shared/pbr.glsl` — **【1K-A で新設, commit 964c733 / 1K-5B で surface gradient 追加, commit 593ef17】PBR の共有 include。** (1) Cook-Torrance metallic-roughness BRDF (GGX D / Smith-Schlick G / Schlick F) と `pbrDirectLighting(N,V,L,radiance,albedo,metallic,roughness)` / `pbrAmbient(ambientColor,albedo)`。`pbrDirectLighting` は「1ライト×1表面の反射」だけを返す純粋関数で影・減衰・多光源・ambient を含まない (影は呼び出し側が litFactor 乗算、減衰は radiance に畳む、多光源はループ)。(2) **surface gradient bump mapping framework (Mikkelsen 2020)**: `pbrSurfaceGradFromTangentNormal(N,P,uv,nTan)` (画面微分 dFdx/dFdy で cotangent frame を作る＝頂点 tangent 属性不要、`pbrCotangentFrame` が下請け) と `pbrResolveNormal(N,surfGrad)`。bump 寄与を surface gradient (接平面上の勾配) として表現すると**線形加算**でき、detail map・地形ブレンド・decal を勾配空間で足してから一度だけ幾何法線に resolve できる (素朴な法線ブレンドは破綻する)。`pbrResolveNormal(N, vec3(0))` は N を不変で返すので、法線マップ未供給でも無害。同じ4 lighting frag が include。`#include "shared/pbr.glsl"` で解決。ノーマルマップ等の追加は「各 frag の入力準備」を変えるだけで pbr.glsl 本体は不変
+- `shaders/cull.comp` — **【2B PART2 で新設, commit 5cbc7e6】GPU フラスタムカリングの compute シェーダ。** `local_size_x=64`、1 invocation = 1 CullObject。buffer_reference (extension: GL_EXT_buffer_reference / _uvec2 / _shader_explicit_arithmetic_types_int64) で CullObject 配列を読み、push constant の 6 平面と球判定して `cmds[drawId].instanceCount` に 0/1 を書く。CullObjectBuffer は `buffer_reference_align=16` (32B)、DrawCmdBuffer は `buffer_reference_align=4` (VkDrawIndexedIndirectCommand=20B 相当の struct)。descriptor を使わない全 BDA。CullingPass が雛形にした compute 作法は §3 / triangle_instanced.vert (buffer_reference の作法) 参照
+- `.spv` — コンパイル済みシェーダ (CMake でビルド時に生成。出力は `build/<config>/shaders/<name>_<stage>.spv`)
+
+### app/ loop/ scene/ systems/ core/
+- `app/engine_app.*` — アプリ起点。WorldData (terrains/waters) の手動 clear ループ (L152 付近、stopgap) は段階2まで触らない
+- `loop/title_layer.cpp` / `systems/camera_system.cpp` — **ライト view-projection (シャドウ用) の構築箇所。** 射影は両者とも `renderer/shadow_light.h` の `shadow_light::directionalLightProj()` に集約済み (2026-05-26, commit 00a693c)。view (lookAt) は各所別: title=固定 target、camera_system はゲームプレイ用で `target = playerPos` (= ライトがプレイヤー追従 → シャドウ swimming の原因)。**swimming の texel snap 対策は意図的に未対処・据え置き** (Phase 2E の安定化/CSM で扱う)。
+- `scene/scene_data.h` — MeshDrawItem / SkinnedDrawItem / StaticModelDrawItem / TerrainDrawItem / InstancedMeshDrawItem / WaterDrawItem 等の描画アイテム定義
+- `scene/scene_renderer.*` — drawList の供給。**実質ステートレスな builder** で `buildSceneData(wd, cameraPos, out, cullingDistance)` のみ持つ (メンバ無し)。GameplayLayer / GameOverLayer が直接呼ぶので生きているが、**LayerStack は保持しない** (2026-05-26 確定。旧 Phase 1C 配線で LayerStack が SceneRenderer& を持っていたが死に参照だったため撤去、commit c2d2b19)。
+- model は `renderer/model.h` が唯一の正。**旧 `scene/model.h` は参照ゼロの死にコピー (冒頭コメントすら `renderer/model.h` のまま) と確定し削除済み (2026-05-26, commit 3e4a0ae)。** 以前の「暫定ルール (どちらが生きているか要確認)」は解消した。
+- `core/water.h` — WaterDrawParams (shallowColor/deepColor は vec3、baseAlpha は float)
+- `systems/` — anim_state / camera / chest / combat 等のゲームシステム
+- `loop/` — レイヤースタック。基底 `ILayer` (handleEvents/update/buildScene/drawImGui/onEnter…)、メニュー系は `MenuLayerBase` 経由 (title / mode_select / settings / graphics_settings / key_config / game_over / choice_overlay) + `GameplayLayer`。`LayerStack : public LayerCommands` がスタックを持ち、層は狭い `LayerCommands` (requestPush/Pop/Replace/Quit) 越しにしかスタックを触らない。遅延オペ (pending_ + flushPending)、更新/描画の開始 index は `findStartIndex(述語)` で決定 (commit f5abede)。**各層への依存注入は `loop/layer_context.h` の `LayerContext` (GameState& / SceneRenderer& / VulkanRenderer& / ILayerFactory& の参照束) 1 個に集約** (2026-05-26, commit 18079da)。static にせず `DefaultLayerFactory` が値で `context()` を作り、各層コンストラクタに `const LayerContext&` で渡す。層はコンストラクタ内で必要分を自メンバ (`state_` / `factory_` 等) へ取り込み、`LayerContext` 自体は保持しない (一時消滅後もダングリングしない)。新しい層もこの作法に従う。`GameLoopOrchestrator::run` は `(GameState&, ILayerFactory&)`。
+
+### ビルド
+- `CMakeLists.txt` — ビルド定義。C++ ソースは明示列挙 (上記)。シェーダの .spv 生成 COMMAND は `"${GLSLANG_VALIDATOR}" -V "-I${SHADER_INC_DIR}" "${_shader}" -o "${_spv}"` (SHADER_INC_DIR = include/MyEngine/shaders)
+- ビルド出力: `C:\MyEngine\build\MyEngine.exe` (**2026-05-26 Ninja 化で変更。旧 `build\Debug\MyEngine.exe` ではない**。Ninja は single-config なので Debug サブフォルダを作らない)。ビルド/IDE 環境の詳細 (Ninja preset・clangd・compile_commands.json) は Work_Protocol §3 を参照。
+
+---
+
+## 3. 確立済みの設計事実 (取り違え防止)
+
+- **影のフィルタは `shared/shadow_sampling.glsl` に集約済み (1G)。** 品質ノブ `FrameUBO.shadowParams.y`: 0=hard 1-tap (ガビガビ・低スペック用) / 1=Soft (Vogel PCF 16-tap) / 2=High (PCSS コンタクトハードニング)。**`shadowParams` の成分割り当て (確定・4成分フル使用): .x = 影の強さ / .y = 影品質 (上記) / .z = 法線マップ on/off (1K-5, 1=on) / .w = metallic-roughness マップ on/off (1K-4, 1=on)。** これらは `VulkanRenderer::buildCompleteFrameUBO` で毎フレーム一元的に書かれる (camera_system が作った後、ここで .y/.z/.w を上書き)。**4成分とも埋まったので、次に frag へ渡すフラグが要るときは新フィールドが必要。** 比較サンプラではなく `sampler2D` で生深度を `.r` 読み (PCSS のブロッカー検索がそのまま書ける理由)。**草 (grass_instanced.frag) は shadowMap を宣言しているが影をサンプルしていない** (草は影を受けない)。バイアスは triangle 系 3 つが `0.0015`、bindless が `0.005` で不一致だが据え置き (統一は別タスク)。
+- **PBR BRDF は `shared/pbr.glsl` に集約済み (1K-A, commit 964c733)。** Cook-Torrance metallic-roughness。4 lighting frag が `pbrDirectLighting()` (1ライト×1表面、影/減衰/多光源/ambient を含まない純粋関数) + `pbrAmbient()` を呼ぶ。**影・減衰・多光源は呼び出し側の責務** (2A 多光源やポイントライト減衰に BRDF を触らず拡張できる設計、shaders/ §の pbr.glsl 項参照)。
+- **1K の残作業 = types.h に枠はあるが未使用のテクスチャ index を活かすこと。** `albedoIdx` / `normalIdx` / `mrIdx` 使用中。**normalIdx (1K-5): 完了** = surface gradient + ローダ供給 + 設定トグル。**mrIdx (1K-4): 完了 (commit ddc5435)** = METALNESS/DIFFUSE_ROUGHNESS を linear 読み、frag で roughness=G/metallic=B サンプルし定数を上書き。**残り: aoIdx (1K-6 AO) / emissiveIdx (emissive)。AO はどのモデルも未保持なので別途用意 or skip** (実質 1K は一区切り)。
+- **PBR データテクスチャの linear 読み込み土台 (確定 2026-05-25, 1K-5/1K-4)。** `Texture::loadFromMemory/buildFromRgbaPixels/createImageAndView` は `bool srgb` を取る (デフォルト true)。色テクスチャ (albedo) は sRGB、**データテクスチャ (normal/MR/AO) は linear (UNORM) で読む** (sRGB だと値が歪む)。`createImageAndView` で `fmt = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM`。**`extractEmbeddedTextures(scene, outTextures, linearIndices)` が linear で読む index 集合 (`linearTexIndices`) を受け取る** — マテリアル走査で normal と MR の参照 index を先に集めて渡す。後から push_back しないので textures_ は1回 resize で確定 (vector 再確保ゼロ。AO を足すならこの集合に追加するだけ)。
+- **法線マップのデータ供給 (確定 2026-05-25, 1K-5)。** model_loader の `resolveNormalTextureIndex` が `aiTextureType_NORMALS`→無ければ `aiTextureType_HEIGHT` (OBJ/Assimp の罠対応)、embedded `*N` を index 化。マテリアルループで normal を linear 読み・bindless 登録・`gm.normalIdx` 設定。外部 (非 embedded) 参照は未対応 (今あるモデルは全て embedded)。
+- **地面 (terrain) は triangle.frag 経由で描かれる (確定 2026-05-25)。** 当初「terrain は別経路」と推測したが誤りで、surface gradient の procedural テストが地面にも乗ったことで判明。terrain は model_loader を通らない (地形生成側で頂点法線を作る) ので、現状 normalIdx<0＝法線マップ非適用。地形に法線ディテールを足すなら別途設計。
+- **マテリアルは `GpuMaterial` (types.h) を BDA 経由 SSBO で索引 (1K-2 で実装済み)。** `FrameUBO.materialBuffer.xy` が 64-bit アドレス、materialId で索引。フィールド: baseColorFactor / metallic / roughness / emissiveStrength + 各テクスチャ index (albedoIdx / normalIdx / mrIdx / aoIdx / emissiveIdx、-1 = テクスチャ無しで factor 使用)。**現状 triangle / triangle_skinned のみ GpuMaterial を読む。triangle_instanced / triangle_bindless は material SSBO を持たず metallic=0/roughness=0.5 の定数** (instanced/bindless の SSBO 化は未着手・別タスク)。
+- **【PART3b 確定 2026-05-27】static の per-draw データ (model/materialId/alpha) は push constant でなく per-draw `DrawData` SSBO (draw_data_pool.h, BDA)。** `triangle.vert` が `DrawBuffer(push.drawBuffer).data[gl_InstanceIndex]` で引く (vkCmdDrawIndexed の firstInstance が slot を運ぶ)。materialId は **flat varying (location=6)** で vert→frag へ渡し、`triangle.frag` は `fragMaterialId` で索引 (frag は push constant を持たない)。static の push constant は `StaticDrawPushConstants{uvec2 drawBuffer}` (8B/VERTEX) = SSBO アドレスのみ。**この経路は indirect-ready** で、PART3c は CPU draw を `vkCmdDrawIndexedIndirect` に替えるだけ・シェーダ無改修。shadow/skinned は別シェーダで従来 push constant のまま。
+- **Mesh / SubMesh に `bindAndDraw(cmd, instanceCount=1, firstInstance=0)` (PART3b, d6dbcde)。** bind (megabuffer ブロック) と `vkCmdDrawIndexed(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance)` を 1 呼び出しに束ね、bind と firstIndex/vertexOffset の desync を構造的に防ぐ。firstInstance が per-draw SSBO slot / PART3c の drawId を運ぶ。
+- **【PART3c-2 確定 2026-05-27, commit 1cf23b9】prop opaque は GPU-driven indirect で描く (CPU draw ループ撤去)。** `main_pass.cpp` の prop opaque は `vkCmdDrawIndexedIndirect` で CullingPass の `commandBuffer(frameIndex)` (instanceCount 0/1 入り) から描画。`MainPass::ExecuteInfo::indirectCommandBuffer` に pass_chain が `cullingPass_.commandBuffer(info.frameIndex)` を配線。command index = drawId = `static_cull::PreparedDraw` の並び (parallel) なので、PreparedDraw の `blockIndex` で **同一 GeometryBuffer block の連続区間ごとに 1 回**描く。
+  - **`drawIndirectFirstInstance` が必須能力 (重要)**: per-draw データを firstInstance(=DrawData slot)→`gl_InstanceIndex` で引くので、indirect コマンドの firstInstance が非ゼロ。**non-zero firstInstance を indirect で使うにはこの feature が要る** (`multiDrawIndirect` だけでは不足。Vulkan 仕様 / web 確認)。VulkanContext が起動時に query して対応時のみ有効化 (`features.multiDrawIndirect` / `features.drawIndirectFirstInstance`)、getter `multiDrawIndirect()` / `drawIndirectFirstInstance()` で公開。**P620 は両対応を実測** (`[Caps] 1/1`)。`drawIndirectFirstInstance` 非対応なら indirect で firstInstance=0 強制になり slot 機構が壊れるため **CPU draw ループにフォールバック** (direct draw の firstInstance は無制限)。`multiDrawIndirect` 非対応なら区間内を drawCount=1 の indirect ループに。
+  - **block 散在 = 連続区間 indirect**: prop の blockIndex 分布は散在 (実測 blockSwitches≈17-18 / draws=77)。よって **「全 draw を 1 回の MDI」は不可** (block 切替で vertex/index buffer の bind が変わる)。連続区間ごとに 1 draw 呼び出し。呼び出し回数を block ごとに減らすのは builder の blockIndex ソート (任意の後段最適化・今は不要、compaction と同種)。
+  - **検証足場 (HUD)**: デバッグ HUD に `Cull : <可視> / <総数>` (render_debug_system.cpp、pass_chain→vulkan_renderer→gameplay_layer→RenderDebugData 経路、`Inst` と同型)。可視 = CullingPass の `lastGpuVisible` (前フレーム dispatch、fence 後)、総数 = `built.draws.size()`。視点回転で分子が動く = カリングが実描画に効いている。**GPU=CPU オラクル照合の常時表示は不採用**: gpu(前フレーム) と CPU オラクル(今フレーム) で基準が 1 フレームずれ、高速移動時に偽の不一致が出る (表示比較側のズレで実バグでない)。同一フレーム基準の精密照合が要れば PART4/Hi-Z 時に作る。CullingPass の `lastCpuVisible()` (PART2 由来) は残置・無害で、純 GPU-driven 化 (CPU readback 撤去) のときにまとめて消す。
+- **water の頂点はワールド座標で焼き込み済み** (water_mesh)。push constant の model は単位行列で正しい (ゼロ初期化すると全頂点が原点に潰れて消える — 過去のバグ)。色 alpha が 0 でも透明で消えるので注意。
+- **water 反射テクスチャは `reflectionPass_.target().color().view()/sampler()` 経由** で water に渡る (pass_chain)。reflection_pass の pipeline/layout getter は現状外部から呼ばれていない。
+- **main_pass.renderPass() は他パス (debug/particle/hud/water/imgui) の init に値で渡される** (pass_chain)。値渡しなので getter が `.get()` を返す形で問題ない。
+- **descriptor set は pool 所有** なので VkUnique 化しない (pool の破棄で自動解放)。
+- **framebuffers_ 等の vector ハンドルは `vector<VkUnique<...>>` + emplace_back** (resize で VK_NULL_HANDLE を渡せないため)。
+- bindless テクスチャは最大 1024 枚、descriptor indexing。grass/static/skinned が bindless 経由。
+- **compute パイプラインの作法はエンジンで確立済み (Phase 1I bloom, 2026-05-25, commit d03f3ff)**。BloomPass がエンジン初の compute pass。確立した作法 (後続の compute Phase = 2B カリング等が踏襲する):
+  - **workgroup は 8x8** (`layout(local_size_x=8, local_size_y=8)`)。dispatch のグループ数 = `ceil(出力extent / 8)`。シェーダ内で `gl_GlobalInvocationID.xy >= imageSize` を境界チェックして余剰スレッドを return。
+  - **storage image は `VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT`** で作る (VmaImage::createAttachment に両ビットを渡す)。GLSL は読みが `sampler2D` (binding0)、書きが `layout(rgba16f) uniform image2D` (binding1)。`imageLoad`/`imageStore` で読み書き。
+  - **descriptor**: COMBINED_IMAGE_SAMPLER (binding0=入力) + STORAGE_IMAGE (binding1=出力) の2バインド。set は「入力→出力のエッジ」ごとに1つ作り、用途名 (setBright_/setDown_[i]/setUp_[i]) で持つとインデックス取り違えが起きない。
+  - **レイアウト運用**: compute で読み書きする image は **GENERAL** で通すのが基本。ただし他パス (graphics) と共有する境界では実レイアウトに合わせる。bloom の場合、mip 列内部は GENERAL、HDR 入力 descriptor は `SHADER_READ_ONLY_OPTIMAL` (MainPass 所有)、最終出力 mip0 は execute 末尾で `GENERAL→SHADER_READ_ONLY_OPTIMAL` に遷移して PostPass に渡し、次フレーム冒頭で `UNDEFINED(内容破棄)→GENERAL` に戻す (毎フレーム往復)。**この境界レイアウト管理は pass 内に閉じ込める** (外のパスを GENERAL 受けに変えない = 散らからない)。**bloom 無効時 (commit 657e701)**: pass_chain は execute をスキップするが、PostPass は常に mip0 を SHADER_READ_ONLY でサンプルするので、`BloomPass::clearToReadable` (mip0 を黒クリア→SHADER_READ_ONLY、dispatch 無し) を呼んでレイアウトを合わせる必要がある (これを忘れると mip0 が GENERAL のまま毎フレーム validation エラー。Phase 1I 以来の既存バグだった)。bloom mip は clear のため `TRANSFER_DST` usage も持つ。
+  - **dispatch 間の同期**: 各 dispatch の後に **COMPUTE→COMPUTE バリア** (`srcStage/dstStage = COMPUTE_SHADER_BIT`, `srcAccess = SHADER_WRITE`, `dstAccess = SHADER_READ`, oldLayout=newLayout=GENERAL) を、書いた image に対して張る。次段が完成データを読めるようにするため。
+  - 初期化時に全 storage image を `UNDEFINED→GENERAL` に1回遷移する。`ResourceFactory::transitionImageLayout` の generic fallback (任意遷移を安全にカバー) を使えば自前 command buffer 不要。
+  - compute pipeline は `vkCreateComputePipelines` + 単一 COMPUTE ステージ。pipeline layout は descriptor set layout 1つ + push constant。
+- **RenderTarget は VmaImage 所有 (memory_ メンバは削除済み)。** ReflectionTarget は RenderTarget を color/depth の 2 枚内包。RenderTarget の外部依存は `image()` (shadow_pass のバリア) と HDR ターゲット (vulkan_renderer)。getter シグネチャを変えなければ非破壊で内部差し替え可能。
+
+---
+
+## 3.5. Phase 2B: GPU-driven フラスタムカリング (進行中)
+
+**目的と方針 (PART0 で確定)。** オープンワールド向けに、描画する static draw を GPU compute でフラスタムカリングする。最終形は全描画経路 (static/skinned/instanced/terrain/particle) を GPU-driven に乗せ、後で Hi-Z occlusion を足す。**最優先は最新技術 (§0)** なので、最初から **indirect mode (CPU draw ループを無くし `vkCmdDrawIndexedIndirect` で描く)** の骨格で作る。CPU readback ゼロ = GPU-driven の核。今は static 数が少なく (opaque static = 26 個) 性能差は目視で出ないが、§0 原則「対象がまだ無くても最新の受け皿を先に用意」に沿って受け皿を据えるフェーズ。**検証は「カリング数のデバッグ表示 + validation ゼロ」** (見た目は不変)。
+
+**web 確認済みの最新動向 (2026-05、着手時に確認)。** GPU-driven culling が現標準 (源流 = Ubisoft SIGGRAPH 2015 GPU Driven Cluster Rendering / Hi-Z Occlusion)。CPU readback を避け compute で visibility を完結。indirect mode が GPU-driven の第一歩 (compute が instanceCount を 0/1 設定、or instance index をコンパクション)。two-pass occlusion + Hi-Z が定番。参考: Gemino (Vulkan, compute frustum/LOD/two-pass occlusion), sydneyzh/gpu_occlusion_culling_vk。Vulkan 公式チュートリアルは「まず CPU/compute フラスタム、スケール拡大後に GPU occlusion (HZB) 追加」を推奨。
+
+**データフロー (骨格、PART2-3 で実装):**
+1. **CullObject バッファ (SSBO)**: CPU が毎フレーム、各 opaque static draw の world bounding sphere を詰める (PART1 完了)。
+2. **CullingPass (compute)**: 各 CullObject をフラスタム6平面 vs 球で判定。可視なら対応する IndirectCommand の `instanceCount=1`、不可視なら `0`。フラスタム平面は push constant か UBO で渡す (CPU で `Frustum::extract`)。BloomPass と同じ compute pass 構造 (§3 の作法を踏襲)。
+3. **IndirectCommand バッファ (SSBO, `VkDrawIndexedIndirectCommand` 配列)**: draw item 1個に1コマンド。
+4. **MainPass**: `vkCmdDrawIndexedIndirect` で描く。instanceCount=0 は GPU が自動スキップ = カリング。CPU の for ループ撤去。
+
+**確定した設計判断:**
+- **bounding sphere (center+radius) で判定する** (既存 CPU grass カリングが `renderer/frustum.h` の `sphereVisible` を使うのに揃える。球/AABB はどちらも frustum culling の標準。本丸の Hi-Z は後で同じ骨格に乗る)。CullObject は AABB half-extent も持つ (将来の精密 AABB-vs-plane 用)。
+- **world AABB は `transformAABB(model, localAABB)` (aabb.h, PART1 で追加)** = model 行列で localAABB の8頂点を変換し min/max。任意のアフィン変換に対応 (yaw 限定の物理ヘルパ obstacleWorldAABB と違い、skinned/instanced にも将来使える)。`worldBoundingSphere` がそれを球にする。
+- **drawId = opaque static の sort 後の index** (sourceModel 順ソート後に CullObject を作るので、index が将来の indirect command slot と一致する)。
+- **まず opaque static 経路のみ**。透明は描画順 (奥→手前) が要り indirect 化が複雑なので後回し。次 PART 以降で同じ CullObject 配列に skinned/instanced/terrain を登録して全経路へ広げる (これがユーザー要望「カリングを今後すべてに」の実現経路)。
+
+**既存の流用できる資産 (新規に作らない):** `core/aabb.h` の AABB (min/max) + `transformAABB`/`worldBoundingSphere` (PART1 追加) / `Model::localAABB()` (ロード時計算済み) / `renderer/frustum.h` の `Frustum::extract` (Gribb-Hartmann) と `sphereVisible` / 物理 `obstacleWorldAABB` (yaw 限定なので draw item には使わないが参考)。grass は既に CPU フラスタムカリング済み (pass_chain L356-357、`fr.sphereVisible`) だが **grass は procedural 生成 (CPU で全 instance 都度生成) なので 2B の最初のリファレンスにはしない** (static の方が汎用)。
+
+**PART 進捗:**
+- **PART0 (設計確定) = 完了。** 上記の方針・骨格・判断。types.h アライメント規約も確認 (§2 / 下記)。
+- **PART1 (CPU 受け皿) = 完了 (commit df9d843)。** types.h に `CullObject` (vec4 centerRadius + vec4 extentDrawId, 32B, std430, BDA無し1定義)。aabb.h に `transformAABB` + `worldBoundingSphere` + `BoundingSphere`。SceneData に `cullObjects_` (vector + accessor + clear)。scene_renderer の buildSceneData 末尾 (opaque static sort 後) で CullObject を充填。検証: `[Cull2B] opaque static draws=26 cullObjects=26`、sphere center 妥当、validation ゼロ。**一時ログ `[Cull2B]` が scene_renderer.cpp 末尾にある (PART2 以降で削除)。**
+- **PART2 (compute cull pass) = 完了 (commit 5cbc7e6)。** 新規 `CullingPass` (renderer/culling_pass.*) を BloomPass 雛形・**全 BDA (descriptor 無し)** で実装。per-frame の CullObject SSBO と IndirectCommand バッファ (`VkDrawIndexedIndirectCommand[]`、`INDIRECT_BUFFER` usage 付き) を持つ。`cull.comp` (local_size_x=64) が buffer_reference で CullObject を読み、CPU `Frustum::extract` した6平面 (push constant) と球判定し `cmds[drawId].instanceCount`=0/1。pass_chain の MainPass 直前で execute、末尾に COMPUTE→DRAW_INDIRECT buffer バリア。**検証: GPU 可視数 = CPU Frustum オラクル (13/26)・validation ゼロ。** 確定した実装事実: (a) `vma_buffer` に `createMappedStorageBDA(ctx,size,extraUsage=0)` overload を追加 (INDIRECT 付き BDA buffer 用、既存呼び出し無改修)。(b) DrawCmd の buffer_reference は `align=4` (20B)、CullObject は `align=16` (32B)。(c) types.h に IndirectCommand 用構造体は不要 (C++ は `VkDrawIndexedIndirectCommand`、GLSL は cull.comp 内に同レイアウト struct)。(d) **compute 結果の CPU 読み戻しは同フレーム内では不可 (GPU 未実行)。per-frame fence のおかげで次に同 frameIndex が来た execute 冒頭で前回結果を読むのが正しい** (検証ログをこの方式に直して一致確認)。**一時ログ `[Cull2B]` が scene_renderer.cpp 末尾と pass_chain.cpp の cull execute 後にある (PART3 完了後に削除)。**
+- **PART3a (メッシュ統合) = 完了 (commit ac7bbd1)。** 全 static prop ジオメトリ (cube/grass/Model SubMesh) を新規 `GeometryBuffer` (renderer/geometry_buffer.*) の共有 megabuffer に統合。これで firstIndex/vertexOffset で引ける = indirect 化の前提 (a) を満たした。要点: (i) **無制限 multi-block + VmaVirtualBlock (要素単位)**。満杯で新ブロック自動追加。76バイト非2べき乗 stride を byte で渡すと device lost になるので要素単位で扱う (Work_Protocol §5c の最重要教訓)。(ii) Mesh/SubMesh は `MeshHandle{blockIndex, firstIndex, vertexOffset, ...}` を持ち、bind は `geom->bindBlock(cmd, blockIndex)`、描画は `vkCmdDrawIndexed(indexCount, n, firstIndex, vertexOffset, firstInstance)`。(iii) 準備として DeletionQueue (a8a0ad4)・device-local VmaBuffer + copyBufferRegion (70f65dc) を新設。(iv) staging は同期コピー後に即破棄、free は DeletionQueue 経由。**検証: block #0〜#3 自動追加・capacity exhausted ゼロ・armor 含む全モデル pixel-correct・validation/VUID/leak ゼロ。** 着手順は単一固定→multi-block へ作り直した経緯あり (現状基準で容量を固定したのが失敗、Work_Protocol §5b)。
+- **PART3b (per-draw SSBO + shader 改修) = 完了 (2026-05-27, commits d6dbcde/a1b93cf/68a5c31/c5adced)。** 積み上げ: bindAndDraw 集約 (d6dbcde) → static_draw.h 共通化 (a1b93cf、main/reflection 重複3ヘルパ集約・挙動不変) → DrawData + DrawDataPool (68a5c31、header-only per-frame SSBO+BDA) → per-draw SSBO 切替 (c5adced)。model/materialId/alpha を DrawData SSBO に置き、`triangle.vert` が gl_InstanceIndex (firstInstance 経由) で引き materialId を flat varying で frag へ、`triangle.frag` は push constant 撤去し flat in で受ける。両 static layout の push constant を `StaticDrawPushConstants` (8B/VERTEX) に縮小。**per-SubMesh push constant 更新が消滅 = (b)(c) 達成、static は indirect-ready。** 検証: ビルド/validation/VUID/leak ゼロ・静的物/反射ともピクセル正常 (視点移動でも反射安定)。**教訓**: per-draw SSBO を reflection→main で共有するとき beginFrame (cursor リセット) を全消費者の前で1回だけ (後段だと後のパスが前の slot を上書きし GPU が取り違える・目視では気づけない。Work_Protocol)。
+- **PART3c (indirect 差し替え) = 完了。スコープは prop (cube + Model) のみ。terrain は対象外で別 bucket = Phase 2F。** PART3c-1 (632433a): 新規 `renderer/static_cull_build.h` (header-only, namespace `static_cull`) が main の opaque **prop** を SubMesh 粒度で走査し drawId 連番で **DrawData slot (pushOne) + CullObject (drawId 焼き) + CullingPass::DrawTemplate (firstInstance=slot) + PreparedDraw (blockIndex+range)** を同時生成 (drawId=DrawData slot=firstInstance=command index で三者一致)。pass_chain が reflection 後・cull 前に `static_cull::build(...)` → CullingPass に SubMesh 粒度の cullObjects/drawTemplates を流す。**PART3c-2 (1cf23b9) = 完了**: `main_pass.cpp` の prop opaque の CPU draw ループ (`vkCmdDrawIndexed`) を `vkCmdDrawIndexedIndirect` に差し替え、CPU draw を撤去。描画ソースは CullingPass の `commandBuffer(frameIndex)` (instanceCount 0/1 入り、`MainPass::ExecuteInfo::indirectCommandBuffer` に pass_chain で配線)。GPU が instanceCount==0 を自動スキップ = カリングが実描画に効く。**= prop bucket の GPU-driven 骨格完成 (CullingPass が prop の実描画に初接続)。** **シェーダ無改修** (PART3b の gl_InstanceIndex 経路)。能力チェックで `multiDrawIndirect` + **`drawIndirectFirstInstance`** を実測有効化 (P620 両対応)。**block 散在 (≈17-18 連続区間) のため「同一 block の連続区間ごとに 1 draw 呼び出し」** (対応=区間ぶん単発 MDI / 非対応=区間内 drawCount=1 ループ。全 1 MDI は不可)。検証は HUD `Cull : 可視/総数` (視点回転で分子が動く)・prop 全部正常描画・validation/VUID/leak ゼロ。詳細は §3 の確定事実 / Work_Protocol §5e。
+  - **【スコープ事故記録 2026-05-27】terrain を prop bucket に統合して撤回**: 3c-0 で terrain を prop の GeometryBuffer に載せ (ff920ae)、3c-1 で prepared 経路に乗せたが、完成形「prop と terrain は別 bucket」(START_HERE §2) に反し、かつワールド地形が legacy のままなのを確認せず乗せて描画破壊 → terrain は legacy CPU draw (`drawTerrainList`) に戻した (632433a)。`terrain_mesh.h/.cpp` の geom 対応コードは残置 (Phase 2F で再利用)。**教訓: スコープ判断は資料確認してから (Work_Protocol §1-4 / START_HERE §0-8)。terrain の GPU-driven 化は Phase 2F (別 bucket + splat + 距離 LOD + チャンクストリーミング) で別途。**
+  - **PART3 の障壁 (PART3a で (a)、PART3b で (b)(c)、PART3c-1 で (d) のビルダ部分 解消済み、残りは indirect 差し替え)**: static prop は (1) ~~SubMesh ごとに別 vertex/index buffer~~ → **PART3a で共有 megabuffer に統合済み**。(2) ~~描画単位が draw item×SubMesh で drawId と 1:1 でない~~ → **PART3c-1 で static_cull_build.h が SubMesh 粒度で drawId 連番採番・解消**。(3) ~~per-SubMesh で push constant 更新~~ → **PART3b で DrawData SSBO + gl_InstanceIndex に解消済み**。残り = prepared CPU ループ → indirect 差し替え (PART3c-2)。
+  - **障壁 (1) SubMesh ごとに別々の vertex/index buffer 〔PART3a で解消済み〕**: 旧 model.h の `SubMesh` は各々 `VkUnique<VkBuffer> vertexBuffer / indexBuffer` を持ち SubMesh 単位に bind していた (単一の大 buffer に未統合)。→ **PART3a (ac7bbd1) で全 SubMesh/cube/grass を共有 GeometryBuffer の megabuffer に統合し、`MeshHandle{blockIndex, firstIndex, vertexOffset}` で引く形にした。`SubMesh::bind`/`Mesh::bind` は `geom->bindBlock(cmd, blockIndex)` 経由 (private buffer はハイブリッドで残置だが geom 経路が本線)。** これで firstIndex/vertexOffset で 1 本から引く indirect の前提を満たした。
+  - **障壁 (2) 描画単位が「draw item × SubMesh」〔PART3c-1 で解消済み〕**: 旧 main_pass `drawStaticModelList` は draw item ごとに `subMeshes()` をループして SubMesh 単位に描画。drawId は draw item 単位で SubMesh と 1:1 でなかった。→ **PART3c-1 で static_cull_build.h が prop を SubMesh 粒度で走査し drawId を連番採番、DrawData/CullObject/DrawTemplate/PreparedDraw を同時生成 (三者一致)。** main の prop opaque はこの PreparedDraw を CPU ループで描画 (block 切替対応)。
+  - **障壁 (3) per-SubMesh で push constant 更新〔PART3b で対応〕**: `StaticPushConstants{mat4 model, float alpha, uint materialId}` を SubMesh ごとに `vkCmdPushConstants` で更新していた。indirect draw は CPU からの per-draw push constant 更新ができない。→ PART3b で per-draw SSBO + gl_InstanceIndex に逃がした。
+  - **→ A 方針 PART3 の作業内訳と進捗**: (a) ~~static メッシュを単一の共有 vertex/index buffer に統合~~ → **PART3a 完了 (無制限 multi-block GeometryBuffer)**。(b) ~~model/materialId を per-draw SSBO に逃がし gl_InstanceIndex で引く~~ → **PART3b 完了 (c5adced)**。(c) ~~static vertex shader 改修~~ → **PART3b 完了**。(d) ~~drawId を SubMesh 粒度に再定義~~ → **PART3c-1 完了 (static_cull_build.h)**。残り = `vkCmdDrawIndexedIndirect` 差し替え・CPU draw 撤去 〔PART3c-2 = 次〕。**全て prop のみ。terrain は Phase 2F。**
+  - **PART3 設計時の Hi-Z 見越し (2026-05-25 追記)**: PART4 = Hi-Z occlusion (frustum cull の次に挿す 2 パス目 compute。深度ピラミッド/HZB を読み、遮蔽オブジェクトの instanceCount をさらに 0 にする) が来る前提で PART3 を設計する。具体的には (i) **「compute が instanceCount を書く → indirect draw が読む」cmdBuf 駆動構造を維持** (Hi-Z パスはこの frustum cull と draw の間に drop-in する。PART2 の COMPUTE→DRAW_INDIRECT バリアもこの形を保つため)。(ii) per-draw SSBO・統合メッシュのレイアウトは、2 パス目 compute が同じ CullObject/cmdBuf を後処理できる形に保つ。(iii) **`CullObject.extentDrawId.xyz` の AABB half-extent は Hi-Z の画面空間 AABB 投影に使うので消さない** (PART1 で先回り確保済み)。深度ピラミッド生成 (新規) が Hi-Z の追加前提 = Phase_Dependencies の Hi-Z ノード参照。
+- **PART4 以降 = Hi-Z occlusion 追加、他経路 (skinned/instanced) を同じ骨格へ。terrain は Phase 2F (terrain bucket = 専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミング) で別途 GPU-driven 化。**
+
+**types.h アライメント規約 (2B で構造体を足す際に従う、冒頭に明文化済み):** 全 vec3 は vec4 にパディング / mat4 は16-byte 境界 / vec3+float より vec4 / VkDeviceAddress(uint64) は8-byte 整列でペアにして16に揃える / C++/GLSL 両用は BDA を含むときだけ `#ifdef __cplusplus` 分岐 (BDA 無しは1定義両用)。実例 = InstanceData(96B)/GpuMaterial(64B, _pad で明示)/CullObject(32B)。
+
+---
+
+## 4. 用語集
+
+- **段階1 / 段階2 / 段階3** = リソース管理リファクタの段階。段階1 = 二層 RAII 化 (完了)。段階2 = 遅延破棄キュー。段階3 = チャンクストリーミング。(ロードマップの Phase 1G/2B 等とは別軸の「土台側」の段階)
+- **二層 / 二層ラッパー** = 元は VkUnique (ハンドル寿命) + VmaBuffer (VMA メモリ) の 2 種。現在は VmaImage を加えて 3 種で GPU リソースを一元管理する設計 (呼称は「二層」のままだが実体は VkUnique + VmaBuffer + VmaImage)。
+- **BDA** = Buffer Device Address。GPU バッファをポインタ (VkDeviceAddress) で直接参照。descriptor 不要。Vulkan 1.2 コア、Pascal でも動く。
+- **bindless** = descriptor indexing。テクスチャを整数インデックスで参照、マテリアルごとの descriptor 切替不要。
+- **RAII** = リソース確保 = 初期化。ここでは「ハンドル/メモリの寿命をラッパーのデストラクタに任せ、手動 destroy を書かない」こと。
+- **pass / 描画パス** = renderer/*_pass。1 つの描画ステージ (shadow / main / post / bloom / reflection)。pass_chain が束ねる。
+- **opaque / transparent** = 不透明 / 半透明の描画リスト。main_pass は両方を別パイプラインで描く。
+- **static / skinned / grass / bindless (pipeline)** = main_pass の 4 系統の描画パイプライン。static=静的メッシュ、skinned=スキンメッシュ (BDA で skin matrices)、grass=草 (instanced, alpha-test, no-cull)、bindless=bindless テクスチャ経由。
+- **dedicated allocation** = VMA で image/buffer に専用の VkDeviceMemory ブロックを割り当てる方式 (VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT)。大きい / 解像度変更で再生成する render target に推奨。VmaImage::createAttachment が使用。
+- **s1_1** = ステージ 1-1。water が設置されているステージ (くぼみに水面)。
+- **HDR / トーンマッパー** = 内部 HDR レンダリング後、ACES/AgX/Khronos PBR Neutral のいずれかで LDR に変換 (post_pass)。
+- **能力チェック + フォールバック** = 最新機能を実装しつつ、起動時に GPU 能力を問い合わせ、非対応なら従来経路に落とす設計 (ロードマップ §3)。
+- **620** = NVIDIA Quadro P620 (Pascal, VRAM 2GB)。現在の開発 GPU。mesh shader / HW レイトレ非対応。
+- **品質ノブ** = 重い機能を 620 で動かすための調整パラメータ (解像度・サンプル数・更新頻度など)。
+- **VkUnique / VmaBuffer / VmaImage** = §1 参照。VmaImage は実装済み・**全 image 移行完了** (RenderTarget系 / Texture / swapchain depth)。image 用 deprecated 経路 (createImage/createImageVMA) も削除済み。残るは buffer 側の VMA 化 (別タスク)。
+
+---
+
+## 5. このガイドの使い方 (新セッションで)
+
+1. 新パスや既存パスを触る前に、§1 (ラッパー仕様) と §3 (設計事実) を確認。
+2. どのファイルかを §2 で当たりをつけ、**実ソースを Read/Grep で確認** (Work_Protocol §1-1)。
+3. 「要確認」と付した細部は、推測で確定させず実ソースで照合する。
+4. このガイド自体に古い/誤りが見つかったら、変更が確定した時点で Edit で都度更新する (Work_Protocol §6)。

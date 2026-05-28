@@ -27,8 +27,4 @@ Thumbs.db
 *~
 *.swp
 
-# Dev design docs (kept outside the repo; never commit into the tree)
-MyEngine_*.md
-**/MyEngine_*.md
-
 run.log
