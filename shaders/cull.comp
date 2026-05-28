@@ -1,13 +1,14 @@
 #version 450
 // =============================================================================
-// cull.comp - Phase 2B PART2: GPU frustum culling (compute, fully BDA / no sets)
+// cull.comp - Phase 2B PART2 / PART4 4-前-4: GPU frustum + cone cull (predicate)
 // =============================================================================
-// One invocation per CullObject. Reads the per-object bounding sphere from a
-// buffer_reference array, tests it against the 6 frustum planes (passed in the
-// push constant, extracted CPU-side by Frustum::extract), and writes the result
-// into the matching VkDrawIndexedIndirectCommand's instanceCount (1 = visible,
-// 0 = culled -> the GPU skips that draw). No descriptor sets: both buffers are
-// addressed via BDA, the same modern style as the instance/skin/material pools.
+// One invocation per CullObject. Reads the per-object bounding sphere + cone
+// from a buffer_reference array, tests against the 6 frustum planes (passed in
+// the push constant, extracted CPU-side by Frustum::extract) and the meshlet-
+// ready normal cone, and writes the resulting visibility bit into the
+// bit-packed visBuf (1 = visible, 0 = culled). Predicate only as of PART4
+// 4-前-4: cmdBuf is no longer touched here - scan_scatter consumes visBuf and
+// emits the visible-only compactCmd list. No descriptor sets, fully BDA.
 // =============================================================================
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
@@ -18,42 +19,27 @@
 
 layout(local_size_x = 64) in;
 
-// CullObject (32B: centerRadius + extentDrawId) is defined in shared/types.h.
+// CullObject (80 B, see shared/types.h).
 layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer CullObjectBuffer {
     CullObject objects[];
 };
 
-// Matches VkDrawIndexedIndirectCommand (20B, 4-byte aligned). The compute pass
-// only writes instanceCount; the CPU fills the rest of the template in PART3.
-struct DrawCmd {
-    uint indexCount;
-    uint instanceCount;
-    uint firstIndex;
-    int  vertexOffset;
-    uint firstInstance;
-};
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer DrawCmdBuffer {
-    DrawCmd cmds[];
-};
-
-// PART4 4-前-3: bit-packed visibility bitmap (32 objects per uint32). cull.comp
-// sets/clears the bit for its drawId via atomicOr/atomicAnd. 4c two-pass
-// occlusion will read the previous frame's bits.
+// PART4 4-前-3: bit-packed visibility bitmap (32 objects per uint32).
+// cull.comp sets/clears the bit for its drawId via atomicOr/atomicAnd;
+// scan_scatter (Pass C) reads it back to gate the compaction write.
 layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisBuffer {
     uint words[];
 };
 
-// PART4 4-前-3: layout = planes(96) + viewPos(16) + cullAddr(8) + cmdAddr(8)
-// + visAddr(8) + objectCount(4) = 140 bytes. Within P620's 256 B
-// maxPushConstantsSize (128 spec-guaranteed minimum); Hi-Z additions in PART4
-// 4c may push past 128 and force a UBO/BDA split per HiZ_PART4_Design §7.
+// PART4 4-前-4: push constant shrinks from 140 B (with cmdAddr) to 124 B now
+// that scan_scatter owns cmdBuf reads. Fits inside the Vulkan 128 B
+// spec-minimum guarantee even before checking maxPushConstantsSize.
 layout(push_constant) uniform PC {
-    vec4  planes[6];   // frustum planes (a,b,c,d), inward, normalized
-    vec4  viewPos;     // xyz = camera world position; w reserved
-    uvec2 cullAddr;    // CullObjectBuffer device address
-    uvec2 cmdAddr;     // DrawCmdBuffer device address
-    uvec2 visAddr;     // VisBuffer device address (bit-packed)
-    uint  objectCount; // number of CullObjects
+    vec4  planes[6];   //   0 .. 95   frustum planes (a,b,c,d), inward, normalised
+    vec4  viewPos;     //  96 ..111   xyz = world camera position; w reserved
+    uvec2 cullAddr;    // 112 ..119   CullObjectBuffer device address
+    uvec2 visAddr;     // 120 ..127   VisBuffer device address (bit-packed)
+    uint  objectCount; // 128 ..131
 } pc;
 
 // Same test as CPU Frustum::sphereVisible (renderer/frustum.h).
@@ -66,23 +52,17 @@ bool sphereVisible(vec3 center, float radius) {
 }
 
 // PART4 4-前-2 (meshlet-ready receptacle, §3.2-G):
-// Normal-cone backface cluster test. All surface normals on the cluster lie
-// within cosHalfAngle of `axis`. The cluster is fully back-facing if the view
-// direction (apex -> camera) has dot(viewDir, axis) < cosHalfAngle, i.e., the
-// axis points "away" enough that every normal in the cone faces away.
-// Convention: cosHalfAngle > 1.0 means "no cone information" -> always visible.
-// (Sphere/cube/grass/symmetric objects use this sentinel today; real cones land
-// in Phase 3B when meshlet preprocessing is wired up.)
+// Normal-cone backface cluster test. cosHalfAngle > 1.0 disables the test
+// (sentinel for "no cone information") so every prop is visible from the
+// cone's standpoint until Phase 3B fills real cones.
 bool coneVisible(vec3 apex, vec3 axis, float cosHalfAngle, vec3 viewPos) {
-    if (cosHalfAngle > 1.0) return true;  // sentinel: no cone defined
+    if (cosHalfAngle > 1.0) return true;
     vec3 toCamera = normalize(viewPos - apex);
     return dot(toCamera, axis) >= cosHalfAngle;
 }
 
-// PART4 4-前-3: write one drawId's visibility into the bit-packed bitmap.
-// atomicOr / atomicAnd because 32 drawIds share each uint32 word; threads
-// addressing the same word must not race. Idempotent: same input -> same
-// final bit value.
+// PART4 4-前-3: write one drawId's bit. atomicOr / atomicAnd because 32 drawIds
+// share each uint32 word and threads addressing the same word must not race.
 void writeVis(VisBuffer vis, uint drawId, bool visible) {
     uint word = drawId >> 5;
     uint mask = 1u << (drawId & 31u);
@@ -95,13 +75,12 @@ void main() {
     if (id >= pc.objectCount) return;
 
     CullObjectBuffer objs = CullObjectBuffer(pc.cullAddr);
-    DrawCmdBuffer    cmds = DrawCmdBuffer(pc.cmdAddr);
     VisBuffer        vis  = VisBuffer(pc.visAddr);
 
     CullObject o = objs.objects[id];
     vec3  center       = o.centerRadius.xyz;
     float radius       = o.centerRadius.w;
-    uint  drawId       = uint(o.extentDrawId.w);  // packed as float in PART1
+    uint  drawId       = uint(o.extentDrawId.w);
     vec3  coneApex     = o.coneApexCutoff.xyz;
     float cosHalfAngle = o.coneApexCutoff.w;
     vec3  coneAxis     = o.coneAxisLodBias.xyz;
@@ -109,6 +88,5 @@ void main() {
     bool visible = sphereVisible(center, radius)
                 && coneVisible(coneApex, coneAxis, cosHalfAngle, pc.viewPos.xyz);
 
-    cmds.cmds[drawId].instanceCount = visible ? 1u : 0u;
-    writeVis(vis, drawId, visible);  // PART4 4-前-3: bit-packed visibility for 4c
+    writeVis(vis, drawId, visible);
 }

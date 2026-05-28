@@ -261,7 +261,11 @@ struct CullObject {
     vec4 extentDrawId;       // xyz = world AABB half-extent, w = drawId (as float)
     vec4 coneApexCutoff;     // xyz = cone apex (world), w = cos(half-angle); w > 1.0 disables
     vec4 coneAxisLodBias;    // xyz = cone axis (world, normalized), w = reserved (future LOD bias)
-    uvec4 clusterIds;        // x = parentClusterId (UINT32_MAX = none), y = childClusterIdMask, zw reserved
+    uvec4 clusterIds;        // x = parentClusterId (UINT32_MAX = none),
+                             // y = childClusterIdMask,
+                             // z = blockIndex (PART4 4-前-4: GeometryBuffer block for this draw,
+                             //   consumed by scan_scatter to compute its compactCmd output slot),
+                             // w = reserved
 };
 
 // -----------------------------------------------------------------------------

@@ -1,39 +1,56 @@
 // include/MyEngine/renderer/culling_pass.h
 #pragma once
 // =============================================================================
-// culling_pass.h - Phase 2B PART2 / PART4: GPU-driven frustum culling (compute).
+// culling_pass.h - Phase 2B PART2 / PART4: GPU-driven frustum culling + scan
+// compaction (PART4 4-前-4) + DGC / IndirectCount receptacle.
+// =============================================================================
+// Engine's second compute pass. Fully BDA-driven (no descriptor sets). Each
+// frame the pass:
 //
-// Second compute pass in the engine (after BloomPass). Fully BDA-driven: both
-// CullObject input and the VkDrawIndexedIndirectCommand output (cmdBuf_) and
-// the visibility bitmap (visBuf_) are accessed via Buffer Device Address. The
-// frustum planes (CPU-extracted by Frustum) plus the camera position (for the
-// meshlet-ready cone test, PART4 4-前-2) plus the three BDA pointers plus the
-// object count are passed as push constants. cull.comp writes
-// cmds[drawId].instanceCount = 0/1 and visBuf_[drawId] = visible-bit; the GPU
-// then skips instanceCount==0 draws in the indirect draw.
+//   1. Uploads per-frame CullObject[] via host-mapped cullStaging_[FIF] +
+//      vkCmdCopyBuffer to the persistent device-local cullBuf_.
+//   2. Dispatches `cull.comp` (frustum + meshlet-ready cone test) which
+//      writes a 1-bit-per-drawId predicate into the bit-packed visBuf_.
+//   3. For each GeometryBuffer block range owned by static_cull::build:
+//        a. scan_local.comp   (Pass A) - per-workgroup exclusive scan over the
+//                                        block's predicates, write per-wg total
+//                                        into workgroupTotalsBuf_.
+//        b. scan_globals.comp (Pass B) - single-wg in-place scan over the
+//                                        block's workgroupTotals slice, write
+//                                        the per-block visible count to
+//                                        countBuf1_[blockIdx].
+//        c. scan_scatter.comp (Pass C) - re-run the local scan, add the per-wg
+//                                        prefix, scatter the visible draw's
+//                                        cmdBuf template (with instanceCount=1)
+//                                        into compactCmd1Buf_ inside its
+//                                        block's slot range.
+//   4. Hands ownership of compactCmd1Buf_ + countBuf1_ to main_pass via the
+//      indirect_exec wrapper, which picks DGC / IndirectCount / Legacy per
+//      device capability.
 //
-// PART4 4-前-3 persistent layout (this pass owns the buffers for the engine's
-// lifetime, sized initially to INITIAL_CAPACITY and grown lazily via
-// ensureCapacity()):
-//   * cullBuf_:  single DEVICE-LOCAL CullObject[]      <- read by cull.comp.
-//                CPU writes go through per-frame host-mapped staging +
-//                vkCmdCopyBuffer with a TRANSFER->COMPUTE barrier so the
-//                shader sees the new contents.
+// PART4 4c (two-pass occlusion) will plug in a second pass that reuses the
+// same scan_compact pipeline plus the symmetrically-allocated compactCmd2Buf_
+// + countBuf2_ buffers (allocated today, unused until 4c).
+//
+// PART4 4-前-3 persistent layout (kept):
+//   * cullBuf_:        single device-local CullObject[], grown via
+//                      ensureCapacity().
 //   * cullStaging_[FIF]: per-frame host-mapped staging ring.
-//   * visBuf_:   single DEVICE-LOCAL bit-packed visibility (uint32 per 32
-//                objects). cull.comp atomicOr/atomicAnd per drawId. Only
-//                written today; PART4 4c two-pass occlusion will read the
-//                previous frame's bits (cross-frame read needs Vulkan13 §U
-//                timeline semaphore sync to be spec-formal; in practice on a
-//                single graphics queue submission order serialises it).
-//   * cmdBuf_[FIF]: per-frame host-mapped (unchanged from PART2/3). 4d's
-//                純 GPU-driven 化仕上げ step will move this to device-local
-//                + a separate readback buffer.
+//   * visBuf_:         single device-local uint32[] bit-packed (32 obj/word).
+//   * cmdBuf_[FIF]:    per-frame host-mapped DrawCmd[] (CPU writes the
+//                      template, scan_scatter reads it).
 //
-// ensureCapacity(need, dq): if need > capacity_, doubles capacity, allocates
-// new buffers, and hands the old (VkBuffer + VmaAllocation) pairs to the
-// DeletionQueue so they are freed MAX_FRAMES_IN_FLIGHT frames later (§5c).
-// INITIAL_CAPACITY=4096 is now a starting size, NOT a hard cap.
+// PART4 4-前-4 new buffers:
+//   * compactCmd1Buf_/2: single device-local VkDrawIndexedIndirectCommand[],
+//                      pass1 (always today) and pass2 (4c). INDIRECT_BUFFER
+//                      + STORAGE + BDA + TRANSFER_DST. compactCmd2 stays
+//                      empty today; cost is negligible because it's grown in
+//                      lockstep with the rest.
+//   * countBuf1_/2:    single device-local uint[INITIAL_BLOCKS], per-block
+//                      visible count. INDIRECT_BUFFER + STORAGE + BDA + TRANSFER_DST.
+//   * workgroupTotalsBuf_: scratch uint[], per-workgroup partial sum.
+//                      Pass A writes, Pass B reads / writes (turns it into
+//                      a prefix array), Pass C reads. STORAGE + BDA.
 // =============================================================================
 #include <vulkan/vulkan.h>
 
@@ -52,23 +69,27 @@
 class VulkanContext;
 class DeletionQueue;
 
+namespace static_cull { struct BlockRange; }
+
 class CullingPass {
    public:
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = FrameSync::MAX_FRAMES_IN_FLIGHT;
-    // PART4 4-前-3: INITIAL capacity. The buffers grow on demand via
-    // ensureCapacity(); this constant is NOT a hard cap. Grow path verified
-    // by temporarily setting this to 32 and observing 77 draws still rendered
-    // correctly (allocations doubled to 32 -> 64 -> 128).
+    // PART4 4-前-3: starting capacity per dim, NOT a hard cap. Both grow on
+    // demand via ensureCapacity() / ensureBlockCount().
     static constexpr uint32_t INITIAL_CAPACITY = 4096;
+    static constexpr uint32_t INITIAL_BLOCKS   = 64;
+    // PART4 4-前-4: scan workgroup size. Matches NVIDIA subgroup-of-32 * 8 and
+    // AMD subgroup-of-64 * 4. Each Pass A workgroup processes this many drawIds.
+    static constexpr uint32_t SCAN_WG_SIZE     = 256;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
-        DeletionQueue* deletionQueue = nullptr;  // PART4 4-前-3: for grow path
+        DeletionQueue* deletionQueue = nullptr;
         std::string shaderDir;
     };
 
-    // A single draw command template (everything except instanceCount, which the
-    // compute shader fills). Matches VkDrawIndexedIndirectCommand layout.
+    // A single draw command template (everything except instanceCount, which
+    // scan_scatter fills). Matches VkDrawIndexedIndirectCommand layout.
     struct DrawTemplate {
         uint32_t indexCount = 0;
         uint32_t firstIndex = 0;
@@ -80,26 +101,43 @@ class CullingPass {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         uint32_t frameIndex = 0;
         const std::vector<myengine::shared::CullObject>* cullObjects = nullptr;
-        const std::vector<DrawTemplate>* drawTemplates = nullptr;  // size == cullObjects
-        glm::mat4 viewProj{1.0f};  // CPU extracts frustum planes from this
-        glm::vec3 viewPos{0.0f};   // PART4 4-前-2: world camera position for the cone test
+        const std::vector<DrawTemplate>* drawTemplates = nullptr;
+        // PART4 4-前-4: block-sorted ranges (from static_cull::build). Raw
+        // pointer + count to avoid pulling the static_cull_build.h
+        // BlockRange definition into culling_pass.h. Each range becomes one
+        // scan_compact 3-pass dispatch sequence so the visible count is
+        // per-block, matching main_pass's per-block bind.
+        const static_cull::BlockRange* blockRanges = nullptr;
+        uint32_t blockRangeCount = 0;
+        glm::mat4 viewProj{1.0f};
+        glm::vec3 viewPos{0.0f};
     };
 
     void init(const InitInfo& info);
     void shutdown();
     void execute(const ExecuteInfo& info);
 
-    // PART4 4-前-3: grow cullBuf / visBuf / cullStaging / cmdBuf if needed.
-    // Old buffers are handed to the DeletionQueue (set at init) to be freed
-    // MAX_FRAMES_IN_FLIGHT frames later, after any in-flight GPU work is done.
+    // Grow draw-side dimension (CullObject / visBuf / cmdBuf / compactCmd /
+    // workgroupTotals). Doubles or jumps to `need`, whichever is larger.
     void ensureCapacity(uint32_t need);
+    // Grow block-side dimension (countBuf1/2). Same doubling policy.
+    void ensureBlockCount(uint32_t need);
 
-    uint32_t capacity() const noexcept { return capacity_; }
+    uint32_t capacity()    const noexcept { return capacity_;    }
+    uint32_t blockCount()  const noexcept { return blockCount_;  }
 
-    // BDA of the indirect command buffer for a frame (PART3 draws from this).
-    VkDeviceAddress commandAddress(uint32_t frameIndex) const {
-        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? cmdBuf_[frameIndex].deviceAddress() : 0;
+    // PART4 4-前-4: BDA + handles for main_pass / indirect_exec. The
+    // commandBuffer pointer is the compacted draw command list (visible only),
+    // and countBuffer holds per-block visible counts written by scan_globals.
+    VkBuffer compactCmdBuffer(uint32_t passIndex) const {
+        return passIndex == 0 ? compactCmd1Buf_.buffer() : compactCmd2Buf_.buffer();
     }
+    VkBuffer countBuffer(uint32_t passIndex) const {
+        return passIndex == 0 ? countBuf1_.buffer() : countBuf2_.buffer();
+    }
+
+    // (Legacy 4-前-3 accessor kept for any caller still drawing from cmdBuf_;
+    // main_pass will move to compactCmdBuffer / countBuffer in this commit.)
     VkBuffer commandBuffer(uint32_t frameIndex) const {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? cmdBuf_[frameIndex].buffer() : VK_NULL_HANDLE;
     }
@@ -107,68 +145,96 @@ class CullingPass {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? lastCount_[frameIndex] : 0;
     }
 
-    // PART2 debug: count instanceCount==1 in a frame's (host-visible) command
-    // buffer. Valid to read once that frame's GPU work has completed.
-    uint32_t gpuVisibleCount(uint32_t frameIndex) const;
-
-    // PART2 debug: GPU visible count captured at the START of the latest execute
-    // for this frameIndex (i.e. the result of the PREVIOUS dispatch on the same
-    // frame, whose GPU work the frame fence has already waited on).
+    // Debug: count instanceCount==1 in the most recent compactCmd (post-scan).
+    // gpuVisibleCount is the previous-dispatch result (frame-fence safe).
     uint32_t lastGpuVisible(uint32_t frameIndex) const {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? lastVisible_[frameIndex] : 0;
     }
-    // CPU-side expected visible count using the same Frustum test.
     uint32_t lastCpuVisible() const { return lastCpuVisible_; }
 
    private:
-    // Push constant block: must match cull.comp's PC exactly.
-    // PART4 4-前-3: + visAddr (bit-packed visibility bitmap BDA) -> 140 bytes.
-    // P620 maxPushConstantsSize is 256 in practice (128 spec-guaranteed); a
-    // future Hi-Z addition (PART4 4c) that pushes past 128 should move payload
-    // to a small UBO or extra BDA per HiZ_PART4_Design §7.
-    struct PushConstants {
+    // -- Push constants ------------------------------------------------------
+    // cull.comp (PART4 4-前-3 minus cmdAddr): 124 bytes.
+    struct CullPC {
         glm::vec4  planes[6];   //  0 .. 95
         glm::vec4  viewPos;     // 96 ..111
-        glm::uvec2 cullAddr;    //112 ..119  CullObject[] (device-local)
-        glm::uvec2 cmdAddr;     //120 ..127  VkDrawIndexedIndirectCommand[] (per-frame)
-        glm::uvec2 visAddr;     //128 ..135  uint32[] bit-packed visibility (device-local)
-        uint32_t   objectCount; //136 ..139
+        glm::uvec2 cullAddr;    //112 ..119
+        glm::uvec2 visAddr;     //120 ..127
+        uint32_t   objectCount; //128 ..131
+    };
+    // scan_local.comp (Pass A): 32 bytes.
+    struct ScanLocalPC {
+        glm::uvec2 visAddr;             // bit-packed predicate input
+        glm::uvec2 workgroupTotalsAddr; // uint[] output: per-wg local total
+        uint32_t   blockFirstDraw;
+        uint32_t   blockDrawCount;
+        uint32_t   wgFirstInBlock;      // start offset in workgroupTotals
+        uint32_t   _pad;
+    };
+    // scan_globals.comp (Pass B): 32 bytes.
+    struct ScanGlobalsPC {
+        glm::uvec2 workgroupTotalsAddr; // in/out: turn totals into prefixes
+        glm::uvec2 countBufAddr;        // out: per-block visible count
+        uint32_t   wgFirstInBlock;
+        uint32_t   numWgsInBlock;
+        uint32_t   blockIdx;
+        uint32_t   _pad;
+    };
+    // scan_scatter.comp (Pass C): 56 bytes.
+    struct ScanScatterPC {
+        glm::uvec2 visAddr;             // predicate input
+        glm::uvec2 workgroupTotalsAddr; // per-wg prefix input (Pass B output)
+        glm::uvec2 cmdTemplateAddr;     // DrawCmd[] CPU-supplied template
+        glm::uvec2 compactCmdAddr;      // DrawCmd[] scan output (visible only)
+        uint32_t   blockFirstDraw;
+        uint32_t   blockDrawCount;
+        uint32_t   wgFirstInBlock;
+        uint32_t   _pad;
     };
 
-    void createBuffers(uint32_t capacity);
-    void destroyBuffersToDeletionQueue();  // releases ownership + enqueues old buffers
-    void createPipeline(const std::string& shaderDir);
+    // -- Internals -----------------------------------------------------------
+    void createBuffers(uint32_t capacity, uint32_t blockCount);
+    void destroyBuffersToDeletionQueue();
+    void createPipelines(const std::string& shaderDir);
+    template <typename PC>
+    VkUnique<VkPipelineLayout> createComputePipelineLayout();
+    VkUnique<VkPipeline> createComputePipeline(const std::string& spvPath,
+                                                VkPipelineLayout layout);
 
     static constexpr VkDeviceSize cullStride() { return sizeof(myengine::shared::CullObject); }
     static constexpr VkDeviceSize cmdStride()  { return sizeof(VkDrawIndexedIndirectCommand); }
     static constexpr uint32_t     visWordsFor(uint32_t cap) { return (cap + 31u) >> 5; }
+    static constexpr uint32_t     scanWgsFor(uint32_t cap)  { return (cap + SCAN_WG_SIZE - 1u) / SCAN_WG_SIZE; }
 
     VulkanContext* ctx_ = nullptr;
     DeletionQueue* dq_ = nullptr;
-    uint32_t capacity_ = 0;
+    uint32_t capacity_   = 0;
+    uint32_t blockCount_ = 0;
 
-    // PART4 4-前-3: single persistent device-local CullObject[] + per-frame
-    // host-mapped staging (modern GPU-driven upload pattern: CPU writes to
-    // staging, cmdCopyBuffer + barrier copies to the device buffer that the
-    // compute shader reads).
+    // Inputs and predicate.
     VmaBuffer cullBuf_;                                       // device-local
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cullStaging_; // host-mapped
+    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cmdBuf_;      // host-mapped template
+    VmaBuffer visBuf_;                                        // device-local bit-packed
 
-    // Per-frame indirect command ring (host-mapped). Still per-frame because
-    // CPU writes the template into it and GPU writes instanceCount; readback
-    // is host-mapped for the debug HUD. 4d's GPU-driven 仕上げ moves this to
-    // device-local with a separate readback buffer.
-    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cmdBuf_;
-
-    // PART4 4-前-3: bit-packed visibility (uint32 per 32 objects). One bit per
-    // drawId set by cull.comp via atomicOr/atomicAnd. Single device-local
-    // buffer; 4c two-pass occlusion reads the previous frame's bits.
-    VmaBuffer visBuf_;
+    // PART4 4-前-4 scan compaction output.
+    VmaBuffer compactCmd1Buf_;  // device-local VkDrawIndexedIndirectCommand[]
+    VmaBuffer compactCmd2Buf_;  // 4c pass2 receptacle (allocated, unused today)
+    VmaBuffer countBuf1_;       // device-local uint[blockCount_]
+    VmaBuffer countBuf2_;       // 4c pass2 receptacle
+    VmaBuffer workgroupTotalsBuf_;  // scratch uint[scanWgsFor(capacity_)]
 
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastCount_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastVisible_{};
     uint32_t lastCpuVisible_ = 0;
 
-    VkUnique<VkPipelineLayout> pipelineLayout_;
-    VkUnique<VkPipeline> pipe_;
+    // Pipelines for cull + 3-pass scan compaction.
+    VkUnique<VkPipelineLayout> cullLayout_;
+    VkUnique<VkPipeline>       cullPipe_;
+    VkUnique<VkPipelineLayout> scanLocalLayout_;
+    VkUnique<VkPipeline>       scanLocalPipe_;
+    VkUnique<VkPipelineLayout> scanGlobalsLayout_;
+    VkUnique<VkPipeline>       scanGlobalsPipe_;
+    VkUnique<VkPipelineLayout> scanScatterLayout_;
+    VkUnique<VkPipeline>       scanScatterPipe_;
 };

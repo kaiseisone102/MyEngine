@@ -74,7 +74,12 @@ class MainPass {
         const GeometryBuffer* geometry = nullptr;  // Phase 2B PART3c: block bind for opaque static
         const std::vector<static_cull::PreparedDraw>* preparedOpaque = nullptr;  // PART3c
         const std::vector<static_cull::BlockRange>* preparedOpaqueRanges = nullptr;  // PART4 4-前-1
-        VkBuffer indirectCommandBuffer = VK_NULL_HANDLE;  // Phase 2B PART3c-2: CullingPass cmdBuf (indirect draw source)
+        VkBuffer indirectCommandBuffer = VK_NULL_HANDLE;  // Phase 2B PART3c-2 fallback path
+        // PART4 4-前-4: visible-only compact draw list + per-block visible counts.
+        // main_pass hands these to indirect_exec which picks DGC / IndirectCount /
+        // Legacy per device capability.
+        VkBuffer compactCommandBuffer = VK_NULL_HANDLE;
+        VkBuffer indirectCountBuffer = VK_NULL_HANDLE;
         const std::vector<InstancedMeshDrawItem>* grassDrawList = nullptr;  // Phase 1F
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;

@@ -74,7 +74,7 @@ foreach(_shader ${SHADER_SOURCES})
     set(_spv "${SHADER_INT_DIR}/${_stem}.spv")
     add_custom_command(
         OUTPUT  "${_spv}"
-        COMMAND "${GLSLANG_VALIDATOR}" -V "-I${SHADER_INC_DIR}" "${_shader}" -o "${_spv}"
+        COMMAND "${GLSLANG_VALIDATOR}" -V --target-env vulkan1.1 "-I${SHADER_INC_DIR}" "${_shader}" -o "${_spv}"
         DEPENDS "${_shader}" ${SHADER_SHARED_HEADERS}
         COMMENT "SPIR-V ${_name}"
         VERBATIM)
@@ -146,6 +146,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/skin_buffer_pool.cpp
     src/renderer/instance_buffer_pool.cpp
     src/renderer/culling_pass.cpp
+    src/renderer/indirect_exec.cpp
     src/renderer/deletion_queue.cpp
     src/renderer/geometry_buffer.cpp
     src/renderer/material_registry.cpp

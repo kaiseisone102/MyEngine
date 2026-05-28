@@ -362,6 +362,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.frameIndex = info.frameIndex;
         ce.cullObjects = &built.cullObjects;        // PART3c: per-SubMesh
         ce.drawTemplates = &built.drawTemplates;    // PART3c: real templates
+        ce.blockRanges = built.blockRanges.data();              // PART4 4-前-4
+        ce.blockRangeCount = static_cast<uint32_t>(built.blockRanges.size());
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
         ce.viewPos  = glm::vec3(info.normalLighting.viewPos);  // PART4 4-前-2: cone test
         cullingPass_.execute(ce);
@@ -494,7 +496,11 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.geometry = &info.assets->geometry();           // Phase 2B PART3c: block bind
 
 
-        mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2: indirect draw source
+        mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2 fallback
+        // PART4 4-前-4: compacted draw + per-block count buffers. main_pass
+        // hands these to indirect_exec which picks DGC / IndirectCount / Legacy.
+        mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(0);
+        mi.indirectCountBuffer  = cullingPass_.countBuffer(0);
 
         mainPass_.execute(mi);
     }

@@ -68,6 +68,17 @@ class VulkanContext {
     // (HZB mips, two-pass cull, async-compute QFOT) all go through that helper.
     bool synchronization2() const { return synchronization2_; }
 
+    // PART4 4-前-4: VK_KHR_draw_indirect_count (core in Vulkan 1.2). Used by
+    // indirect_exec to call vkCmdDrawIndexedIndirectCount instead of walking
+    // all command slots. CullingPass's scan_compact writes a real visible-count
+    // into countBuf; with this feature the GPU only walks that many entries
+    // (the empty-cmd-full-walk problem at scale is gone).
+    bool drawIndirectCount() const { return drawIndirectCount_; }
+
+    // PART4 4-前-4: VK_EXT_device_generated_commands. Receptacle today; the
+    // indirect_exec wrapper has a DGC code path that 4d will fill in.
+    bool deviceGeneratedCommands() const { return deviceGeneratedCommands_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -94,6 +105,10 @@ class VulkanContext {
 
     // Vulkan13 §1 (W): queried sync2 capability flag.
     bool synchronization2_ = false;
+
+    // PART4 4-前-4: queried indirect-count / DGC capability flags.
+    bool drawIndirectCount_ = false;
+    bool deviceGeneratedCommands_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

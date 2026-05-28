@@ -1,0 +1,120 @@
+#version 450
+// =============================================================================
+// scan_scatter.comp - PART4 4-前-4 Pass C: scatter visible draws into
+// compactCmd using the per-element exclusive scan and the workgroup prefix
+// produced by Pass B.
+// =============================================================================
+// For each thread in a workgroup that handles 256 consecutive drawIds inside
+// ONE BlockRange:
+//
+//   localDrawId    = wgid * 256 + lid
+//   globalDrawId   = blockFirstDraw + localDrawId
+//   predicate      = (visBuf bit at globalDrawId)
+//
+//   - subgroup-level exclusive scan + shared-memory cross-subgroup scan gives
+//     localExclusive (the predicate prefix within this workgroup).
+//   - workgroupTotals[wgFirstInBlock + wgid] (set by Pass B) is the
+//     workgroup's exclusive prefix within the block.
+//   - blockExclusive = wgPrefix + localExclusive.
+//   - If visible, write cmdTemplate[globalDrawId] (with instanceCount = 1)
+//     into compactCmd[blockFirstDraw + blockExclusive].
+//
+// indirect_exec then issues vkCmdDrawIndexedIndirectCount referencing the
+// per-block slot range; only the first `countBuf[blockIdx]` entries are
+// walked. The empty-cmd full-walk problem is gone at any visibility ratio.
+// =============================================================================
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout(local_size_x = 256) in;
+
+// Matches VkDrawIndexedIndirectCommand (20 B). Pass C reads the CPU-supplied
+// template, sets instanceCount to 1, and writes the result into compactCmd.
+struct DrawCmd {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int  vertexOffset;
+    uint firstInstance;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer VisBuffer {
+    uint words[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer WorkgroupTotals {
+    uint values[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer DrawCmdInBuffer {
+    DrawCmd cmds[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer DrawCmdOutBuffer {
+    DrawCmd cmds[];
+};
+
+layout(push_constant) uniform PC {
+    uvec2 visAddr;
+    uvec2 workgroupTotalsAddr;   // Pass B output: per-wg exclusive prefix in block
+    uvec2 cmdTemplateAddr;       // CPU-supplied per-drawId template
+    uvec2 compactCmdAddr;        // visible-only output (per-block slot range)
+    uint  blockFirstDraw;
+    uint  blockDrawCount;
+    uint  wgFirstInBlock;
+    uint  _pad;
+} pc;
+
+shared uint s_subgroupTotals[32];
+
+void main() {
+    VisBuffer       vis     = VisBuffer(pc.visAddr);
+    WorkgroupTotals wgPrefs = WorkgroupTotals(pc.workgroupTotalsAddr);
+    DrawCmdInBuffer  inBuf  = DrawCmdInBuffer(pc.cmdTemplateAddr);
+    DrawCmdOutBuffer outBuf = DrawCmdOutBuffer(pc.compactCmdAddr);
+
+    const uint wgid         = gl_WorkGroupID.x;
+    const uint lid          = gl_LocalInvocationID.x;
+    const uint localDrawId  = wgid * gl_WorkGroupSize.x + lid;
+    const bool inBlock      = localDrawId < pc.blockDrawCount;
+    const uint globalDrawId = pc.blockFirstDraw + localDrawId;
+
+    uint predicate = 0u;
+    if (inBlock) {
+        const uint word = globalDrawId >> 5;
+        const uint mask = 1u << (globalDrawId & 31u);
+        predicate = (vis.words[word] & mask) != 0u ? 1u : 0u;
+    }
+
+    // Within-workgroup exclusive scan (subgroup + cross-subgroup).
+    const uint subgroupExcl = subgroupExclusiveAdd(predicate);
+    const uint subgroupSum  = subgroupAdd(predicate);
+
+    if (subgroupElect()) {
+        s_subgroupTotals[gl_SubgroupID] = subgroupSum;
+    }
+    barrier();
+    memoryBarrierShared();
+
+    if (gl_SubgroupID == 0u) {
+        uint v = (gl_SubgroupInvocationID < gl_NumSubgroups)
+                 ? s_subgroupTotals[gl_SubgroupInvocationID] : 0u;
+        uint pre = subgroupExclusiveAdd(v);
+        if (gl_SubgroupInvocationID < gl_NumSubgroups) {
+            s_subgroupTotals[gl_SubgroupInvocationID] = pre;
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+
+    const uint localExclusive = s_subgroupTotals[gl_SubgroupID] + subgroupExcl;
+    const uint wgPrefix       = wgPrefs.values[pc.wgFirstInBlock + wgid];
+    const uint blockExclusive = wgPrefix + localExclusive;
+
+    if (inBlock && predicate == 1u) {
+        DrawCmd t = inBuf.cmds[globalDrawId];
+        t.instanceCount = 1u;
+        outBuf.cmds[pc.blockFirstDraw + blockExclusive] = t;
+    }
+}

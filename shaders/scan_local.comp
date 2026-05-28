@@ -1,0 +1,79 @@
+#version 450
+// =============================================================================
+// scan_local.comp - PART4 4-前-4 Pass A: per-workgroup REDUCTION over the
+// visBuf predicate; writes the workgroup's visible count into
+// workgroupTotals[]. Pass B turns those totals into a workgroup-level
+// exclusive prefix; Pass C recomputes the per-element scan (cheap) and
+// scatters into compactCmd.
+// =============================================================================
+// Each workgroup of SCAN_WG_SIZE (256) threads processes SCAN_WG_SIZE
+// contiguous drawIds within ONE BlockRange (the CullingPass dispatch is
+// per-block; all threads in a workgroup share the same block). For thread t:
+//
+//   localDrawId   = wgid * SCAN_WG_SIZE + t        // 0 .. blockDrawCount-1
+//   globalDrawId  = pc.blockFirstDraw + localDrawId
+//   predicate     = (visBuf bit at globalDrawId)
+//
+// The workgroup reduces the 256 predicates to a single uint (visible count)
+// via subgroup ops + a tiny shared-memory cross-subgroup sum. The total is
+// written to workgroupTotals[pc.wgFirstInBlock + wgid].
+// =============================================================================
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout(local_size_x = 256) in;
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer VisBuffer {
+    uint words[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer WorkgroupTotals {
+    uint values[];
+};
+
+layout(push_constant) uniform PC {
+    uvec2 visAddr;
+    uvec2 workgroupTotalsAddr;
+    uint  blockFirstDraw;
+    uint  blockDrawCount;
+    uint  wgFirstInBlock;
+    uint  _pad;
+} pc;
+
+// 256 / 32 (NVIDIA) = 8 subgroups; 256 / 64 (AMD) = 4. 32 slots fits any
+// architecture out to 32-wide subgroup counts per workgroup.
+shared uint s_subgroupTotals[32];
+
+void main() {
+    VisBuffer vis = VisBuffer(pc.visAddr);
+    WorkgroupTotals wgTotals = WorkgroupTotals(pc.workgroupTotalsAddr);
+
+    const uint wgid         = gl_WorkGroupID.x;
+    const uint lid          = gl_LocalInvocationID.x;
+    const uint localDrawId  = wgid * gl_WorkGroupSize.x + lid;
+    const bool inBlock      = localDrawId < pc.blockDrawCount;
+    const uint globalDrawId = pc.blockFirstDraw + localDrawId;
+
+    uint predicate = 0u;
+    if (inBlock) {
+        const uint word = globalDrawId >> 5;
+        const uint mask = 1u << (globalDrawId & 31u);
+        predicate = (vis.words[word] & mask) != 0u ? 1u : 0u;
+    }
+
+    const uint subgroupSum = subgroupAdd(predicate);
+    if (subgroupElect()) {
+        s_subgroupTotals[gl_SubgroupID] = subgroupSum;
+    }
+    barrier();
+    memoryBarrierShared();
+
+    if (lid == 0u) {
+        uint wgTotal = 0u;
+        for (uint i = 0u; i < gl_NumSubgroups; ++i) wgTotal += s_subgroupTotals[i];
+        wgTotals.values[pc.wgFirstInBlock + wgid] = wgTotal;
+    }
+}

@@ -1,0 +1,90 @@
+#version 450
+// =============================================================================
+// scan_globals.comp - PART4 4-前-4 Pass B: in-place EXCLUSIVE SCAN of one
+// block's slice of workgroupTotals[]. Also writes the per-block visible count
+// to countBuf[blockIdx].
+// =============================================================================
+// Dispatched with (1, 1, 1). The single workgroup performs an exclusive scan
+// over numWgsInBlock entries starting at wgFirstInBlock. After this pass:
+//
+//   workgroupTotals[wgFirstInBlock + i]  = number of visibles in workgroups
+//                                          [wgFirstInBlock, wgFirstInBlock+i)
+//                                          (i.e. an EXCLUSIVE prefix)
+//   countBuf[blockIdx]                   = total visibles in this block
+//                                          (= last entry's exclusive + its
+//                                           pre-scan value)
+//
+// Today numWgsInBlock <= local_size_x (= 1024). Blocks that exceed this need
+// a hierarchical Pass B (recursive scan over wg-of-wgs); that future
+// enhancement plugs into the same workgroupTotals layout without changing
+// the rest of the pipeline.
+// =============================================================================
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout(local_size_x = 1024) in;
+
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer WorkgroupTotals {
+    uint values[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer CountBuffer {
+    uint values[];
+};
+
+layout(push_constant) uniform PC {
+    uvec2 workgroupTotalsAddr;
+    uvec2 countBufAddr;
+    uint  wgFirstInBlock;
+    uint  numWgsInBlock;
+    uint  blockIdx;
+    uint  _pad;
+} pc;
+
+shared uint s_subgroupTotals[32];
+
+void main() {
+    WorkgroupTotals wgTotals = WorkgroupTotals(pc.workgroupTotalsAddr);
+    CountBuffer countBuf = CountBuffer(pc.countBufAddr);
+
+    const uint lid   = gl_LocalInvocationID.x;
+    const bool inRng = lid < pc.numWgsInBlock;
+    const uint slot  = pc.wgFirstInBlock + lid;
+
+    uint v = inRng ? wgTotals.values[slot] : 0u;
+
+    // Subgroup exclusive scan.
+    const uint subgroupExcl = subgroupExclusiveAdd(v);
+    const uint subgroupSum  = subgroupAdd(v);
+
+    if (subgroupElect()) {
+        s_subgroupTotals[gl_SubgroupID] = subgroupSum;
+    }
+    barrier();
+    memoryBarrierShared();
+
+    // Subgroup 0 scans the subgroup totals.
+    if (gl_SubgroupID == 0u) {
+        uint t   = (gl_SubgroupInvocationID < gl_NumSubgroups)
+                   ? s_subgroupTotals[gl_SubgroupInvocationID] : 0u;
+        uint pre = subgroupExclusiveAdd(t);
+        if (gl_SubgroupInvocationID < gl_NumSubgroups) {
+            s_subgroupTotals[gl_SubgroupInvocationID] = pre;
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+
+    if (inRng) {
+        wgTotals.values[slot] = s_subgroupTotals[gl_SubgroupID] + subgroupExcl;
+    }
+
+    // Last in-range thread holds the block total: prefix of its slot + its
+    // pre-scan value. We compute this in one place (lid == numWgsInBlock - 1).
+    if (lid == pc.numWgsInBlock - 1u) {
+        countBuf.values[pc.blockIdx] = s_subgroupTotals[gl_SubgroupID] + subgroupExcl + v;
+    }
+}

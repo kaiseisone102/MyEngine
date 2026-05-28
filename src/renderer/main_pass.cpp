@@ -20,6 +20,7 @@
 #include "renderer/static_draw.h"
 #include "renderer/static_cull_build.h"
 #include "renderer/draw_data_pool.h"
+#include "renderer/indirect_exec.h"
 #include "renderer/particle_pass.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
@@ -426,13 +427,37 @@ void MainPass::execute(const ExecuteInfo& info) {
         // the direct CPU draw loop (firstInstance is unrestricted for direct draws).
         if (info.preparedOpaque && !info.preparedOpaque->empty() && info.geometry) {
             const std::vector<static_cull::PreparedDraw>& draws = *info.preparedOpaque;
-            const bool useIndirect =
-                info.indirectCommandBuffer != VK_NULL_HANDLE && ctx_->drawIndirectFirstInstance();
-            if (useIndirect && info.preparedOpaqueRanges) {
-                // PART4 4-前-1: builder pre-sorted draws by blockIndex and emitted
-                // one BlockRange per unique block. One bindBlock + one indirect
-                // call per range (CPU indirect calls collapse from per-encounter
-                // run to per-block; was ~17-18, now ~4 on the current scene).
+            // PART4 4-前-4: prefer the compaction path (compactCmd + countBuf
+            // written by scan_compact). indirect_exec picks DGC / IndirectCount
+            // / Legacy per device capability. Pre-4-prep-4 indirectCommandBuffer
+            // remains as a deeper fallback when compactCmd is unavailable, and
+            // the direct CPU draw stays as the final fallback when no indirect
+            // path can be used.
+            const bool useCompact =
+                info.compactCommandBuffer != VK_NULL_HANDLE && ctx_->drawIndirectFirstInstance();
+            const bool useLegacyIndirect =
+                !useCompact && info.indirectCommandBuffer != VK_NULL_HANDLE &&
+                ctx_->drawIndirectFirstInstance();
+            if (useCompact && info.preparedOpaqueRanges) {
+                const uint32_t stride = static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand));
+                uint32_t blockIdx = 0;
+                for (const static_cull::BlockRange& range : *info.preparedOpaqueRanges) {
+                    if (range.drawCount == 0) { ++blockIdx; continue; }
+                    info.geometry->bindBlock(info.cmd, range.blockIndex);
+                    indirect_exec::DrawIndexedIndirectCountInfo dii{};
+                    dii.commandBuffer = info.compactCommandBuffer;
+                    dii.commandOffset = static_cast<VkDeviceSize>(range.firstDraw) * stride;
+                    dii.countBuffer   = info.indirectCountBuffer;
+                    dii.countOffset   = static_cast<VkDeviceSize>(blockIdx) * sizeof(uint32_t);
+                    dii.maxCount      = range.drawCount;
+                    dii.stride        = stride;
+                    indirect_exec::recordDrawIndexedIndirectCount(*ctx_, info.cmd, dii);
+                    ++blockIdx;
+                }
+            } else if (useLegacyIndirect && info.preparedOpaqueRanges) {
+                // PART4 4-前-1/3 legacy path: instanceCount=0 skipping over the
+                // full block range. Used when 4-前-4's compactCmd path is not
+                // wired (e.g. integration test fallback).
                 const uint32_t stride = static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand));
                 for (const static_cull::BlockRange& range : *info.preparedOpaqueRanges) {
                     if (range.drawCount == 0) continue;
@@ -448,10 +473,7 @@ void MainPass::execute(const ExecuteInfo& info) {
                     }
                 }
             } else {
-                // Direct CPU draw fallback (firstInstance is unrestricted for direct
-                // draws). Draws are already block-sorted by the builder so block
-                // switches inside this loop are bounded by the number of unique
-                // blocks regardless of encounter order.
+                // Direct CPU draw fallback (firstInstance unrestricted).
                 uint32_t boundBlock = UINT32_MAX;
                 for (const static_cull::PreparedDraw& pd : draws) {
                     if (pd.blockIndex != boundBlock) {

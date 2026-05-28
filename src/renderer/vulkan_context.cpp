@@ -391,20 +391,45 @@ void VulkanContext::createDevice() {
     features.multiDrawIndirect = multiDrawIndirect_ ? VK_TRUE : VK_FALSE;
     features.drawIndirectFirstInstance = drawIndirectFirstInstance_ ? VK_TRUE : VK_FALSE;
 
-    // Vulkan13 §1 (W): query VK_KHR_synchronization2 (Vulkan 1.3 core feature).
-    // Used by renderer/barrier.h; if unsupported the helper falls back to the
-    // legacy vkCmdPipelineBarrier path so behaviour is preserved.
+    // Vulkan13 §1 (W) + PART4 4-前-4: query Vulkan 1.2 and 1.3 core features
+    // (synchronization2 / drawIndirectCount) plus the DGC extension feature
+    // chain in one Features2 call.
+    VkPhysicalDeviceVulkan12Features supportedVk12{};
+    supportedVk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     VkPhysicalDeviceVulkan13Features supportedVk13{};
     supportedVk13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    supportedVk13.pNext = &supportedVk12;
     VkPhysicalDeviceFeatures2 supportedFeatures2{};
     supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     supportedFeatures2.pNext = &supportedVk13;
     vkGetPhysicalDeviceFeatures2(physical_, &supportedFeatures2);
     synchronization2_ = (supportedVk13.synchronization2 == VK_TRUE);
+    drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
+
+    // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
+    // it by name in the device-extension list. A future enable would require
+    // adding the extension name to deviceExts and chaining the feature struct,
+    // but the indirect_exec wrapper today only uses the capability bit and
+    // falls through to the IndirectCount or Legacy path on every device,
+    // including P620 which lacks DGC.
+    {
+        uint32_t extCount = 0;
+        vkEnumerateDeviceExtensionProperties(physical_, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> exts(extCount);
+        vkEnumerateDeviceExtensionProperties(physical_, nullptr, &extCount, exts.data());
+        for (const VkExtensionProperties& e : exts) {
+            if (std::strcmp(e.extensionName, "VK_EXT_device_generated_commands") == 0) {
+                deviceGeneratedCommands_ = true;
+                break;
+            }
+        }
+    }
 
     std::cout << "[Caps] multiDrawIndirect=" << (multiDrawIndirect_ ? 1 : 0)
               << " drawIndirectFirstInstance=" << (drawIndirectFirstInstance_ ? 1 : 0)
-              << " synchronization2=" << (synchronization2_ ? 1 : 0) << "\n";
+              << " synchronization2=" << (synchronization2_ ? 1 : 0)
+              << " drawIndirectCount=" << (drawIndirectCount_ ? 1 : 0)
+              << " deviceGeneratedCommands=" << (deviceGeneratedCommands_ ? 1 : 0) << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
     features.wideLines = VK_TRUE;          // 線幅指定 (デバッグライン)
@@ -421,6 +446,10 @@ void VulkanContext::createDevice() {
     vk12Features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
     vk12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     vk12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    // PART4 4-前-4: enable VK_KHR_draw_indirect_count (Vulkan 1.2 core feature).
+    // Required for vkCmdDrawIndexedIndirectCount used by indirect_exec when
+    // compaction is on.
+    vk12Features.drawIndirectCount = drawIndirectCount_ ? VK_TRUE : VK_FALSE;
 
     // Vulkan13 §1 (W): enable synchronization2 when supported. Chained after
     // vk12Features in pNext. Future PART4 4-前-4 / 4b / 4c additions in
