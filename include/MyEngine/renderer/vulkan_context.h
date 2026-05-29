@@ -115,6 +115,17 @@ class VulkanContext {
     // runtime query (most Pascal+ NVIDIA drivers expose it).
     bool samplerFilterMinmax() const { return samplerFilterMinmax_; }
 
+    // N (Foundations \xc2\xa78): VK_EXT_memory_priority + allocator priority bit.
+    // When true, the VMA allocator was created with EXT_MEMORY_PRIORITY_BIT
+    // and ai.priority on a VmaAllocation actually influences eviction
+    // order under VRAM pressure (which is the entire point of the field
+    // -- vma_image.cpp already sets 0.75 on createAttachment but it was a
+    // dead value before this flag landed). Streaming + open-world worlds
+    // benefit the most: priority lets us tell VMA "render targets are
+    // critical, staging buffers are throw-away" without writing a custom
+    // residency manager.
+    bool memoryPriority() const { return memoryPriority_; }
+
     // PART4 4c-B (§3.4-V receptacle promoted from 4d): a queue family that
     // supports COMPUTE WITHOUT GRAPHICS, if the device exposes one (NVIDIA
     // Pascal+ and most AMD/Intel discrete typically do; integrated may not).
@@ -273,6 +284,12 @@ class VulkanContext {
     // min in one fetch (cull.comp HZB sample fast path); false = cull.comp
     // does a 4-tap manual min reduction.
     bool samplerFilterMinmax_ = false;
+
+    // N: VK_EXT_memory_priority feature + extension. True when the device
+    // exposes the extension and we enabled it; the VMA allocator then has
+    // VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT and ai.priority on each
+    // VmaAllocation is honored.
+    bool memoryPriority_ = false;
 
     // PART4 4c-B (§3.4-V receptacle): a queue family with COMPUTE without
     // GRAPHICS if the device exposes one; else equal to graphicsFamily_.

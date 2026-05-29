@@ -129,6 +129,13 @@ void VulkanContext::init(SDL_Window* window) {
         allocInfo.instance = instance_;
         allocInfo.vulkanApiVersion = VK_API_VERSION_1_4;
         allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+        // N: Activate memory_priority so the ai.priority field on each
+        // VmaAllocation actually influences eviction order. Was set to
+        // 0.75 on VmaImage::createAttachment before this bit was on, but
+        // VMA silently ignored it without the flag.
+        if (memoryPriority_) {
+            allocInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT;
+        }
         if (vmaCreateAllocator(&allocInfo, &allocator_) != VK_SUCCESS) {
             throw std::runtime_error("VulkanContext: vmaCreateAllocator failed");
         }
@@ -372,7 +379,13 @@ void VulkanContext::pickPhysicalDevice() {
 // =============================================================================
 
 void VulkanContext::createDevice() {
-    const char* deviceExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    // Device extensions: swapchain is mandatory; VK_EXT_memory_priority is
+    // added when queryCapabilities() detected it (N).
+    std::vector<const char*> deviceExtsVec;
+    deviceExtsVec.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    if (memoryPriority_) {
+        deviceExtsVec.push_back("VK_EXT_memory_priority");
+    }
     const float priority = 1.f;
 
     // PART4 4c-B (§3.4-V receptacle): pick a queue family that supports
@@ -482,6 +495,8 @@ void VulkanContext::createDevice() {
                 graphicsPipelineLibrary_ = true;  // PART4 4d N2
             } else if (std::strcmp(e.extensionName, "VK_KHR_pipeline_binary") == 0) {
                 pipelineBinary_ = true;  // PART4 4d N3
+            } else if (std::strcmp(e.extensionName, "VK_EXT_memory_priority") == 0) {
+                memoryPriority_ = true;  // N: VRAM eviction priority hints
             }
         }
     }
@@ -529,6 +544,7 @@ void VulkanContext::createDevice() {
               << " maintenance6=" << (maintenance6_ ? 1 : 0)
               << " graphicsPipelineLibrary=" << (graphicsPipelineLibrary_ ? 1 : 0)
               << " pipelineBinary=" << (pipelineBinary_ ? 1 : 0)
+              << " memoryPriority=" << (memoryPriority_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
@@ -599,13 +615,24 @@ void VulkanContext::createDevice() {
     vk14Features.maintenance6 = maintenance6_ ? VK_TRUE : VK_FALSE;
     vk13Features.pNext = &vk14Features;
 
+    // N: VK_EXT_memory_priority feature struct. Enables VMA priority hints
+    // (ai.priority on each VmaAllocation) so the driver knows which
+    // allocations to keep resident under VRAM pressure.
+    VkPhysicalDeviceMemoryPriorityFeaturesEXT memPriorityFeatures{};
+    memPriorityFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT;
+    memPriorityFeatures.memoryPriority = memoryPriority_ ? VK_TRUE : VK_FALSE;
+    if (memoryPriority_) {
+        vk14Features.pNext = &memPriorityFeatures;
+    }
+
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &vk12Features;
     ci.queueCreateInfoCount = static_cast<uint32_t>(queueCis.size());
     ci.pQueueCreateInfos = queueCis.data();
     ci.pEnabledFeatures = &features;
-    ci.enabledExtensionCount = 1;
-    ci.ppEnabledExtensionNames = deviceExts;
+    ci.enabledExtensionCount = static_cast<uint32_t>(deviceExtsVec.size());
+    ci.ppEnabledExtensionNames = deviceExtsVec.data();
 
 #ifndef NDEBUG
     // 古い Vulkan 実装用に device にもレイヤーを明示（新仕様では不要だが互換のため）

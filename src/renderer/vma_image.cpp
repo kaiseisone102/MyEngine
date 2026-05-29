@@ -12,9 +12,13 @@ VmaImage VmaImage::create(VulkanContext* ctx, const VkImageCreateInfo& ci, bool 
 
     VmaAllocationCreateInfo ai{};
     ai.usage = VMA_MEMORY_USAGE_AUTO;
+    // N: render targets / textures are HIGH priority (kept resident under
+    // VRAM pressure -- evicting a frame-critical attachment causes a stall
+    // on next sample). Honored now that the allocator carries
+    // VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT (was ignored before N).
+    ai.priority = 0.75f;
     if (dedicated) {
         ai.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-        ai.priority = 0.75f;  // honored only if the allocator enables priority
     }
 
     VmaImage out;

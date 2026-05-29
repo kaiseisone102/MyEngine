@@ -21,6 +21,10 @@ VmaBuffer VmaBuffer::createMappedStorageBDA(VulkanContext* ctx, VkDeviceSize siz
     ai.usage = VMA_MEMORY_USAGE_AUTO;
     ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    // N: per-frame storage SSBO (instance/skin/material/draw pools) -- read by
+    // the GPU every frame, so keep it resident under VRAM pressure but rank
+    // it below render targets and long-lived geometry.
+    ai.priority = 0.5f;
 
     VmaBuffer out;
     out.allocator_ = ctx->allocator();
@@ -62,6 +66,10 @@ VmaBuffer VmaBuffer::createMappedHostVisible(VulkanContext* ctx, VkDeviceSize si
     ai.usage = VMA_MEMORY_USAGE_AUTO;
     ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    // N: persistently-mapped host-visible buffers are typically vertex /
+    // index / uniform / staging. Mark them LOW priority -- the CPU can
+    // refill them on demand so VMA may evict them under pressure.
+    ai.priority = 0.3f;
 
     VmaBuffer out;
     out.allocator_ = ctx->allocator();
@@ -96,6 +104,10 @@ VmaBuffer VmaBuffer::createDeviceLocal(VulkanContext* ctx, VkDeviceSize size,
     VmaAllocationCreateInfo ai{};
     ai.usage = VMA_MEMORY_USAGE_AUTO;
     ai.flags = 0;
+    // N: device-local buffers are long-lived megabuffers (GeometryBuffer
+    // blocks, CullObject persistent buffer, HZB workgroup counter, etc).
+    // Re-uploading them is expensive (staging round-trip), so rank HIGH.
+    ai.priority = 0.8f;
 
     VmaBuffer out;
     out.allocator_ = ctx->allocator();
