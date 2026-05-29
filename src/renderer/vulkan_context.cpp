@@ -234,9 +234,22 @@ void VulkanContext::createInstance() {
     ci.enabledExtensionCount = static_cast<uint32_t>(exts.size());
     ci.ppEnabledExtensionNames = exts.data();
 #ifndef NDEBUG
+    // W: opt-in to VK_LAYER_KHRONOS_synchronization_validation through the
+    // VkValidationFeaturesEXT pNext chain. The validation layer detects
+    // sync2 hazards (missing barriers, racy host writes, queue-family
+    // ownership leaks) at run time. Pays zero cost in release because the
+    // whole block is gated by NDEBUG.
+    VkValidationFeaturesEXT validationFeatures{
+        VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+    const VkValidationFeatureEnableEXT enabledFeatures[] = {
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
+    };
+    validationFeatures.enabledValidationFeatureCount = 1;
+    validationFeatures.pEnabledValidationFeatures = enabledFeatures;
     if (validationAvailable) {
         ci.enabledLayerCount = 1;
         ci.ppEnabledLayerNames = &kValidationLayer;
+        ci.pNext = &validationFeatures;
     }
 #endif
     if (vkCreateInstance(&ci, nullptr, &instance_) != VK_SUCCESS) {
