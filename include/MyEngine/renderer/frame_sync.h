@@ -65,7 +65,20 @@ class FrameSync {
     // submit must not be reused until that image is re-acquired. Indexed by the
     // acquired image index. See Vulkan-Guide swapchain_semaphore_reuse.
     std::vector<VkUnique<VkSemaphore>> renderFinishedSemaphores_{};
-    std::array<VkUnique<VkFence>, MAX_FRAMES_IN_FLIGHT> inFlightFences_{};
+
+    // B: timeline semaphore replacing the per-frame VkFence array. One
+    // counter for the whole frame loop: each submit signals nextSignalValue_
+    // and the next frame waits until nextSignalValue_ - MAX_FRAMES_IN_FLIGHT
+    // has been reached. Vulkan 1.2 core (always supported on this device).
+    // The CPU wait still happens (we cannot wait on a semaphore from the
+    // GPU before vkAcquireNextImageKHR), but it now uses vkWaitSemaphores
+    // on a value rather than vkWaitForFences on a per-frame fence, which
+    // makes the same primitive usable for cross-queue / cross-submit sync
+    // (async compute, transfer queue handshake) without a second
+    // synchronization primitive class.
+    VkUnique<VkSemaphore> frameTimeline_;
+    uint64_t nextSignalValue_ = 0;
+
     uint32_t currentFrame_ = 0;
 
     void createCommandPool();
