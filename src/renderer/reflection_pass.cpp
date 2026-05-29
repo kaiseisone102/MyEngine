@@ -18,6 +18,7 @@
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/terrain_mesh.h"
+#include "world/engine_origin.h"  // E: toEngineRelative for reflection skinned push
 #include "renderer/vulkan_context.h"
 
 void ReflectionPass::init(const InitInfo& info) {
@@ -248,7 +249,11 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
         }
 
         MainPass::SkinnedPushConstants pc{};
-        pc.model = item.model;
+        // E: reflection draws use a mirrored view derived from the same
+        // engine-relative camera position (pass_chain.cpp flips viewPos.y
+        // around waterY then feeds it into reflView). The model still
+        // needs the standard engine-relative shift to compose correctly.
+        pc.model = myengine::world::toEngineRelative(item.model);
         pc.skinOffset = item.skinOffset;
         pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;

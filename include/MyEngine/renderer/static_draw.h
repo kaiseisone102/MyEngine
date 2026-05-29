@@ -25,10 +25,24 @@
 #include "renderer/draw_data_pool.h"
 #include "scene/scene_data.h"
 #include "shaders/shared/types.h"
+#include "world/engine_origin.h"  // E: toEngineRelative for the legacy CPU draw path
 
 namespace static_draw {
 
 using DrawData = myengine::shared::DrawData;
+
+// E: all three helpers below ship DrawData to the per-frame SSBO with the
+// model matrix shifted to engine-relative space, mirroring the static_cull_
+// build::emit() path. This is the single point that covers reflection
+// static draws (drawMeshList / drawStaticModelList / drawTerrainList),
+// main pass non-prop draws (transparent + terrain after the GPU-driven
+// indirect block), and the title-screen ground.
+//
+// TerrainMesh / WaterMesh bake WORLD coordinates into their vertex buffers
+// (terrain_mesh.cpp / water_mesh.cpp), so item.model is typically identity.
+// After toEngineRelative the model becomes translate(-origin) which cancels
+// the +origin shift view_rel would otherwise introduce. With origin == 0
+// the math is identical to the world-only path.
 
 // Cube mesh draws (one shared Mesh, per-item model).
 inline void drawMeshList(VkCommandBuffer cmd, DrawDataPool& pool, uint32_t frameIndex,
@@ -37,7 +51,7 @@ inline void drawMeshList(VkCommandBuffer cmd, DrawDataPool& pool, uint32_t frame
     if (!mesh || list.empty()) return;
     for (const MeshDrawItem& item : list) {
         DrawData d{};
-        d.model = item.model;
+        d.model = myengine::world::toEngineRelative(item.model);
         d.alpha = item.alpha;
         d.materialId = (useRealMaterial && item.material) ? item.material->materialId() : 0u;
         const uint32_t slot = pool.pushOne(frameIndex, d);
@@ -59,10 +73,11 @@ inline void drawStaticModelList(VkCommandBuffer cmd, DrawDataPool& pool, uint32_
             curModel = item.sourceModel;
             curMaterials = &curModel->materials();
         }
+        const glm::mat4 modelRel = myengine::world::toEngineRelative(item.model);
         for (const SubMesh& sm : curModel->subMeshes()) {
             if (sm.indexCount == 0) continue;
             DrawData d{};
-            d.model = item.model;
+            d.model = modelRel;
             d.alpha = item.alpha;
             d.materialId = (useRealMaterial && curMaterials && sm.materialIndex < curMaterials->size())
                 ? (*curMaterials)[sm.materialIndex].materialId()
@@ -81,7 +96,7 @@ inline void drawTerrainList(VkCommandBuffer cmd, DrawDataPool& pool, uint32_t fr
     for (const TerrainDrawItem& item : list) {
         if (!item.terrain) continue;
         DrawData d{};
-        d.model = item.model;
+        d.model = myengine::world::toEngineRelative(item.model);
         d.alpha = item.alpha;
         d.materialId = (useRealMaterial && item.material) ? item.material->materialId() : 0u;
         const uint32_t slot = pool.pushOne(frameIndex, d);

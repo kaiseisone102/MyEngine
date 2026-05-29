@@ -10,6 +10,7 @@
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
 #include "renderer/water_mesh.h"
+#include "world/engine_origin.h"  // E: WaterMesh bakes world coords -> toEngineRelative(I)
 
 namespace {
 struct ReflectVpUboData {
@@ -167,7 +168,11 @@ void WaterPass::execute(const ExecuteInfo& info) {
         if (!item.mesh) continue;
 
         WaterPipeline::PushConstants pc{};
-        pc.model = glm::mat4(1.0f);  // WaterMesh bakes world coords into vertices
+        // E: WaterMesh bakes world-space vertices, so without the shift
+        // view_rel = view_world * translate(origin) would slide every
+        // ripple by +origin on a floating-origin rebase. translate(-origin)
+        // (= toEngineRelative on identity) cancels that.
+        pc.model = myengine::world::toEngineRelative(glm::mat4(1.0f));
         pc.time = info.time;
         pc.waveAmp = item.drawParams.waveAmp;
         pc.waveSpeed = item.drawParams.waveSpeed;

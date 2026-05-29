@@ -19,6 +19,7 @@
 #include "renderer/mesh.h"
 #include "renderer/model.h"
 #include "renderer/static_draw.h"
+#include "world/engine_origin.h"  // E: toEngineRelative for skinned/test push
 #include "renderer/static_cull_build.h"
 #include "renderer/draw_data_pool.h"
 #include "renderer/indirect_exec.h"
@@ -44,7 +45,11 @@ void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
             curMaterials = &curModel->materials();
         }
         MainPass::SkinnedPushConstants pc{};
-        pc.model = item.model;
+        // E: skinned character model is shifted to engine-relative space so
+        // it composes with view_rel (camera_system.cpp). With origin == 0
+        // the numeric result is identical to item.model; under floating-
+        // origin the shift moves with the rebase in lockstep with DrawData.
+        pc.model = myengine::world::toEngineRelative(item.model);
         pc.skinOffset = item.skinOffset;
         pc.skinBuffer = skinAddress;
         pc.alpha = item.alpha;
@@ -617,7 +622,10 @@ void MainPass::execute(const ExecuteInfo& info) {
         info.mesh->bind(info.cmd);
 
         StaticBindlessPushConstants pc{};
-        pc.model = glm::translate(glm::mat4(1.f), glm::vec3(3.f, 5.f, 3.f));
+        // E: bindless test draw model is built in world space, then shifted
+        // to engine-relative so it composes with view_rel.
+        pc.model = myengine::world::toEngineRelative(
+            glm::translate(glm::mat4(1.f), glm::vec3(3.f, 5.f, 3.f)));
         pc.alpha = 1.0f;
         pc.albedoIdx = 5;  // grass_field
 

@@ -17,6 +17,7 @@
 #include "renderer/asset_registry.h"
 #include "renderer/debug_line_renderer.h"
 #include "renderer/debug_utils.h"     // O: VK_EXT_debug_utils GPU markers
+#include "world/engine_origin.h"      // E: toEngineRelative for grass instances
 #include "renderer/material.h"
 #include "renderer/model.h"
 #include "renderer/resource_factory.h"
@@ -636,7 +637,13 @@ void PassChain::recordFrame(const RecordInfo& info) {
                     m[3][0] = pos.x; m[3][1] = pos.y; m[3][2] = pos.z;
 
                     myengine::shared::InstanceData inst{};
-                    inst.model = m;
+                    // E: grass instance is constructed in world space (m is
+                    // built from world `pos` above); shift to engine-relative
+                    // so it composes with view_rel. Under floating-origin
+                    // every grass blade moves with the rebase in lockstep
+                    // with the prop opaque draws (DrawData path) and the
+                    // skinned characters (push-constant path).
+                    inst.model = myengine::world::toEngineRelative(m);
                     // green tint variation from hash (toggle wired in G6)
                     const float cv  = ((h >> 12) & 0xFF) / 255.0f;
                     const float cv2 = ((h >>  4) & 0x0F) / 15.0f;

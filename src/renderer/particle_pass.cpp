@@ -14,6 +14,7 @@
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
+#include "world/engine_origin.h"  // E: subtract origin from per-particle world pos
 
 #include <vk_mem_alloc.h>
 
@@ -283,7 +284,9 @@ void ParticlePass::execute(const ExecuteInfo& info) {
         const float t = p.age01();
         const float invT = 1.f - t;
 
-        dst[aliveN].pos = p.pos;
+        // E: particle world position -> engine-relative before upload, so
+        // the GPU-instanced quad position composes with view_rel correctly.
+        dst[aliveN].pos = myengine::world::toEngineRelative(p.pos);
         dst[aliveN].size = p.sizeStart * invT + p.sizeEnd * t;
         dst[aliveN].color = p.colorStart * invT + p.colorEnd * t;
         dst[aliveN].age01 = t;

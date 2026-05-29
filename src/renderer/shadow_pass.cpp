@@ -16,6 +16,7 @@
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/static_cull_build.h"
+#include "world/engine_origin.h"  // E: toEngineRelative for skinned shadow push
 #include "renderer/vulkan_context.h"
 
 void ShadowPass::init(const InitInfo& info) {
@@ -313,7 +314,10 @@ void ShadowPass::execute(const ExecuteInfo& info) {
             }
 
             SkinnedPushConstants pc{};
-            pc.model = item.model;
+            // E: skinned shadow draws compose with the engine-relative
+            // light view (camera_system.cpp ships lightVP shifted by
+            // -origin), so the model matrix needs the same shift.
+            pc.model = myengine::world::toEngineRelative(item.model);
             pc.skinOffset = item.skinOffset;
             pc.skinBuffer = info.skinAddress;
             vkCmdPushConstants(info.cmd, skinnedLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,

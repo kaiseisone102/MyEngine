@@ -67,4 +67,37 @@ class EngineOrigin {
     static glm::vec3 current() noexcept { return glm::vec3(0.0f); }
 };
 
+// Convert a world-space transform to engine-relative space by subtracting
+// EngineOrigin::current() from its translation column. The rotation +
+// scale (columns 0..2) are translation-invariant and stay unchanged.
+//
+// Composition with the engine-relative view matrix
+// (camera_system.cpp builds view_rel = view_world * translate(origin)):
+//     view_rel * toEngineRelative(model_world)
+//   = view_world * translate(origin) * translate(-origin) * model_world
+//   = view_world * model_world
+// so identical to the old world-only pipeline when origin == 0; correct
+// after a floating-origin rebase when origin != 0.
+//
+// Apply at every site that puts a world-space model matrix into a GPU
+// buffer / push constant / SSBO. The DrawData / CullObject path through
+// static_cull_build::emit applies the shift in-place on the struct fields;
+// the rest of the engine (skinned push constants, InstanceData,
+// reflection / title-screen model matrices) goes through this helper.
+inline glm::mat4 toEngineRelative(const glm::mat4& worldModel) noexcept {
+    const glm::vec3 origin = EngineOrigin::current();
+    glm::mat4 r = worldModel;
+    r[3].x -= origin.x;
+    r[3].y -= origin.y;
+    r[3].z -= origin.z;
+    return r;
+}
+
+// Convert a world-space point to engine-relative space. Direction vectors
+// (light direction, cone axis, half-extents) are translation-invariant and
+// do NOT need this; only positions do.
+inline glm::vec3 toEngineRelative(const glm::vec3& worldPos) noexcept {
+    return worldPos - EngineOrigin::current();
+}
+
 }  // namespace myengine::world

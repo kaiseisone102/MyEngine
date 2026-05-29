@@ -18,6 +18,7 @@
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
+#include "world/engine_origin.h"  // E: per-vertex world -> engine-relative
 
 #include <vk_mem_alloc.h>
 
@@ -245,14 +246,28 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
     const size_t lineUsed = (lineCount < capacity_) ? lineCount : capacity_;
     const size_t triUsed  = (triCount  < capacity_) ? triCount  : capacity_;
 
-    // 頂点バッファに書き込む (vkMapMemory は init 時に永続マップ済み)
+    // E: per-vertex world -> engine-relative shift. Callers pass world
+    // coordinates; view_rel would slide every line by +origin without this.
+    // The volume is bounded (10000 verts max -- F5) and origin == 0 today
+    // makes the inner loop a cache-friendly copy with a single subtract.
+    const glm::vec3 origin = myengine::world::EngineOrigin::current();
     if (lineUsed > 0) {
-        std::memcpy(lineVBs_[info.frameIndex].mapped(), info.lineVertices->data(),
-                    sizeof(DebugLineVertex) * lineUsed);
+        DebugLineVertex* dst =
+            reinterpret_cast<DebugLineVertex*>(lineVBs_[info.frameIndex].mapped());
+        const DebugLineVertex* src = info.lineVertices->data();
+        for (size_t i = 0; i < lineUsed; ++i) {
+            dst[i] = src[i];
+            dst[i].pos -= origin;
+        }
     }
     if (triUsed > 0) {
-        std::memcpy(triVBs_[info.frameIndex].mapped(), info.triVertices->data(),
-                    sizeof(DebugLineVertex) * triUsed);
+        DebugLineVertex* dst =
+            reinterpret_cast<DebugLineVertex*>(triVBs_[info.frameIndex].mapped());
+        const DebugLineVertex* src = info.triVertices->data();
+        for (size_t i = 0; i < triUsed; ++i) {
+            dst[i] = src[i];
+            dst[i].pos -= origin;
+        }
     }
 
     // viewport/scissor は MainPass が既にセット済み (動的ステートは command buffer に残る)
