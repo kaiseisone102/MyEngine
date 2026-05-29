@@ -196,12 +196,32 @@ ctx_->pipelineBinary();                    // ✅ enabled (P620=1, 4d N3 受け�
 // 本文書由来 (rev.1/2):
 ctx_->synchronization2();                  // ✅ enabled (P620=1, 1.3 core, W)
 ctx_->pipelineCache();                     // ✅ persistent (4d M1 = Y closed)
+// rev.4 (最新化マラソン 2026-05-29) 追加:
+ctx_->transferFamily()                     // ✅ family 1 (P620 dedicated, C e7b852e)
+   / transferQueue()
+   / hasDedicatedTransfer();
+ctx_->memoryPriority();                    // ✅ enabled + 実利用 (N 4f7d47f, P620=1)
+ctx_->memoryBudget();                      // ✅ enabled + allocator bit (I 8484ea7, P620=1)
+ctx_->timelineSemaphore();                 // ✅ enabled (B 3670ef1, P620=1, Vulkan 1.2 core)
+                                            //    + FrameSync migration (eeba2ed)
+ctx_->shaderObject();                      // ✅ enabled (f880ddb, P620=1, L modern triad 3rd)
+                                            //    ※ vkCreateShadersEXT / vkCmdBindShadersEXT は callable
+                                            //      だが現状 0 callsite (受け皿のみ)
+ctx_->presentId();                         // ✅ enabled (f880ddb, P620=1, K)
+                                            //    ※ vkQueuePresentKHR の pNext chain に VkPresentIdKHR は未配線
+ctx_->presentWait();                       // ✅ enabled (f880ddb, P620=1, K)
+                                            //    ※ vkWaitForPresentKHR は callable だが現状 0 callsite
+ctx_->imageViewMinLod();                   // ✅ enabled (f880ddb, P620=1, Z)
+                                            //    ※ VkImageViewMinLodCreateInfoEXT は callable だが現状 0 callsite
+ctx_->hostImageCopy();                     // ✅ enabled via vk14Features.hostImageCopy (f880ddb, P620=1, J)
+                                            //    ※ vkCopyMemoryToImage は callable だが現状 0 callsite
+ctx_->calibratedTimestamps();              // ✅ enabled (f880ddb, P620=1, Q)
+                                            //    ※ vkGetCalibratedTimestampsKHR は callable だが現状 0 callsite
+ctx_->extendedDynamicState3();             // 🟡 query only (D, 30+ feature 個別 query 要のため enable 保留)
+ctx_->swapchainMaintenance1();             // 🟡 query only (T, instance ext VK_EXT_surface_maintenance1 依存で保留)
 // 残 (受け皿未着手):
-//   - extendedDynamicState 1/2/3 (X)
-//   - shaderObject (Q)
 //   - descriptorBuffer (R, Pascal 強制無効化)
-//   - timelineSemaphore (U)
-//   - fragmentShadingRate (Z, Pascal 非対応想定)
+//   - fragmentShadingRate (Z=旧 INDEX 振り直し前のキーは未着手)
 ```
 
 `vulkan_context.cpp` の init で全 query を 1 箇所で実行し、各 pass / pool / pipeline 作成箇所はこの getter を読むだけ (§5b 指定の "capability 構造体の住処を 1 箇所" を getter 経由で実現済み)。 **【4d N4 確定】device 作成時の features pNext chain に `VkPhysicalDeviceVulkan14Features` を追加済み** (engine が API 1.4 で動作中なのに 1.4 features を一切 enable してない構造欠陥を修正)。 1.4 core 機能 (M3 = dynamic_rendering_local_read、 maintenance5/6 など) を query / enable するときはここに足す。

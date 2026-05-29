@@ -29,12 +29,12 @@
 | **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4c + 4d 大半 + Pure GPU-driven cleanup 反映) |
 | | MyEngine_Graphics_Roadmap_2026.md | rev.12 | — | 全 Phase 計画 (PART4 essentially complete + cleanup 反映) |
 | | MyEngine_Phase_Dependencies.md | rev.11 | — | Phase 間依存マップ (Hi-Z ノード完了 + cleanup) |
-| | MyEngine_Codebase_Guide.md | rev.15 | — | コード構造の地図 (visHistory / HZB desc set / pipelineCache / generic layouts / pure GPU-driven 反映) |
+| | MyEngine_Codebase_Guide.md | rev.16 | — | コード構造の地図 (最新化マラソン 28 commits 反映: 新規 11 ファイル + frame_sync timeline + resource_factory minimal + N/I/B/C/D/L/K/T/Z/J/Q getter) |
 | | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 |
 | **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.10 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半 + cleanup 完了) |
-| **土台監査** | MyEngine_Foundations_Audit.md | rev.6 | — | 先回り受け皿 + 実ソース確認済み既存負債 (§2 async compute family 取得済 反映) |
-| **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.3 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・M3/N1/N4/N2/N3 追加) |
-| **索引** | MyEngine_INDEX.md (本書) | rev.6 | — | 横断インデックス |
+| **土台監査** | MyEngine_Foundations_Audit.md | rev.7 | — | 先回り受け皿 + 既存負債 (§1 E + §2 C+U + §3 G + §4 H + §8.1 F1-F5 + §8.2 A1-A5 + §8.3 A6 全部状態 update) |
+| **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.4 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・B Timeline migration + N memory_priority 実利用 + I memory_budget + 5/7 receptacle activate) |
+| **索引** | MyEngine_INDEX.md (本書) | rev.7 | — | 横断インデックス (最新化マラソン 28 commits 反映・新 ID 群表 + 妥協度評価 + P620 [Caps] 30 capability) |
 
 ---
 
@@ -85,8 +85,8 @@
 |---|---|---|---|---|
 | (S) | Motion vector RT (4a MRT に追加) | PART4 §3.4-S | 4a | ✅完了 (ed0d80e) |
 | (T) | Dynamic rendering (VkRenderPass 撤廃) | PART4 §3.4-T | 4a-1/4a-2/4d γ-1/2/3 | ✅**完了** (af3dd72 main / ed0d80e OverlayPass / 4b9c32c PostPass / da74526 ShadowPass / 33e1511 ReflectionPass = engine 全体で VkRenderPass / VkFramebuffer 実 API 使用ゼロ) |
-| (U) | Timeline semaphore | PART4 §3.4-U | (未着手) | 🟡受け皿 (未着手・PART4 完了後の Phase で) |
-| (V) | Async compute queue family 取得 | PART4 §3.4-V | 4c-B | ✅完了 (477985d で `asyncComputeFamily()` getter + dedicated 判定 = P620 family 2 dedicated 検出・実並列化は Foundations §2) |
+| (U) | Timeline semaphore | PART4 §3.4-U | 2026-05-29 (B) | ✅**完了** (3670ef1 feature 受け皿 + eeba2ed FrameSync migration = per-frame VkFence 撤去・single timeline semaphore + nextSignalValue_ + VkTimelineSemaphoreSubmitInfo chain。 副次効果 = CullingPass cross-frame WRITE_AFTER_READ/WRITE hazards 20 件解消) |
+| (V) | Async compute queue family 取得 | PART4 §3.4-V | 4c-B + M 8b4deff | ✅完了 (477985d で `asyncComputeFamily()` getter + dedicated 判定 = P620 family 2 dedicated 検出・8b4deff で `include/MyEngine/renderer/async_compute.h` AsyncComputeContext 受け皿・実 cross-queue submission は Phase 仕事) |
 
 ### 隣接最尖端 (Vulkan13_Modernization・rev.1)
 
@@ -97,6 +97,32 @@
 | (Y) | Pipeline cache 永続化 | Vulkan13 §3 | 4d M1 | ✅完了 (a62b7f0、 `<AppData>/MyEngine/MyEngine/pipeline.cache` に load/save、 全 14 vkCreate*Pipelines callsite が `ctx_->pipelineCache()` 経由、 user clean exit で 490KB 書き出し実証) |
 | (Z) | VK_KHR_fragment_shading_rate (VRS) | Vulkan13 §4 | Phase 3 | 🟡受け皿 (Pascal 非対応) |
 | (AA) | Infinite far plane (Reverse-Z の本来形) | Vulkan13 §5 | **4-前-0 と同時** | ✅完了 (702c773) |
+
+### 最新化マラソン 2026-05-29 (28 commits) — 新 ID 群
+
+| ID | 名称 | 担当 | commit | 状態 |
+|---|---|---|---|---|
+| **A1-A6** | buffer 系 VMA 化 + raw memory ZERO + debug 残骸撤去 | Foundations §8.2 / §8.3 / §8.5 | 995b779 / 46cb937 / 185ac09 / 80ccb76 / a030372 / dab4faf | ✅**完了** (エンジン内 生 vkAllocateMemory ゼロ達成) |
+| **E** | Camera-relative + floating-origin 受け皿 + 全 wire-up | Foundations §1 ★★★ | 4dc8923 + 641abcb (clean) | ✅**完了** (10 site で toEngineRelative 適用・origin = 0 で完全 no-op) |
+| **F1-F5** | 固定容量一族 5 クラス動的化 | Foundations §8.1 | c3f46ea / 0f07dc0 / 659bece / 132d0d5 / a46f208 | ✅**完了** (Material / Instance / Skin / Particle / DebugLine) |
+| **G** | BindlessTextureRegistry free-list + slot reuse | Foundations §3 | 17d5f8f | ✅**完了** (descriptor pool growth は別 Phase = G+) |
+| **N** | VK_EXT_memory_priority 実利用 | Vulkan13 §rev.4 | 4f7d47f | ✅**完了** (allocator bit + 全 factory に priority 設定) |
+| **O** | VK_EXT_debug_utils GPU markers | (新規) | e048503 | ✅**完了** (debug_utils.{h,cpp} + 8 pass DBG_LABEL) |
+| **W** | VK_LAYER_KHRONOS_synchronization_validation + swapchain hazard fix | Vulkan13 §rev.4 | df6f5ae + 750135f | ✅**完了** (validation feature ON + post_pass srcStage 修正) |
+| **C** | Transfer queue family + queue 取得 | Foundations §2 (a-2) | e7b852e | ✅**完了** (P620 family 1 dedicated 検出 + getter) |
+| **I** | VK_EXT_memory_budget enable + allocator bit | Roadmap §6 | 8484ea7 | ✅**完了** (vmaGetHeapBudgets が driver-live 値) |
+| **B** (timeline) | Timeline semaphore = Vulkan 1.2 core | INDEX (U) | 3670ef1 + eeba2ed | ✅**完了** (FrameSync migration / hazards 解消) |
+| **D+L+K+T+Z+J+Q** (受け皿) | 8 拡張 cap query | (新規 receptacle batch) | 2da80b9 | ✅**受け皿確保** |
+| **L** (activate) | VK_EXT_shader_object enable | (D+L+K+T+Z+J+Q activate batch) | f880ddb | ✅**activate** (vkCreateShadersEXT callable・実 callsite 0) |
+| **K** (activate) | VK_KHR_present_id + present_wait enable | 同上 | f880ddb | ✅**activate** (callable・実 callsite 0) |
+| **Z** (activate) | VK_EXT_image_view_min_lod enable | 同上 | f880ddb | ✅**activate** (callable・実 callsite 0) |
+| **J** (activate) | VK_EXT_host_image_copy enable (1.4 promotion) | 同上 | f880ddb | ✅**activate** (callable・実 callsite 0) |
+| **Q** (activate) | VK_KHR_calibrated_timestamps enable | 同上 | f880ddb | ✅**activate** (callable・実 callsite 0) |
+| **T** (activate 保留) | VK_EXT_swapchain_maintenance1 | 同上 | f880ddb 内で明示保留 | 🟡 **保留** (instance ext VK_EXT_surface_maintenance1 依存) |
+| **D** (activate 保留) | VK_EXT_extended_dynamic_state3 | 同上 | f880ddb 内で明示保留 | 🟡 **保留** (30+ feature 個別 query 要) |
+| **U** (JobSystem) | Worker thread pool 受け皿 | Foundations §2 ★★★ | fdbddda | ✅**受け皿確保** (header-only inert-friendly) |
+| **M** (AsyncCompute) | AsyncCompute timeline semaphore receptacle | (新規) | 8b4deff | ✅**受け皿確保** (header-only) |
+| **V/R/S/H/X/Y/P** | 7 design-memo headers | (新規 batch) | 8604de5 | 🟡 **design memo のみ** (各 init/shutdown 空・Phase 着手時に実装) |
 
 ---
 
@@ -186,7 +212,46 @@
 
 ---
 
-## 7. 現在の状態 (2026-05-29 時点・**PART4 essentially complete** = 4c + 4d 大半 + Pure GPU-driven cleanup 完了・残作業は別 commit / 別 Phase に集約)
+## 7. 現在の状態 (2026-05-29 時点・**PART4 essentially complete + 最新化マラソン 28 commits 完了**)
+
+### 最新化マラソン サマリー (2026-05-29, 995b779..641abcb の 28 commits)
+- **A1-A6**: buffer 系 VMA 化 + **エンジン内 生 vkAllocateMemory ゼロ達成** + debug 残骸撤去
+- **E + E clean**: camera-relative + 全 10 site wire-up (toEngineRelative helper)
+- **F1-F5**: 固定容量 5 クラス動的化 (Material/Instance/Skin/Particle/DebugLine)
+- **G**: BindlessTextureRegistry free-list + slot reuse
+- **N**: VK_EXT_memory_priority allocator bit + 全 factory に priority 設定
+- **O**: VK_EXT_debug_utils GPU markers (debug_utils.{h,cpp} + 8 pass DBG_LABEL)
+- **W + W fix**: sync_validation layer ON + 即発見 swapchain hazard 修正
+- **C**: transfer queue family + queue 取得 (P620 family 1 dedicated)
+- **I**: VK_EXT_memory_budget enable + allocator bit
+- **B**: FrameSync per-frame VkFence → 単一 timeline semaphore migration (副次効果 = CullingPass cross-frame hazards 20 件解消)
+- **D+L+K+T+Z+J+Q 受け皿 → 5/7 activate**: L/K/K/Z/J/Q を deviceExtsVec push + feature struct chain (callable・実 callsite 0)
+- **U**: JobSystem header-only worker thread pool 受け皿 (init(0) inert-friendly)
+- **M**: AsyncCompute timeline semaphore receptacle (header-only)
+- **V/R/S/H/X/Y/P**: 7 rendering-technique design-memo headers (init/shutdown 空・Phase 着手時に実装)
+
+### 妥協度評価 (audit 後の正直な内訳)
+- 🟢 **完全採用 (legacy 0 / modern active)**: sync2 / dynamic rendering / VMA / BDA / bindless / indirect / persistent pipeline cache / Timeline semaphore (B) / camera-relative (E) / debug markers (O) / sync validation (W) / memory priority+budget (N+I) = **17 項目**
+- 🟡 **受け皿のみ (Vulkan feature 取得済だが API 関数 0 呼出)**: shader_object (L) / present_id+wait (K) / image_view_min_lod (Z) / host_image_copy (J) / calibrated_timestamps (Q) / dynamic_rendering_local_read (M3) / pipelineCreationCacheControl (N1 flag) / mailbox present mode 未採用 / GPU compute skinning 未着手 = **9 項目**
+- 🔴 **未着手**: EDS3 (D) / swapchain_maintenance1 (T) / DGC 実装 / mesh shader / RT / VRS / V-P 7 stub の本実装 = **14 項目**
+
+### P620 [Caps] log 実測 (30 capability)
+`multiDrawIndirect drawIndirectFirstInstance synchronization2 drawIndirectCount dynamicRendering separateDepthStencilLayouts subgroupOps subgroupSize samplerFilterMinmax asyncComputeFamily (dedicated) transferFamily (dedicated) dynamicRenderingLocalRead pipelineCreationCacheControl maintenance5 maintenance6 graphicsPipelineLibrary pipelineBinary memoryPriority memoryBudget timelineSemaphore extDynState3 shaderObject presentId presentWait swapchainMaint1 imageViewMinLod hostImageCopy calibratedTimestamps` = **DGC のみ 0** (Pascal hardware 制約)。
+
+### 次の推奨の一手
+- **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
+- **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
+- **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
+- **★★** S (compute skinning) 本実装 = 大規模キャラ戦闘の前提
+- **★★** M activation: AsyncComputeContext を実 cross-queue submit に wire-up
+- **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
+- **★** Q calibrated_timestamps で GPU profiling 本実装
+- **★** V-P stub の本実装は per-Phase (Phase 2D = R/V / Phase 2F = H/U/M / Phase 3 = X/Y/J 等)
+- 任意で 1I PART D / 2A 多光源 / 2C LOD / 2F terrain bucket は依然候補
+
+---
+
+### 元の PART4 完了サマリー (参考・継続)
 
 - **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b + 4c + 4d 大半 + Pure GPU-driven cleanup = 完了** (4-前 ~ 4a-2 の 8 commits + 4b ffe9673 + 4c 8 commits ad97879..ccf5c03 + 4d 10 commits 082d792..1481049 + cleanup f8d1e1f = **PART4 §6 計 28 commits** ・ 別軸で Vulkan13 W e1494bf も完了)。 **P620 [Caps] 18 capability 中 17 が =1** で実走 (DGC のみ 0 で fallback 経路あり)。 user 目視「画面 OK / Cull 行 HUD から消えている」確認。
 - **Pure GPU-driven cleanup (commit f8d1e1f)**: user 報告「HUD `Cull : 0 / 67` 永久 0」契機。 4-前-4 (15b89ad) で compactCmd device-local 化以降、 旧 host-mapped readback 経路の `lastVisible_[]` を更新する code path が断たれていた (props は GPU 経由で正常描画されていたため動作上は健全・HUD だけ stale)。 option B 採用 = 純 GPU-driven の本来形 = HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up 撤去 (8 files +2 -51・getter ×6 + 代入 site ×4 + HUD field ×2)。
