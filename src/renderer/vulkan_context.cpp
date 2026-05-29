@@ -424,22 +424,22 @@ void VulkanContext::createDevice() {
     features.multiDrawIndirect = multiDrawIndirect_ ? VK_TRUE : VK_FALSE;
     features.drawIndirectFirstInstance = drawIndirectFirstInstance_ ? VK_TRUE : VK_FALSE;
 
-    // Vulkan13 §1 (W) + PART4 4-前-4 + 4d M3: query Vulkan 1.2 / 1.3 core
-    // features plus VK_KHR_dynamic_rendering_local_read (Vulkan 1.4 core; on
-    // a 1.3 driver it's the KHR-suffixed extension feature struct, same
-    // layout). Chained into one Features2 call.
+    // Vulkan13 §1 (W) + PART4 4-前-4 + 4d M3 + 4d N4: query Vulkan 1.2 / 1.3
+    // / 1.4 core features in one Features2 call. The Vulkan14Features chain
+    // entry covers dynamicRenderingLocalRead (was queried via the KHR-
+    // suffixed extension struct in 4d M3, migrated to the 1.4 core struct
+    // here) AND maintenance5 / maintenance6 (4d N4 receptacles).
     VkPhysicalDeviceVulkan12Features supportedVk12{};
     supportedVk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     VkPhysicalDeviceVulkan13Features supportedVk13{};
     supportedVk13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     supportedVk13.pNext = &supportedVk12;
-    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR supportedLocalRead{};
-    supportedLocalRead.sType =
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
-    supportedLocalRead.pNext = &supportedVk13;
+    VkPhysicalDeviceVulkan14Features supportedVk14{};
+    supportedVk14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+    supportedVk14.pNext = &supportedVk13;
     VkPhysicalDeviceFeatures2 supportedFeatures2{};
     supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    supportedFeatures2.pNext = &supportedLocalRead;
+    supportedFeatures2.pNext = &supportedVk14;
     vkGetPhysicalDeviceFeatures2(physical_, &supportedFeatures2);
     synchronization2_ = (supportedVk13.synchronization2 == VK_TRUE);
     drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
@@ -448,13 +448,16 @@ void VulkanContext::createDevice() {
     // PART4 4c-B: Vulkan 1.2 core samplerFilterMinmax. cull.comp's HZB sample
     // takes the 1-tap fast path when this is true, 4-tap manual min otherwise.
     samplerFilterMinmax_ = (supportedVk12.samplerFilterMinmax == VK_TRUE);
-    // PART4 4d M3: Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
-    // Receptacle today (no caller); Phase 3 SS effects activate it.
-    dynamicRenderingLocalRead_ = (supportedLocalRead.dynamicRenderingLocalRead == VK_TRUE);
-    // PART4 4d N1: Vulkan 1.3 core pipelineCreationCacheControl. Streaming
-    // pipeline creation paths use FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT to
-    // skip-with-fallback instead of hitching on a fresh compile.
+    // PART4 4d M3: Vulkan 1.4 core dynamicRenderingLocalRead (was KHR ext
+    // in M3; migrated to the 1.4 Features struct in 4d N4).
+    dynamicRenderingLocalRead_ = (supportedVk14.dynamicRenderingLocalRead == VK_TRUE);
+    // PART4 4d N1: Vulkan 1.3 core pipelineCreationCacheControl.
     pipelineCreationCacheControl_ = (supportedVk13.pipelineCreationCacheControl == VK_TRUE);
+    // PART4 4d N4: Vulkan 1.4 core maintenance5 / maintenance6 receptacles.
+    // Modern entry points (vkCmdBindIndexBuffer2KHR, getRenderingAreaGranularity,
+    // vkCmdBindDescriptorSets2KHR, etc.) available for future subsystems.
+    maintenance5_ = (supportedVk14.maintenance5 == VK_TRUE);
+    maintenance6_ = (supportedVk14.maintenance6 == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -514,6 +517,8 @@ void VulkanContext::createDevice() {
               << " (dedicated=" << (asyncComputeFamily_ != graphicsFamily_ ? 1 : 0) << ")"
               << " dynamicRenderingLocalRead=" << (dynamicRenderingLocalRead_ ? 1 : 0)
               << " pipelineCreationCacheControl=" << (pipelineCreationCacheControl_ ? 1 : 0)
+              << " maintenance5=" << (maintenance5_ ? 1 : 0)
+              << " maintenance6=" << (maintenance6_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
@@ -570,18 +575,19 @@ void VulkanContext::createDevice() {
         pipelineCreationCacheControl_ ? VK_TRUE : VK_FALSE;
     vk12Features.pNext = &vk13Features;
 
-    // PART4 4d M3 (Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read):
-    // enable the feature receptacle so Phase 3 SS effects can begin a
-    // single dynamic-rendering scope and read prior fragment-shader output
-    // from attachments without explicit barriers (G-buffer + depth stay in
-    // tile memory on TBDR; on desktop the barrier dance is removed). No
-    // caller exercises it today; enabling it costs nothing if unused.
-    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR localReadFeatures{};
-    localReadFeatures.sType =
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
-    localReadFeatures.dynamicRenderingLocalRead =
+    // PART4 4d M3 + N4: Vulkan 1.4 core features chain. Replaces the
+    // KHR-suffixed VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR
+    // struct from M3 with the canonical 1.4 Features struct - the engine
+    // already ran on a 1.4 API but had no Vulkan14Features chain entry,
+    // making 1.4 promotions unreachable. N4 fixes that and adds
+    // maintenance5 / maintenance6 receptacles in the same struct.
+    VkPhysicalDeviceVulkan14Features vk14Features{};
+    vk14Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+    vk14Features.dynamicRenderingLocalRead =
         dynamicRenderingLocalRead_ ? VK_TRUE : VK_FALSE;
-    vk13Features.pNext = &localReadFeatures;
+    vk14Features.maintenance5 = maintenance5_ ? VK_TRUE : VK_FALSE;
+    vk14Features.maintenance6 = maintenance6_ ? VK_TRUE : VK_FALSE;
+    vk13Features.pNext = &vk14Features;
 
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &vk12Features;

@@ -160,6 +160,29 @@ class VulkanContext {
     // the VK_PIPELINE_COMPILE_REQUIRED return.
     bool pipelineCreationCacheControl() const { return pipelineCreationCacheControl_; }
 
+    // PART4 4d N4 (Vulkan 1.4 core / VK_KHR_maintenance5, VK_KHR_maintenance6):
+    // Vulkan 1.4 (Dec 2024) promoted these maintenance extensions to core.
+    // Receptacles for future open-world subsystems:
+    //   maintenance5:
+    //     - vkCmdBindIndexBuffer2KHR (specify a range, not just whole buffer)
+    //       useful for Phase 2F terrain index streaming (one mega-buffer, many
+    //       chunk sub-ranges).
+    //     - vkGetRenderingAreaGranularityKHR (query tile alignment for the
+    //       rendering area - mobile / TBDR optimisation).
+    //     - VkBufferUsageFlags2KHR (64-bit usage, allows future usages without
+    //       struct extension).
+    //   maintenance6:
+    //     - vkCmdBindDescriptorSets2KHR (per-bind stage flags rather than the
+    //       single global stage mask), useful when push descriptor / dynamic
+    //       descriptor binding patterns mix.
+    //     - vkCmdPushConstants2KHR (range-explicit push constants).
+    //     - VkPipelineCreateFlags2KHR (next-gen flag space for pipelines).
+    // The engine queries + enables both when present; no caller exercises
+    // them yet (4d 受け皿), but they're available for any subsystem that
+    // wants the modern entry points.
+    bool maintenance5() const { return maintenance5_; }
+    bool maintenance6() const { return maintenance6_; }
+
     // PART4 4d M1 (Vulkan13 §3 Y): persistent pipeline cache. All vk*Pipelines
     // creation flows pass this handle so the driver de-dupes shader compile
     // cost across runs. shutdown() reads the cache back via
@@ -242,6 +265,13 @@ class VulkanContext {
     // Streaming pipeline creation (Phase 2A / Phase 3) sets
     // FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT to avoid present-chain hitch.
     bool pipelineCreationCacheControl_ = false;
+
+    // PART4 4d N4: queried Vulkan 1.4 core maintenance5 / maintenance6.
+    // The engine was already running on a 1.4 API version (per VMA's
+    // vulkanApiVersion = 1.4) but had no VkPhysicalDeviceVulkan14Features
+    // chain - making the 1.4 promotion bits unreachable. N4 fixes that.
+    bool maintenance5_ = false;
+    bool maintenance6_ = false;
 
     // PART4 4d M1: persistent pipeline cache (Vulkan13 §3 Y). createPipelineCache
     // loads from disk + vkCreatePipelineCache; savePipelineCache writes back at
