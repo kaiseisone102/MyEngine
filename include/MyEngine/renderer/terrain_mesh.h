@@ -11,7 +11,7 @@
 // =============================================================================
 
 #include <vulkan/vulkan.h>
-#include "renderer/vk_unique.h"
+#include "renderer/vma_buffer.h"
 #include "renderer/geometry_buffer.h"  // MeshHandle (PART3c: terrain on megabuffer)
 
 #include <cstdint>
@@ -62,10 +62,11 @@ class TerrainMesh {
    private:
     const VulkanContext* ctx_ = nullptr;
 
-    VkUnique<VkBuffer> vertexBuffer_;
-    VkUnique<VkDeviceMemory> vertexBufferMemory_;
-    VkUnique<VkBuffer> indexBuffer_;
-    VkUnique<VkDeviceMemory> indexBufferMemory_;
+    // Private DEVICE_LOCAL buffers used while terrain is on the legacy CPU path
+    // (Phase 2F will move terrain to its own GeometryBuffer bucket; until then,
+    // each TerrainMesh owns its own pair). VMA-managed, no raw vkAllocateMemory.
+    VmaBuffer vertexBuffer_;
+    VmaBuffer indexBuffer_;
     uint32_t indexCount_ = 0;
 
     // PART3c: when uploaded into the shared GeometryBuffer, geom_ is set and
@@ -108,7 +109,9 @@ class TerrainMesh {
     static bool triangleContainsXZ(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
                                      float x, float z, glm::vec3& outBary);
 
+    // Upload `size` bytes from `src` to a device-local VmaBuffer via a host-visible
+    // staging buffer + copyBufferRegion. Used by the legacy private-buffer path
+    // (when no GeometryBuffer is supplied at init).
     void uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                      VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
-                      VkUnique<VkDeviceMemory>& memory) const;
+                      VkBufferUsageFlags usage, VmaBuffer& buffer);
 };

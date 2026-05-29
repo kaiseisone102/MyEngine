@@ -332,9 +332,9 @@ void TerrainMesh::init(const VulkanContext* ctx, const ResourceFactory* resource
         blockIndex_ = handle_.blockIndex;
     } else {
         uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_);
         uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_);
     }
 
     for (p2t::Point* p : p2tBoundary) delete p;
@@ -347,30 +347,17 @@ void TerrainMesh::init(const VulkanContext* ctx, const ResourceFactory* resource
 }
 
 void TerrainMesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                                 VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
-                                 VkUnique<VkDeviceMemory>& memory) const {
-    VkBuffer staging{};
-    VkDeviceMemory stagingMem{};
-    resources->createBuffer(
-        size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging,
-        stagingMem);
+                                VkBufferUsageFlags usage, VmaBuffer& buffer) {
+    // Stage on a host-visible VmaBuffer (persistently mapped), then copy into a
+    // DEVICE_LOCAL VmaBuffer. Staging is RAII-destroyed at scope end.
+    VulkanContext* nonConstCtx = const_cast<VulkanContext*>(ctx_);
+    VmaBuffer staging = VmaBuffer::createMappedHostVisible(
+        nonConstCtx, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    std::memcpy(staging.mapped(), src, static_cast<size_t>(size));
 
-    void* data = nullptr;
-    vkMapMemory(ctx_->device(), stagingMem, 0, size, 0, &data);
-    std::memcpy(data, src, static_cast<size_t>(size));
-    vkUnmapMemory(ctx_->device(), stagingMem);
-
-    VkBuffer buf = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    resources->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buf, mem);
-    buffer = VkUnique<VkBuffer>(ctx_->device(), buf);
-    memory = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
-    resources->copyBuffer(staging, buffer.get(), size);
-
-    vkDestroyBuffer(ctx_->device(), staging, nullptr);
-    vkFreeMemory(ctx_->device(), stagingMem, nullptr);
+    buffer = VmaBuffer::createDeviceLocal(
+        nonConstCtx, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage);
+    resources->copyBufferRegion(staging.buffer(), buffer.buffer(), 0, 0, size);
 }
 
 void TerrainMesh::bind(VkCommandBuffer cmd) const {
@@ -379,18 +366,16 @@ void TerrainMesh::bind(VkCommandBuffer cmd) const {
         return;
     }
     const VkDeviceSize offset = 0;
-    VkBuffer vb = vertexBuffer_.get();
+    VkBuffer vb = vertexBuffer_.buffer();
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer_.get(), 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, indexBuffer_.buffer(), 0, VK_INDEX_TYPE_UINT32);
 }
 
 void TerrainMesh::destroy() {
-    // VkUnique frees each handle (no-op if empty). The auto destructor would do
-    // the same if destroy() were never called.
+    // VmaBuffer's destructor frees each handle (no-op if empty); destroy() is
+    // kept for explicit shutdown ordering alongside other assets.
     indexBuffer_.reset();
-    indexBufferMemory_.reset();
     vertexBuffer_.reset();
-    vertexBufferMemory_.reset();
     indexCount_ = 0;
     cpuVerts_.clear();
     cpuVerts_.shrink_to_fit();
