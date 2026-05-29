@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "renderer/barrier.h"
+#include "renderer/depth_layouts.h"
 #include "renderer/geometry_buffer.h"
 #include "renderer/indirect_exec.h"
 #include "renderer/mesh.h"
@@ -24,48 +25,10 @@ void ShadowPass::init(const InitInfo& info) {
     extent_ = info.extent;
     depthFormat_ = info.depthFormat;
 
-    createRenderPass();
+    // PART4 4d: dynamic rendering migration. No VkRenderPass / VkFramebuffer.
     createTarget(info.resources);
-    createFramebuffer();
     createStaticPipeline(info.frameSetLayout, info.shaderDir);
     createSkinnedPipeline(info.frameSetLayout, info.shaderDir);
-}
-
-void ShadowPass::createRenderPass() {
-    VkAttachmentDescription depth{};
-    depth.format = depthFormat_;
-    depth.samples = VK_SAMPLE_COUNT_1_BIT;
-    depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkAttachmentReference depthRef{0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription sub{};
-    sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub.pDepthStencilAttachment = &depthRef;
-
-    VkSubpassDependency dep{};
-    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass = 0;
-    dep.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    dep.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-    VkRenderPassCreateInfo ci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    ci.attachmentCount = 1;
-    ci.pAttachments = &depth;
-    ci.subpassCount = 1;
-    ci.pSubpasses = &sub;
-    ci.dependencyCount = 1;
-    ci.pDependencies = &dep;
-    VkRenderPass rp = VK_NULL_HANDLE;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
-        throw std::runtime_error("ShadowPass: vkCreateRenderPass failed");
-    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void ShadowPass::createTarget(ResourceFactory* resources) {
@@ -82,26 +45,11 @@ void ShadowPass::createTarget(ResourceFactory* resources) {
     target_.init(ctx_, resources, desc);
 }
 
-void ShadowPass::createFramebuffer() {
-    VkImageView view = target_.view();
-    VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    fi.renderPass = renderPass_.get();
-    fi.attachmentCount = 1;
-    fi.pAttachments = &view;
-    fi.width = extent_.width;
-    fi.height = extent_.height;
-    fi.layers = 1;
-    VkFramebuffer fb = VK_NULL_HANDLE;
-    if (vkCreateFramebuffer(ctx_->device(), &fi, nullptr, &fb) != VK_SUCCESS)
-        throw std::runtime_error("ShadowPass: vkCreateFramebuffer failed");
-    framebuffer_ = VkUnique<VkFramebuffer>(ctx_->device(), fb);
-}
-
 namespace {
 
 struct ShadowPipelineParams {
     VkDevice device;
-    VkRenderPass renderPass;
+    VkFormat depthFormat;
     VkPipelineLayout layout;
     VkShaderModule vert;
     bool useSkinningAttrs;
@@ -167,7 +115,15 @@ VkPipeline createShadowPipeline(const ShadowPipelineParams& p) {
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4d: dynamic rendering. Depth-only pass; no color attachments.
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 0;
+    rci.pColorAttachmentFormats = nullptr;
+    rci.depthAttachmentFormat = p.depthFormat;
+    rci.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 1;
     pci.pStages = &stage;
     pci.pVertexInputState = &vi;
@@ -178,7 +134,7 @@ VkPipeline createShadowPipeline(const ShadowPipelineParams& p) {
     pci.pDepthStencilState = &ds;
     pci.pDynamicState = &dyn;
     pci.layout = p.layout;
-    pci.renderPass = p.renderPass;
+    pci.renderPass = VK_NULL_HANDLE;  // PART4 4d: dynamic rendering
     pci.subpass = 0;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
@@ -215,7 +171,7 @@ void ShadowPass::createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), renderPass_.get(), staticLayout_.get(), vert, false};
+        ShadowPipelineParams p{ctx_->device(), depthFormat_, staticLayout_.get(), vert, false};
         staticPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
@@ -246,7 +202,7 @@ void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_skinned_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), renderPass_.get(), skinnedLayout_.get(), vert, true};
+        ShadowPipelineParams p{ctx_->device(), depthFormat_, skinnedLayout_.get(), vert, true};
         skinnedPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
@@ -258,15 +214,38 @@ void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
 void ShadowPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("ShadowPass::execute: invalid cmd");
 
-    VkClearValue clear{};
-    clear.depthStencil = {1.0f, 0};
-    VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_.get();
-    rp.framebuffer = framebuffer_.get();
+    // PART4 4d: dynamic rendering. shadow target sits at READ_ONLY between
+    // frames (the post-rendering barrier at the end of execute() puts it
+    // there, and on the very first frame the image is in UNDEFINED). Move
+    // to attachment-write layout for the BeginRendering scope; UNDEFINED
+    // oldLayout discards prior content - the depth loadOp = CLEAR resets
+    // every texel anyway.
+    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
+        .image = target_.image(),
+        .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = depth_layouts::attachment(*ctx_),
+        .srcStage  = VK_PIPELINE_STAGE_2_NONE,
+        .srcAccess = VK_ACCESS_2_NONE,
+        .dstStage  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    });
+
+    VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAtt.imageView = target_.view();
+    depthAtt.imageLayout = depth_layouts::attachment(*ctx_);
+    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAtt.clearValue.depthStencil = {1.0f, 0};
+
+    VkRenderingInfo rp{VK_STRUCTURE_TYPE_RENDERING_INFO};
     rp.renderArea = {{0, 0}, extent_};
-    rp.clearValueCount = 1;
-    rp.pClearValues = &clear;
-    vkCmdBeginRenderPass(info.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    rp.layerCount = 1;
+    rp.colorAttachmentCount = 0;
+    rp.pDepthAttachment = &depthAtt;
+
+    vkCmdBeginRendering(info.cmd, &rp);
 
     VkViewport viewport{0.f,
                         0.f,
@@ -346,13 +325,18 @@ void ShadowPass::execute(const ExecuteInfo& info) {
         }
     }
 
-    vkCmdEndRenderPass(info.cmd);
+    vkCmdEndRendering(info.cmd);
 
+    // PART4 4d: dynamic rendering needs the explicit attachment -> readOnly
+    // transition that VkRenderPass used to do via finalLayout. main_pass /
+    // bindless shaders later sample target_.view() through their frame
+    // descriptor set so we must land in the matching readOnly layout
+    // (separate or combined, picked by depth_layouts::readOnly).
     barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
         .image = target_.image(),
         .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
-        .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        .oldLayout = depth_layouts::attachment(*ctx_),
+        .newLayout = depth_layouts::readOnly(*ctx_),
         .srcStage  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
         .srcAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -362,12 +346,10 @@ void ShadowPass::execute(const ExecuteInfo& info) {
 
 void ShadowPass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
-    framebuffer_.reset();
     skinnedPipeline_.reset();
     skinnedLayout_.reset();
     staticPipeline_.reset();
     staticLayout_.reset();
     target_.shutdown();
-    renderPass_.reset();
     ctx_ = nullptr;
 }

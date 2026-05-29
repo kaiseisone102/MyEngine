@@ -78,17 +78,15 @@ class ShadowPass {
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
 
     RenderTarget target_;
-    VkUnique<VkRenderPass> renderPass_;
-    VkUnique<VkFramebuffer> framebuffer_;
-
+    // PART4 4d: dynamic rendering migration. VkRenderPass + VkFramebuffer
+    // removed; pipelines declare VkPipelineRenderingCreateInfo and execute()
+    // wraps draws in vkCmdBeginRendering with a single depth attachment.
     VkUnique<VkPipelineLayout> staticLayout_;
     VkUnique<VkPipeline> staticPipeline_;
     VkUnique<VkPipelineLayout> skinnedLayout_;
     VkUnique<VkPipeline> skinnedPipeline_;
 
-    void createRenderPass();
     void createTarget(ResourceFactory* resources);
-    void createFramebuffer();
     void createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
                               const std::string& shaderDir);
     void createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
