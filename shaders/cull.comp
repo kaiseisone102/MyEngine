@@ -50,14 +50,15 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisHistoryBu
     uint words[];
 };
 
-// PART4 4c-C: HZB pyramid samplers (combined image samplers, set 0).
-//   binding 0 = pyramid of PREVIOUS frame (Tier 1 alpha receptacle - cull.comp
-//     does not sample it today but the descriptor is kept bound so the
-//     pipeline layout matches and a future asymmetric pass1 upgrade only
-//     needs to call hzbOccluded(hzbPrev, ...) without re-plumbing).
+// PART4 4c-C / 4c-D: HZB pyramid samplers (combined image samplers, set 0).
+//   binding 0 = pyramid of PREVIOUS frame (sampled by Tier 1 alpha pass1:
+//     items that were visible last frame are re-tested against last
+//     frame's HZB so pass1 drops anything that became occluded; pass2
+//     re-derives the same predicate to know which items pass1 already
+//     drew). Nanite + Granite 2024 baseline.
 //   binding 1 = pyramid of CURRENT frame (built by HiZPass.execute right
 //     before pass2 cull). cull.comp pass2 samples this for the AABB
-//     occlusion test.
+//     occlusion test against the just-rasterised pass1 depth.
 // Sampler reduction mode = MIN when samplerFilterMinmax is supported (1-tap
 // returns the min of the 2x2 footprint = conservative occluder under
 // reverse-Z); otherwise it's a plain NEAREST sampler and we do 4 fetches.
@@ -276,29 +277,51 @@ void main() {
     bool             prevVis  = readVisHistoryBit(history, drawId);
 
     if (passIdx == 1u) {
-        // PASS 1 (cheap re-draw of last frame's visible set): draw items
-        // that were visible last frame AND are still in frustum. visHistory
-        // is not updated here; pass2 owns the writeback so the new value
-        // reflects this frame's full visibility check (Granite 2024 two-
-        // phase). Tier 1 alpha would add: && !hzbOccluded(hzbPrev, h, ...)
-        // here to early-cull items now hidden behind last frame's depth -
-        // the descriptor binding is already in place for that upgrade.
-        writeVis(vis, drawId, prevVis && frustumCone);
+        // PASS 1 (Tier 1 alpha / Nanite + Granite 2024 baseline): draw
+        // items that were visible last frame AND are still in frustum AND
+        // still not occluded by LAST frame's HZB (hzbPrev). Reading hzbPrev
+        // here makes pass1 strictly tighter than the simpler 2018-style
+        // Maister two-pass: items that became occluded last frame are
+        // dropped from pass1's re-draw set so they don't waste a rasterise
+        // this frame (pass2 then re-tests them against the just-built
+        // current HZB and picks them up if they're now visible). The
+        // hzbPrev descriptor binding has been wired since 4c-C; this is
+        // the activation. Cost = one hzbOccluded call per CullObject that
+        // already passed frustum+cone (zero per culled object).
+        // visHistory NOT updated here; pass2 owns the writeback so next
+        // frame's pass1 reads "what was actually visible this frame
+        // against the current HZB" (more accurate than pass1's view).
+        bool drawnInPass1 = false;
+        if (prevVis && frustumCone) {
+            drawnInPass1 = !hzbOccluded(hzbPrev, h, center, halfExtent);
+        }
+        writeVis(vis, drawId, drawnInPass1);
     } else {
         // PASS 2 (catch newly-visible against the just-built HZB): only
-        // draw what passes the current frame's occlusion test AND was NOT
-        // already drawn by pass1.
-        bool occluded = false;
+        // draw what passes the CURRENT frame's occlusion test AND was NOT
+        // already drawn by pass1. drewByPass1 mirrors pass1's full
+        // predicate including the Tier 1 alpha hzbPrev test - costs one
+        // extra hzbOccluded sample per pass2 invocation that passed
+        // frustum+cone+prevVis, which is the minimum to avoid double-
+        // rasterising what pass1 already covered. Trading that sample for
+        // an asymmetric pass1 is the standard Nanite / Granite 2024 tradeoff.
+        bool occluded_curr = false;
         if (frustumCone) {
-            occluded = hzbOccluded(hzbCurr, h, center, halfExtent);
+            occluded_curr = hzbOccluded(hzbCurr, h, center, halfExtent);
         }
-        bool visibleThisFrame = frustumCone && !occluded;
-        // drewByPass1: re-derive pass1's predicate (cheap - no HZB sample
-        // needed because pass1 doesn't use HZB in the design-doc spec).
-        bool drewByPass1 = prevVis && frustumCone;
+        bool visibleThisFrame = frustumCone && !occluded_curr;
+
+        bool drewByPass1 = false;
+        if (prevVis && frustumCone) {
+            drewByPass1 = !hzbOccluded(hzbPrev, h, center, halfExtent);
+        }
+
         bool drawInPass2 = visibleThisFrame && !drewByPass1;
         writeVis(vis, drawId, drawInPass2);
-        // Writeback the new visibility for next frame's pass1.
+        // Writeback the new visibility for next frame's pass1. Note we
+        // store "visibleThisFrame" (= frustum+cone+!occluded_curr), NOT
+        // "drewByPass1 || drawInPass2" - the writeback is the TRUE answer
+        // for next frame's pass1, not just the items rasterised this frame.
         writeVisHistoryBit(history, drawId, visibleThisFrame);
     }
 }
