@@ -48,6 +48,11 @@ class Swapchain {
     VkExtent2D extent() const { return extent_; }
     uint32_t imageCount() const { return static_cast<uint32_t>(images_.size()); }
     VkImageView colorView(uint32_t i) const { return views_[i].get(); }
+    // PART4 4d: dynamic-rendering migration of PostPass needs the raw VkImage
+    // to issue the swapchain UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL and
+    // COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR barriers that VkRenderPass
+    // initial/finalLayout used to handle implicitly.
+    VkImage colorImage(uint32_t i) const { return images_[i]; }
     VkImageView depthView() const { return depthView_.get(); }
     // PART4 4a-2: HZB compute (4b) and the 4a-2 debug HUD need the raw VkImage
     // to issue the post-main_pass DEPTH_STENCIL_ATTACHMENT_OPTIMAL ->

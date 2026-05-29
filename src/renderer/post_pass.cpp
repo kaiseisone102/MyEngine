@@ -1,12 +1,14 @@
 // src/renderer/post_pass.cpp
 // =============================================================================
-// post_pass.cpp - Phase 1H-3: HDR -> swapchain tonemap
+// post_pass.cpp - Phase 1H-3: HDR -> swapchain tonemap (PART4 4d: dynamic
+// rendering migration; VkRenderPass + VkFramebuffer removed)
 // =============================================================================
 #include "renderer/post_pass.h"
 
 #include <array>
 #include <stdexcept>
 
+#include "renderer/barrier.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
@@ -25,26 +27,22 @@ void PostPass::init(const InitInfo& info) {
     bloomColorSampler_ = info.bloomColorSampler;
     shaderDir_ = info.shaderDir;
 
-    createRenderPass();
     createDescriptorSetLayout();
     createDescriptorPool();
     allocateAndUpdateDescriptorSet();
     createPipelineLayout();
     createPipeline(shaderDir_);
-    createFramebuffers();
 }
 
 void PostPass::shutdown() {
     if (!ctx_ || ctx_->device() == VK_NULL_HANDLE) return;
 
-    destroyFramebuffers();
     destroyPipeline();
 
     pipelineLayout_.reset();
     descPool_.reset();
     descSet_ = VK_NULL_HANDLE;  // freed with pool
     descSetLayout_.reset();
-    renderPass_.reset();
 
     ctx_ = nullptr;
     swapchain_ = nullptr;
@@ -62,57 +60,10 @@ void PostPass::onSwapchainResized(VkImageView hdrColorView, VkSampler hdrColorSa
     if (bloomColorView != VK_NULL_HANDLE) bloomColorView_ = bloomColorView;
     if (bloomColorSampler != VK_NULL_HANDLE) bloomColorSampler_ = bloomColorSampler;
 
-    // Re-record descriptor set with new HDR view
+    // Re-record descriptor set with new HDR view. PART4 4d: no framebuffers
+    // to re-create now that we're on dynamic rendering - the per-image
+    // colorView is fetched fresh in execute() from the swapchain.
     allocateAndUpdateDescriptorSet();
-
-    // Re-create framebuffers for new swapchain images
-    destroyFramebuffers();
-    createFramebuffers();
-}
-
-void PostPass::createRenderPass() {
-    // Single subpass: write swapchain image (sRGB) with no depth
-    VkAttachmentDescription color{};
-    color.format = swapchain_->colorFormat();
-    color.samples = VK_SAMPLE_COUNT_1_BIT;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;  // Clear because we own the swapchain image
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;  // ready to present
-
-    VkAttachmentReference colorRef{};
-    colorRef.attachment = 0;
-    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription sub{};
-    sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub.colorAttachmentCount = 1;
-    sub.pColorAttachments = &colorRef;
-
-    // External subpass dependency to wait for MainPass to finish writing the HDR target
-    // before we sample it. (MainPass already transitions HDR to SHADER_READ_ONLY.)
-    VkSubpassDependency dep{};
-    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass = 0;
-    dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dep.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    dep.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    VkRenderPassCreateInfo ci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    ci.attachmentCount = 1;
-    ci.pAttachments = &color;
-    ci.subpassCount = 1;
-    ci.pSubpasses = &sub;
-    ci.dependencyCount = 1;
-    ci.pDependencies = &dep;
-
-    VkRenderPass rp = VK_NULL_HANDLE;
-    if (vkCreateRenderPass(ctx_->device(), &ci, nullptr, &rp) != VK_SUCCESS)
-        throw std::runtime_error("PostPass: vkCreateRenderPass failed");
-    renderPass_ = VkUnique<VkRenderPass>(ctx_->device(), rp);
 }
 
 void PostPass::createDescriptorSetLayout() {
@@ -265,7 +216,19 @@ void PostPass::createPipeline(const std::string& shaderDir) {
     dyn.dynamicStateCount = 2;
     dyn.pDynamicStates = dynStates;
 
+    // PART4 4d: dynamic rendering. Declare the attachment format(s) the
+    // pipeline writes to via VkPipelineRenderingCreateInfo chained into the
+    // GraphicsPipelineCreateInfo's pNext, instead of the old VkRenderPass +
+    // subpass pointers.
+    const VkFormat swapchainFormat = swapchain_->colorFormat();
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = &swapchainFormat;
+    rci.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+    rci.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rci;
     pci.stageCount = 2;
     pci.pStages = stages;
     pci.pVertexInputState = &vi;
@@ -277,7 +240,7 @@ void PostPass::createPipeline(const std::string& shaderDir) {
     pci.pDepthStencilState = &ds;
     pci.pDynamicState = &dyn;
     pci.layout = pipelineLayout_.get();
-    pci.renderPass = renderPass_.get();
+    pci.renderPass = VK_NULL_HANDLE;  // PART4 4d: dynamic rendering, no VkRenderPass
     pci.subpass = 0;
 
     VkPipeline pipe = VK_NULL_HANDLE;
@@ -292,54 +255,47 @@ void PostPass::createPipeline(const std::string& shaderDir) {
     pipeline_ = VkUnique<VkPipeline>(ctx_->device(), pipe);
 }
 
-void PostPass::createFramebuffers() {
-    const uint32_t count = swapchain_->imageCount();
-    const VkExtent2D extent = swapchain_->extent();
-    framebuffers_.resize(count);
-
-    for (uint32_t i = 0; i < count; ++i) {
-        VkImageView attachments[] = {swapchain_->colorView(i)};
-        VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        ci.renderPass = renderPass_.get();
-        ci.attachmentCount = 1;
-        ci.pAttachments = attachments;
-        ci.width = extent.width;
-        ci.height = extent.height;
-        ci.layers = 1;
-        if (vkCreateFramebuffer(ctx_->device(), &ci, nullptr, &framebuffers_[i]) != VK_SUCCESS)
-            throw std::runtime_error("PostPass: vkCreateFramebuffer failed");
-    }
-}
-
-void PostPass::destroyFramebuffers() {
-    for (auto fb : framebuffers_) {
-        if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(ctx_->device(), fb, nullptr);
-    }
-    framebuffers_.clear();
-}
-
 void PostPass::destroyPipeline() {
     pipeline_.reset();
 }
 
 void PostPass::execute(const ExecuteInfo& info) {
     if (!info.cmd) throw std::runtime_error("PostPass::execute: invalid cmd");
-    if (info.imageIndex >= framebuffers_.size())
+    if (info.imageIndex >= swapchain_->imageCount())
         throw std::runtime_error("PostPass::execute: imageIndex out of range");
 
     const VkExtent2D extent = swapchain_->extent();
 
-    VkClearValue clear{};
-    clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    // PART4 4d: dynamic rendering. The swapchain image must be in
+    // COLOR_ATTACHMENT_OPTIMAL on entry to vkCmdBeginRendering; the legacy
+    // VkRenderPass did this via initialLayout=UNDEFINED -> COLOR_ATTACHMENT.
+    // We discard previous contents (oldLayout = UNDEFINED) since loadOp =
+    // CLEAR will overwrite the whole image anyway.
+    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
+        .image = swapchain_->colorImage(info.imageIndex),
+        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .srcStage  = VK_PIPELINE_STAGE_2_NONE,
+        .srcAccess = VK_ACCESS_2_NONE,
+        .dstStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+    });
 
-    VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rp.renderPass = renderPass_.get();
-    rp.framebuffer = framebuffers_[info.imageIndex];
+    VkRenderingAttachmentInfo colorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    colorAtt.imageView = swapchain_->colorView(info.imageIndex);
+    colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+    VkRenderingInfo rp{VK_STRUCTURE_TYPE_RENDERING_INFO};
     rp.renderArea = {{0, 0}, extent};
-    rp.clearValueCount = 1;
-    rp.pClearValues = &clear;
+    rp.layerCount = 1;
+    rp.colorAttachmentCount = 1;
+    rp.pColorAttachments = &colorAtt;
 
-    vkCmdBeginRenderPass(info.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRendering(info.cmd, &rp);
 
     VkViewport viewport{};
     viewport.x = 0.0f;
@@ -363,5 +319,18 @@ void PostPass::execute(const ExecuteInfo& info) {
     // Fullscreen triangle (3 vertices, no vertex buffer)
     vkCmdDraw(info.cmd, 3, 1, 0, 0);
 
-    vkCmdEndRenderPass(info.cmd);
+    vkCmdEndRendering(info.cmd);
+
+    // PART4 4d: swapchain -> PRESENT_SRC_KHR for vkQueuePresentKHR. Legacy
+    // VkRenderPass did this via finalLayout=PRESENT_SRC_KHR.
+    barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
+        .image = swapchain_->colorImage(info.imageIndex),
+        .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStage  = VK_PIPELINE_STAGE_2_NONE,
+        .dstAccess = VK_ACCESS_2_NONE,
+    });
 }

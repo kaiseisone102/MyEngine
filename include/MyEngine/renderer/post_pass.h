@@ -19,7 +19,6 @@
 #include "renderer/vk_unique.h"
 
 #include <string>
-#include <vector>
 
 class VulkanContext;
 class Swapchain;
@@ -56,17 +55,12 @@ class PostPass {
     int  tonemapMode() const { return tonemapMode_; }
     float exposure() const { return exposure_; }
 
-    VkRenderPass renderPass() const { return renderPass_.get(); }
-
    private:
-    void createRenderPass();
     void createDescriptorSetLayout();
     void createDescriptorPool();
     void allocateAndUpdateDescriptorSet();
     void createPipelineLayout();
     void createPipeline(const std::string& shaderDir);
-    void createFramebuffers();
-    void destroyFramebuffers();
     void destroyPipeline();
 
     VulkanContext* ctx_ = nullptr;
@@ -76,13 +70,14 @@ class PostPass {
     VkImageView bloomColorView_ = VK_NULL_HANDLE;   // Phase 1I
     VkSampler bloomColorSampler_ = VK_NULL_HANDLE;
 
-    VkUnique<VkRenderPass> renderPass_;
+    // PART4 4d: dynamic rendering migration. VkRenderPass + VkFramebuffer
+    // removed; pipeline uses VkPipelineRenderingCreateInfo and execute()
+    // uses vkCmdBeginRendering with the swapchain's per-image colorView.
     VkUnique<VkDescriptorSetLayout> descSetLayout_;
     VkUnique<VkDescriptorPool> descPool_;
     VkDescriptorSet descSet_ = VK_NULL_HANDLE;
     VkUnique<VkPipelineLayout> pipelineLayout_;
     VkUnique<VkPipeline> pipeline_;
-    std::vector<VkFramebuffer> framebuffers_;
 
     std::string shaderDir_;
     int   tonemapMode_ = 0;   // Phase 1H-4
