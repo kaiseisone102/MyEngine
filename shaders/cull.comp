@@ -59,15 +59,22 @@ layout(buffer_reference, std430, buffer_reference_align = 4) buffer VisHistoryBu
 //   binding 1 = pyramid of CURRENT frame (built by HiZPass.execute right
 //     before pass2 cull). cull.comp pass2 samples this for the AABB
 //     occlusion test against the just-rasterised pass1 depth.
-// Sampler reduction mode = MIN when samplerFilterMinmax is supported (1-tap
-// returns the min of the 2x2 footprint = conservative occluder under
-// reverse-Z); otherwise it's a plain NEAREST sampler and we do 4 fetches.
-// cull.comp can't query the reduction mode from GLSL, so the C++ side
-// embeds the choice as a spec const... TODO: for now we assume 4-tap is
-// always safe (it gives the same answer as the 1-tap MIN fast path; the
-// fast path is just cheaper). Phase 4d will add a spec const + branch.
 layout(set = 0, binding = 0) uniform sampler2D hzbPrev;
 layout(set = 0, binding = 1) uniform sampler2D hzbCurr;
+
+// PART4 4c-D: spec const driving the HZB sample path picked at pipeline
+// creation. CullingPass sets this from VulkanContext::samplerFilterMinmax()
+// which is the same query HiZPass used when it created the sampler:
+//   true  -> sampler has reductionMode = MIN with LINEAR filter; one
+//            textureLod() at the AABB-bounds midpoint returns the min of
+//            the 2x2 LINEAR footprint = conservative occluder under
+//            reverse-Z. One fetch per AABB.
+//   false -> sampler is NEAREST; cull.comp does a 4-tap manual reduction
+//            at the four corners of the AABB bounds.
+// Branching on a bool spec const lets the SPIR-V compiler dead-strip the
+// unused arm at pipeline creation, so the runtime cost is exactly one
+// branch's worth of code.
+layout(constant_id = 0) const bool kHzbMinReductionFastPath = false;
 
 // PART4 4-前-4 + 4c-B: push constant grows to 144 B std430.
 //   planes[6] (96) + viewPos (16) + cullAddr (8) + visAddr (8) +
@@ -177,15 +184,26 @@ int mipFromScreenSize(vec4 uvBounds, uvec2 hizMip0Dims, uint mipCount) {
     return mip;
 }
 
-// PART4 4c-C: sample the HZB at the AABB's 4 footprint corners and take the
-// MIN of the .r (= per-region farthest opaque depth under reverse-Z). The MIN
-// across the 4 sub-regions is the conservative occluder for the whole
-// footprint: occluded only when the object is behind the FURTHEST opaque
-// pixel in EVERY sub-region. With samplerFilterMinmax + reductionMode=MIN
-// one fetch returns the min of the 2x2 footprint; we always do 4 fetches
-// here for portability (the SPV optimizer collapses redundant taps on
-// devices where the reduction sampler is in force - cheap either way).
+// PART4 4c-D: sample the HZB at the AABB footprint and return the MIN of
+// the .r channel (per-region farthest opaque depth under reverse-Z). The
+// shader picks one of two paths via kHzbMinReductionFastPath:
+//   FAST PATH (sampler is LINEAR + reductionMode=MIN, samplerFilterMinmax
+//   feature enabled): one textureLod() at the bounds midpoint - the
+//   sampler reduction returns min of the 2x2 LINEAR footprint. mipFromScreen-
+//   Size picks a mip where AABB span <= 2 texels, so the LINEAR footprint
+//   covers the AABB region; the result is conservative (any over-coverage
+//   only includes adjacent texels which give equal-or-smaller min,
+//   strengthening the "not occluded" answer under reverse-Z).
+//   FALLBACK (sampler is NEAREST): 4 explicit fetches at the 4 corners of
+//   uvBounds + a manual min.
+// Both paths produce a conservative occluder depth (never larger than the
+// true min over the AABB footprint), preserving the property that the
+// occlusion test never wrongly culls a visible object.
 float hzbSampleMinR(sampler2D pyramid, vec4 uvBounds, int mip) {
+    if (kHzbMinReductionFastPath) {
+        vec2 uvMid = (uvBounds.xy + uvBounds.zw) * 0.5;
+        return textureLod(pyramid, uvMid, float(mip)).r;
+    }
     vec2 uv00 = vec2(uvBounds.x, uvBounds.y);
     vec2 uv10 = vec2(uvBounds.z, uvBounds.y);
     vec2 uv01 = vec2(uvBounds.x, uvBounds.w);

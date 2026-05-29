@@ -181,12 +181,14 @@ VkUnique<VkPipelineLayout> CullingPass::createComputePipelineLayout() {
 }
 
 VkUnique<VkPipeline> CullingPass::createComputePipeline(const std::string& spvPath,
-                                                         VkPipelineLayout layout) {
+                                                         VkPipelineLayout layout,
+                                                         const VkSpecializationInfo* specInfo) {
     VkShaderModule mod = shader_util::loadShaderModule(ctx_->device(), spvPath);
     VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     stage.module = mod;
     stage.pName = "main";
+    stage.pSpecializationInfo = specInfo;  // PART4 4c-D: optional spec const data
     VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     ci.stage = stage;
     ci.layout = layout;
@@ -204,7 +206,22 @@ void CullingPass::createPipelines(const std::string& shaderDir) {
     scanGlobalsLayout_ = createComputePipelineLayout<ScanGlobalsPC>();
     scanScatterLayout_ = createComputePipelineLayout<ScanScatterPC>();
 
-    cullPipe_        = createComputePipeline(shaderDir + "/cull_comp.spv",         cullLayout_.get());
+    // PART4 4c-D: drive cull.comp's kHzbMinReductionFastPath spec const
+    // (constantID = 0) from the same samplerFilterMinmax query that
+    // HiZPass uses when it picks LINEAR + reductionMode=MIN for the
+    // minReductionSampler. Keeping the two in lockstep via the shared ctx
+    // query guarantees the shader picks the matching sample path.
+    const VkBool32 hzbFastPath = ctx_->samplerFilterMinmax() ? VK_TRUE : VK_FALSE;
+    const VkSpecializationMapEntry cullSpecMap[1] = {
+        {/*constantID=*/0, /*offset=*/0, /*size=*/sizeof(VkBool32)},
+    };
+    const VkSpecializationInfo cullSpecInfo{
+        /*mapEntryCount=*/1,
+        /*pMapEntries=*/cullSpecMap,
+        /*dataSize=*/sizeof(hzbFastPath),
+        /*pData=*/&hzbFastPath,
+    };
+    cullPipe_        = createComputePipeline(shaderDir + "/cull_comp.spv",         cullLayout_.get(), &cullSpecInfo);
     scanLocalPipe_   = createComputePipeline(shaderDir + "/scan_local_comp.spv",   scanLocalLayout_.get());
     scanGlobalsPipe_ = createComputePipeline(shaderDir + "/scan_globals_comp.spv", scanGlobalsLayout_.get());
     scanScatterPipe_ = createComputePipeline(shaderDir + "/scan_scatter_comp.spv", scanScatterLayout_.get());

@@ -289,7 +289,8 @@ class CullingPass {
     template <typename PC>
     VkUnique<VkPipelineLayout> createComputePipelineLayout();
     VkUnique<VkPipeline> createComputePipeline(const std::string& spvPath,
-                                                VkPipelineLayout layout);
+                                                VkPipelineLayout layout,
+                                                const VkSpecializationInfo* specInfo = nullptr);
 
     static constexpr VkDeviceSize cullStride() { return sizeof(myengine::shared::CullObject); }
     static constexpr VkDeviceSize cmdStride()  { return sizeof(VkDrawIndexedIndirectCommand); }
