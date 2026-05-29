@@ -28,6 +28,7 @@
 
 #include "core/aabb.h"
 #include "renderer/mesh.h"
+#include "world/engine_origin.h"  // E: camera-relative wire-up
 #include "renderer/model.h"
 #include "renderer/material.h"
 #include "renderer/terrain_mesh.h"
@@ -91,12 +92,23 @@ inline AABB cubeLocalAABB() {
 
 // Emit one draw: push DrawData (gets the absolute slot), then the matching
 // CullObject (drawId baked) + DrawTemplate (firstInstance = slot) + PreparedDraw.
+//
+// E: model and CullObject are converted to engine-relative space here -- the
+// caller passes world-space values, this function shifts the translation
+// column of the model matrix and the centerRadius / coneApex of the
+// CullObject by -EngineOrigin::current(). When origin == (0,0,0) the
+// subtractions are numeric no-ops; when floating-origin engages the same
+// path delivers the per-frame rebase without touching the call sites.
 inline void emit(BuildResult& result, DrawDataPool& pool, uint32_t frameIndex,
                  const glm::mat4& model, float alpha, uint32_t materialId,
                  uint32_t blockIndex, uint32_t indexCount, uint32_t firstIndex,
                  int32_t vertexOffset, const myengine::shared::CullObject& cull) {
+    const glm::vec3 origin = myengine::world::EngineOrigin::current();
     myengine::shared::DrawData drawData{};
     drawData.model = model;
+    drawData.model[3].x -= origin.x;
+    drawData.model[3].y -= origin.y;
+    drawData.model[3].z -= origin.z;
     drawData.alpha = alpha;
     drawData.materialId = materialId;
     const uint32_t slot = pool.pushOne(frameIndex, drawData);
@@ -104,6 +116,15 @@ inline void emit(BuildResult& result, DrawDataPool& pool, uint32_t frameIndex,
 
     const uint32_t drawId = static_cast<uint32_t>(result.draws.size());
     myengine::shared::CullObject cullObject = cull;
+    // E: shift centerRadius and coneApex (both world-space points) by
+    // -origin. extentDrawId.xyz is a half-extent and coneAxisLodBias.xyz
+    // is a direction -- both translation-invariant, no change needed.
+    cullObject.centerRadius.x -= origin.x;
+    cullObject.centerRadius.y -= origin.y;
+    cullObject.centerRadius.z -= origin.z;
+    cullObject.coneApexCutoff.x -= origin.x;
+    cullObject.coneApexCutoff.y -= origin.y;
+    cullObject.coneApexCutoff.z -= origin.z;
     cullObject.extentDrawId.w = static_cast<float>(drawId);  // cull.comp writes cmds[drawId]
     writeDisabledCone(cullObject, blockIndex);  // PART4 4-前-2 cone sentinel + 4-前-4 blockIndex
     result.cullObjects.push_back(cullObject);

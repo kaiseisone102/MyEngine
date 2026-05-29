@@ -26,6 +26,7 @@
 #include "renderer/projection.h"
 #include "renderer/model.h"
 #include "renderer/shadow_light.h"
+#include "world/engine_origin.h"  // E: camera-relative wire-up
 #include "renderer/vulkan_renderer.h"
 #include "core/game_state.h"
 #include "scene/scene_data.h"
@@ -95,9 +96,15 @@ void TitleLayer::buildScene(SceneData& scene) {
     if (window_) SDL_GetWindowSize(window_, &winW, &winH);
     const float aspect = (winH > 0) ? static_cast<float>(winW) / static_cast<float>(winH) : 1.f;
 
+    // E: camera-relative wire-up. See camera_system.cpp for the full
+    // explanation. Today origin == (0,0,0), so every subtraction below is
+    // numerically a no-op; the path is in place for the upgrade.
+    const glm::vec3 origin = myengine::world::EngineOrigin::current();
+
     const glm::vec3 cameraPos{2.5f, 2.0f, 4.0f};
     const glm::vec3 lookAt{0.f, 1.0f, 0.f};
-    const glm::mat4 view = glm::lookAt(cameraPos, lookAt, glm::vec3{0.f, 1.f, 0.f});
+    const glm::mat4 view = glm::lookAt(cameraPos - origin, lookAt - origin,
+                                       glm::vec3{0.f, 1.f, 0.f});
     // Reverse-Z + infinite far. Vulkan Y flip is baked into the helper.
     glm::mat4 proj = makeReversedZInfinitePerspective(glm::radians(45.f), aspect, 0.1f);
 
@@ -106,7 +113,7 @@ void TitleLayer::buildScene(SceneData& scene) {
     const glm::vec3 lightOffset{8.f, 15.f, 8.f};
     const glm::vec3 lightPos = lightTarget + lightOffset;
     const glm::mat4 lightView =
-        glm::lookAt(lightPos, lightTarget, glm::vec3(0.f, 1.f, 0.f));
+        glm::lookAt(lightPos - origin, lightTarget - origin, glm::vec3(0.f, 1.f, 0.f));
     const glm::mat4 lightProj = shadow_light::directionalLightProj();
 
     // ----- 3. Build LightingUBO and submit -----
@@ -117,7 +124,7 @@ void TitleLayer::buildScene(SceneData& scene) {
     ubo.lightDir = glm::vec4(glm::normalize(lightTarget - lightPos), 0.f);
     ubo.lightColor = glm::vec4(1.f, 1.f, 1.f, 0.f);
     ubo.ambient = glm::vec4(0.25f, 0.25f, 0.25f, 0.f);
-    ubo.viewPos = glm::vec4(cameraPos, 0.f);
+    ubo.viewPos = glm::vec4(cameraPos - origin, 0.f);
     ubo.shadowParams = glm::vec4(0.6f, 0.f, 0.f, 0.f);  // x = strength
     vulkan().setLighting(ubo);
 
