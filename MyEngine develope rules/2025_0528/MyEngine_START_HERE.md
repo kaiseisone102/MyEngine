@@ -1,6 +1,6 @@
 # START HERE — MyEngine セッション用ブートストラップ
 
-最終更新: 2026-05-29 (**PART4 §6 4d「Pure GPU-driven cleanup = 完了」追加反映 (commit f8d1e1f)**。 user 報告「HUD `Cull : 0 / 67` がどこを向いても 0」を契機に判明: 4-前-4 (15b89ad) で compactCmd が device-local 化されて以降、 旧 host-mapped readback 経路の `lastVisible_[]` を更新する code path が断たれて HUD は永久 0 だった (props は GPU 経由で正常描画されていたため動作上は健全・HUD だけ stale)。 option B 採用 = 純 GPU-driven の本来形 (compactCmd / countBuf は device-local のまま CPU は可視数を知らない) で HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up 撤去。 8 files +2 -51。 §2 引き継ぎブロック (historical PART3c-2 内 line 178/185) に inline note、 次にやること list から残作業項目を撤去、 直近の完了に commit f8d1e1f 追加。 / **PART4 §6 4c 完了反映 = two-pass HZB occlusion + Tier 1 α (Nanite/Granite 2024 baseline) + 1-tap minmax fast path** + **§6 4d 大半完了 (γ × 3 + M × 3 + N × 4 = 10 commits の audit-driven 最新技術取り込み)**。§2 引き継ぎブロックを 4c/4d 完了で全面書き換え、 直近の完了に 18 commit 追加 (ad97879..1481049)、 次の一手を「PART4 完了畳み込み or 2C LOD / 2A 多光源 / 2F terrain bucket」に更新。 18 commit 内訳: 4c-A/B/C/D + α + β + γ-1/2/3 + M3/M1/M2 + N1/N4/N2+N3 + Tier 1 α 活性化 + 4c 中 bug fix 2 件。 P620 [Caps] 18 中 17 = 1 で実走確認。 思想ルール (§0/§1.5) は不変。 / 2026-05-28: **PART4 §6 4b 完了反映 = HiZPass 新設 (SPD-style single-dispatch min+max RG32F pyramid)**。§2 引き継ぎブロック先頭を 4b 完了に書き換え、 次の一手を 4c (two-pass occlusion 本体) に更新、 直近の完了一覧に 4b エントリ追加 (commit ffe9673)。 思想ルール (§0/§1.5) は不変。 / 2026-05-28: 運用モードを Claude Code 直接ツール利用前提に切替。§3 で正本ファイルの所在を明示、§4 の「ユーザーが dump/コマンドを貼る方式」前提を削除し Claude が直接 Read/Edit/Bash する形に書換、§5 のチャット添付ループを「Edit で資料ファイル直接更新」に書換。怖い変更 (types.h・shader 全置換・全 pass 波及) は変更前後を提示してから commit するハイブリッド原則を §4 に明示。**§4 にソース内コメント英語ルールを追記** (既存日本語は順次英語化・DEBT-11)。詳細は Work_Protocol rev.15 / Foundations_Audit §8.9 を参照。)
+最終更新: 2026-05-29 (**最新化マラソン 28 commits 反映**: A1-A6 (buffer VMA + 生 vkAllocateMemory ゼロ) + E + E clean (camera-relative 全 10 site wire-up) + F1-F5 (固定容量一族 5 クラス動的化) + G (bindless free-list) + N (memory_priority 実利用) + O (debug_utils GPU markers) + W (sync_validation + swapchain hazard fix) + C (transfer queue) + I (memory_budget) + B (FrameSync timeline semaphore migration) + D+L+K+T+Z+J+Q (8 receptacle → 5 実 enable) + U (JobSystem) + M (AsyncCompute receptacle) + V/R/S/H/X/Y/P (7 design-memo headers)。 §2 引き継ぎブロックに詳細・新規ファイル一覧・正直な妥協度評価 (🟢17 / 🟡9 / 🔴14)、 直近の完了 list 冒頭に新エントリ。 P620 [Caps] 30 capability・DGC のみ 0。 / **PART4 §6 4d「Pure GPU-driven cleanup = 完了」追加反映 (commit f8d1e1f)**。 user 報告「HUD `Cull : 0 / 67` がどこを向いても 0」を契機に判明: 4-前-4 (15b89ad) で compactCmd が device-local 化されて以降、 旧 host-mapped readback 経路の `lastVisible_[]` を更新する code path が断たれて HUD は永久 0 だった (props は GPU 経由で正常描画されていたため動作上は健全・HUD だけ stale)。 option B 採用 = 純 GPU-driven の本来形 (compactCmd / countBuf は device-local のまま CPU は可視数を知らない) で HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up 撤去。 8 files +2 -51。 §2 引き継ぎブロック (historical PART3c-2 内 line 178/185) に inline note、 次にやること list から残作業項目を撤去、 直近の完了に commit f8d1e1f 追加。 / **PART4 §6 4c 完了反映 = two-pass HZB occlusion + Tier 1 α (Nanite/Granite 2024 baseline) + 1-tap minmax fast path** + **§6 4d 大半完了 (γ × 3 + M × 3 + N × 4 = 10 commits の audit-driven 最新技術取り込み)**。§2 引き継ぎブロックを 4c/4d 完了で全面書き換え、 直近の完了に 18 commit 追加 (ad97879..1481049)、 次の一手を「PART4 完了畳み込み or 2C LOD / 2A 多光源 / 2F terrain bucket」に更新。 18 commit 内訳: 4c-A/B/C/D + α + β + γ-1/2/3 + M3/M1/M2 + N1/N4/N2+N3 + Tier 1 α 活性化 + 4c 中 bug fix 2 件。 P620 [Caps] 18 中 17 = 1 で実走確認。 思想ルール (§0/§1.5) は不変。 / 2026-05-28: **PART4 §6 4b 完了反映 = HiZPass 新設 (SPD-style single-dispatch min+max RG32F pyramid)**。§2 引き継ぎブロック先頭を 4b 完了に書き換え、 次の一手を 4c (two-pass occlusion 本体) に更新、 直近の完了一覧に 4b エントリ追加 (commit ffe9673)。 思想ルール (§0/§1.5) は不変。 / 2026-05-28: 運用モードを Claude Code 直接ツール利用前提に切替。§3 で正本ファイルの所在を明示、§4 の「ユーザーが dump/コマンドを貼る方式」前提を削除し Claude が直接 Read/Edit/Bash する形に書換、§5 のチャット添付ループを「Edit で資料ファイル直接更新」に書換。怖い変更 (types.h・shader 全置換・全 pass 波及) は変更前後を提示してから commit するハイブリッド原則を §4 に明示。**§4 にソース内コメント英語ルールを追記** (既存日本語は順次英語化・DEBT-11)。詳細は Work_Protocol rev.15 / Foundations_Audit §8.9 を参照。)
 
 > このファイルは新セッションの冒頭で毎回 Claude が読む「正本への入口」。
 > Claude はまずこのファイルを最後まで Read し、下の【Claude への指示】に従うこと。
@@ -89,7 +89,103 @@
 
 > ### ▶ 前回セッションからの引き継ぎ (新規チャットはまずここを読む / 2026-05-29 更新)
 >
-> **【PART4 4c 完了 = two-pass HZB occlusion 本体 + Tier 1 α (Nanite/Granite 2024 baseline) + 1-tap minmax fast path / 2026-05-29, 8 commits = ad97879 / 477985d / f242327 / 7e446a9 / e41cfd7 / 91a6885 / 2f7daf9 / ccf5c03】**
+> **【最新化マラソン: 28 commits / Foundations §1-4 + Vulkan13 §1-6 + Open-world receptacles を一気通貫で実装】**
+>
+> User の指示「最新技術の導入と古い技術の投棄」「妥協なし」「オープンワールド前提」に従い、 4 回の audit ラウンドで合計 36 Package を立ち上げ、 そのうち真に runtime に効くもの = 17 件、 半 wire-up = 2 件、 受け皿のみ = 17 件 (Phase 待ち)。 個別実装は session 内で逐次 commit。 重要な achievements を時系列で:
+>
+> **A1-A6 (6 commits 995b779 / 46cb937 / 185ac09 / 80ccb76 / a030372 / dab4faf)**: buffer 系 VMA 化マラソン。 Foundations §8.2 / §8.5 / §1-3 解消:
+> - A1: Mesh dead-code 撤去 (loadFromObj 0 callers + uploadBuffer 経路全削除 + private hybrid 撤去)
+> - A2: TerrainMesh VmaBuffer 化 (sharedFlatTerrain + stage_registry 経路維持)
+> - A3: SubMesh + ModelLoader dead-code 撲滅 (uploadBuffer 経路 / private hybrid)
+> - A4: Texture staging VmaBuffer 化 (生 vkMapMemory 撲滅完了)
+> - A5: **ResourceFactory legacy API 全削除 = エンジン内 生 vkAllocateMemory / vkBindBufferMemory / vkMapMemory / vkUnmapMemory / vkFreeMemory ゼロ達成**。 「メモリは全部 VMA」が buffer 側でも完成 (image 側は 2026-05-25 完了済)。 -121 lines net。
+> - A6: title_layer s_dbg + pass_chain [BlockDbg] 残骸撤去 (PBR_NORMAL_TEST は既に解消済を確認)
+>
+> **E (2 commits 4dc8923 + f9c7a3a) + E clean (641abcb)**: Foundations §1 ★★★ camera-relative / floating-origin:
+> - 4dc8923: `include/MyEngine/world/engine_origin.h` 新設 (`EngineOrigin::current()` = (0,0,0) 固定) + types.h 座標規約コメント
+> - f9c7a3a: prop opaque (DrawData) + camera_system + title_layer で origin 減算 wire-up (~30% カバー)
+> - 641abcb (E clean): **toEngineRelative helper を engine_origin.h に追加し全 10 site で wire-up 完了** (main_pass / shadow_pass / reflection_pass / pass_chain grass / static_draw.h 3 関数 / water_pass / particle_pass / debug_line_pass)。 origin == 0 で完全 numeric no-op・floating-origin を ON にした瞬間に prop + skinned + grass + reflection + terrain + water + particle + debug line すべてが lockstep でシフト。 唯一の明示的例外 = TerrainMesh/WaterMesh VB に world 焼きこみなので per-frame は補正済だが km 級 shift では VB 自体の精度低下が起きる (Phase 2F terrain bucket で chunk 境界 rebake)。
+>
+> **F1-F5 (5 commits c3f46ea / 0f07dc0 / 659bece / 132d0d5 / a46f208)**: Foundations §8.1 固定容量一族の動的化:
+> - F1: MaterialRegistry MAX_MATERIALS=256 → INITIAL_CAPACITY + doubling on add overflow + DeletionQueue 経由旧 buffer 安全破棄
+> - F2: InstanceBufferPool 8192 → 動的・peakRequested 追跡 + beginFrame 前に grow
+> - F3: SkinBufferPool 128 → 動的・per-entity Slot 安定性維持 (boneOffset 不変なので growToDouble で新 buffer 確保 + free-list 拡張)
+> - F4: ParticlePass 2048 → 動的・execute 内で alive count 検査 → 必要時 growToFit
+> - F5: DebugLinePass 10000 → 動的・line+tri VB pair grow
+>
+> **G (17d5f8f)**: BindlessTextureRegistry free-list + slot reuse (Foundations §3)。 MAX_TEXTURES=1024 cap は維持 (descriptor pool 成長は別 Phase = G+)、 release/registerTexture で release/reuse 経路。 streaming で texture 入替が working set ≤ 1024 なら無限可。
+>
+> **N (4f7d47f)**: VK_EXT_memory_priority **実利用** (受け皿のみだったのを完全活性化)。 VMA allocator に `EXT_MEMORY_PRIORITY_BIT` 付与・extension を device に push・feature struct を pNext chain。 各 VmaBuffer/VmaImage factory に priority 設定: createMappedStorageBDA=0.5 / createMappedHostVisible=0.3 / createDeviceLocal=0.8 / VmaImage 全=0.75。 P620 で `[Caps] memoryPriority=1`。
+>
+> **O (e048503)**: VK_EXT_debug_utils GPU profiling markers。 `include/MyEngine/renderer/debug_utils.h` 新設 (lazy proc address load + DBG_LABEL マクロ + ScopedLabel RAII)。 主要 8 pass (Reflection/Cull1/Cull(Shadow)/Shadow/Main(First)/HiZ/Cull2/Main(Second)/Overlay/Bloom/Post) に label。 buffer/image/pipeline の object 名は follow-up。
+>
+> **W (df6f5ae + 750135f)**: VK_LAYER_KHRONOS_synchronization_validation 有効化 + 即座に検出された swapchain hazard を修正。
+> - df6f5ae: VkValidationFeaturesEXT 経由でレイヤー機能 ON (debug builds)
+> - 750135f: post_pass.cpp:279 の UNDEFINED → COLOR_ATTACHMENT barrier の `srcStage = NONE` を `COLOR_ATTACHMENT_OUTPUT_BIT` に変更 (queue submit が imageAvailableSemaphore を COLOR_ATTACHMENT_OUTPUT で待つので、 barrier も同 stage で揃えて execution dependency chain を closed-loop に)。 vkAcquireNextImageKHR との WRITE_AFTER_READ hazard 撲滅。
+>
+> **C (e7b852e)**: Foundations §2 a-2。 vulkan_context が transfer-only family を query (TRANSFER bit + GRAPHICS/COMPUTE clear)・fallback は graphics family。 P620 で **family 1 = dedicated transfer 検出**。 transferQueue()/hasDedicatedTransfer() getter。 streaming 着手前 (Phase 2F) の隠れ前提を closed。
+>
+> **I (8484ea7)**: VK_EXT_memory_budget enable + VMA allocator bit + memoryBudget() getter。 vmaGetHeapBudgets が driver-live 値を返す。 P620 で `memoryBudget=1`。
+>
+> **B (3670ef1 + eeba2ed)**: timeline semaphore 受け皿 → 実 migration。
+> - 3670ef1: vk12Features.timelineSemaphore = TRUE + cap getter (受け皿)
+> - eeba2ed: **FrameSync の per-frame VkFence array → 単一 timeline semaphore に migration**。 frameTimeline_ (initialValue = MAX_FRAMES_IN_FLIGHT) + nextSignalValue_。 acquireNextImage で vkWaitSemaphores・submitAndPresent で VkTimelineSemaphoreSubmitInfo chain で signal。 binary semaphore (imageAvailable / renderFinished) は swapchain 用に残置。 副次効果 = sync_validation が flag していた **20 件の CullingPass cross-frame WRITE_AFTER_READ/WRITE hazards が全部解消** (per-frame buffer 再利用が timeline 経由で explicit になった)。
+>
+> **D+L+K+T+Z+J+Q (2da80b9 受け皿 → f880ddb 活性化)**: 8 receptacles → 5 実 enable。
+> - 2da80b9: VK_EXT_extended_dynamic_state3 / VK_EXT_shader_object / VK_KHR_present_id / VK_KHR_present_wait / VK_EXT_swapchain_maintenance1 / VK_EXT_image_view_min_lod / VK_EXT_host_image_copy / VK_KHR_calibrated_timestamps を query (cap getter のみ・extension は未 enable・feature struct 未 chain)
+> - f880ddb: そのうち **L/K/K/Z/J/Q = 5/7 を実 enable**。 deviceExtsVec に push + 各 feature struct を pNext chain (appendToChain lambda 経由)。 J は 1.4 promotion で vk14Features.hostImageCopy = TRUE。 これで vkCreateShadersEXT / VkPresentIdKHR / vkWaitForPresentKHR / VkImageViewMinLodCreateInfoEXT / vkCopyMemoryToImage / vkGetCalibratedTimestampsKHR が callable。 T (swapchain_maintenance1) は instance ext VK_EXT_surface_maintenance1 依存で保留、 D (EDS3) は 30+ feature 個別 query 要で保留 (commit メッセージで明示)。
+>
+> **U (fdbddda)**: Foundations §2 ★★★。 `include/MyEngine/core/job_system.h` header-only。 JobSystem::init(workerCount) で std::thread N 本起動 + condition_variable + packaged_task queue。 init(0) で **inert-friendly** (submit が calling thread で inline 実行) なので既存単一スレッド経路は無改修。 Phase 2F streaming 着手時に worker pool を起動するだけで async asset load / decode / chunk eviction が動く。
+>
+> **M (8b4deff)**: AsyncCompute timeline semaphore receptacle。 `include/MyEngine/renderer/async_compute.h` header-only。 AsyncComputeContext が単一 timeline semaphore を所有・nextValue() で monotonic 値払い出し。 P620 (asyncComputeFamily=2 dedicated=1) で HZB + cull pass2 を graphics queue と並列実行する将来 wiring の土台。 cross-queue 実 submission は Phase 仕事。
+>
+> **V/R/S/H/X/Y/P (8604de5)**: 7 rendering-technique receptacle (header-only design memos)。 全て init()/shutdown() 空関数 + 詳細な per-Phase activation 設計コメント:
+> - V: auto_exposure.h (luminance histogram compute + EMA-smoothed exposure・modern HDR essential)
+> - R: taa_history.h (HDR ping-pong target・全 temporal 技法共通)
+> - S: gpu_skinning.h (persistent skinned VB + compute pre-pass・1000+ chars で 3x cost saving)
+> - H: persistent_object_buffer.h (CullObject + DrawData を GPU 永続化・毎フレ CPU rebuild 脱却・Foundations §4)
+> - X: sky_atmosphere.h (Hillaire 2020 4 LUTs・UE5 / Frostbite 標準)
+> - Y: decal_pass.h (screen-space projected decals・dynamic_rendering_local_read 活用)
+> - P: bc7_texture.h (block-compressed loader + offline tool dispatch・2 GB VRAM 守備)
+>
+> ※ V-P 7 件は **完全に header-only stub**で実 runtime コードはゼロ。 commit メッセージにそう書いてあり、 audit でも確認済。 Phase 着手時に init/shutdown 本体を埋める前提。
+>
+> **正直な妥協度評価** (audit 結果):
+> - 🟢 **完全採用** (legacy 0 / modern active): sync2 / dynamic rendering / VMA / BDA / bindless / indirect / persistent pipeline cache / Timeline semaphore / camera-relative / debug markers / sync validation / memory priority+budget = **17 項目**
+> - 🟡 **受け皿のみ** (Vulkan feature 取得済だが API 関数 0 呼出): shader_object / present_id/wait / image_view_min_lod / host_image_copy / calibrated_timestamps / dynamic_rendering_local_read / pipelineCreationCacheControl flag / mailbox present mode / GPU compute skinning = **9 項目** (Phase 着手時に活用)
+> - 🔴 **未着手** (痕跡ゼロ): EDS3 / swapchain_maintenance1 / DGC 実装 / mesh shader / RT / VRS / V-P 7 stub の本実装 = **14 項目**
+>
+> **P620 [Caps] log (実走測定)**: 30 capability ほぼ全て =1 (DGC のみ 0 = Pascal hardware 制約)。 `multiDrawIndirect drawIndirectFirstInstance synchronization2 drawIndirectCount dynamicRendering separateDepthStencilLayouts subgroupOps subgroupSize samplerFilterMinmax asyncComputeFamily (dedicated) transferFamily (dedicated) dynamicRenderingLocalRead pipelineCreationCacheControl maintenance5 maintenance6 graphicsPipelineLibrary pipelineBinary memoryPriority memoryBudget timelineSemaphore extDynState3 shaderObject presentId presentWait swapchainMaint1 imageViewMinLod hostImageCopy calibratedTimestamps`。
+>
+> **次の推奨の一手** (どこから着手しても他 Package を阻まない):
+> - **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
+> - **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
+> - **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
+> - **★★** S (compute skinning) 本実装 = 大規模キャラ戦闘の前提
+> - **★★** B 副次仕上げ: AsyncComputeContext を実 cross-queue submit に wire-up (M activation)
+> - **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
+> - **★** Q calibrated_timestamps + GPU profiling = frame budget 計測の本実装
+> - **★** V-P stub の本実装は per-Phase (Phase 2D = R/V、 Phase 2F = H/U/M、 Phase 3 = X/Y/J、 etc.)
+> - 任意で 1I PART D / 2A 多光源 / 2C LOD / 2F terrain bucket は依然候補
+>
+> 着手手順: §0-2 復唱 (ゴール ← §1 / 設計方針 ← §1.5 / 現在地 ← §2 / スコープ境界) + §0-8 (資料を引いてから判断・記憶で動かない) を毎回守る。 Vulkan/グラフィックス話題は **着手時にまず最新動向 web 確認**。 怖い変更 (types.h struct size 変更等) は §3-1a clean rebuild。
+>
+> **新規ファイル一覧 (このセッションで追加)**:
+> - `include/MyEngine/world/engine_origin.h` (E receptacle + toEngineRelative helper)
+> - `include/MyEngine/renderer/debug_utils.h` + `src/renderer/debug_utils.cpp` (O VK_EXT_debug_utils helpers)
+> - `include/MyEngine/renderer/async_compute.h` (M receptacle)
+> - `include/MyEngine/renderer/auto_exposure.h` (V stub)
+> - `include/MyEngine/renderer/taa_history.h` (R stub)
+> - `include/MyEngine/renderer/gpu_skinning.h` (S stub)
+> - `include/MyEngine/renderer/persistent_object_buffer.h` (H stub)
+> - `include/MyEngine/renderer/sky_atmosphere.h` (X stub)
+> - `include/MyEngine/renderer/decal_pass.h` (Y stub)
+> - `include/MyEngine/renderer/bc7_texture.h` (P stub)
+> - `include/MyEngine/core/job_system.h` (U receptacle)
+>
+> ---
+>
+> **【参考: 前 chunk の引き継ぎ (履歴)】 — PART4 §6 4c 完了 = two-pass HZB occlusion 本体 + Tier 1 α (Nanite/Granite 2024 baseline) + 1-tap minmax fast path / 2026-05-29, 8 commits = ad97879 / 477985d / f242327 / 7e446a9 / e41cfd7 / 91a6885 / 2f7daf9 / ccf5c03】**
 > - **4c-A (ad97879)**: half-extent (`CullObject.extentDrawId.xyz`) 充填 + `HiZPass::previousPyramidView()` accessor (受け皿)。
 > - **4c-B (477985d)**: capability getters (`samplerFilterMinmax`, async compute family) + `HizParams` BDA buffer + cull.comp helpers (`aabbScreenBounds` / `mipFromScreenSize`)・gate-off で dead-code 配置。
 > - **4c-C (f242327)**: full machinery — HiZPass `minReductionSampler` (samplerFilterMinmax 有効時に reductionMode=MIN) + `ensureAllSlotsInGeneral` + per-drawId 永続 1bit `visHistory` buffer + descriptor set 0 (HZB samplers) + cull.comp pass1/2 paths + main_pass `Pass enum` + loadOp 分岐。 gate-off で merge。
@@ -202,6 +298,22 @@
 > 詳細は下記「直近の完了」の PART3a 完了ブロック、Codebase_Guide §2 (geometry_buffer/deletion_queue) + §3.5、Work_Protocol §5b/§5c、依存マップ §6。
 
 - **直近の完了**:
+  - **最新化マラソン 28 commits 完了 (2026-05-29, 995b779 .. 641abcb)**: Foundations §1-4 + Vulkan13 §1-6 + Open-world receptacles を一気通貫で実装。 詳細は引き継ぎブロック冒頭。 主要マイルストーン:
+    - **A1-A6**: buffer 系 VMA 化マラソン + **エンジン内 生 vkAllocateMemory ゼロ達成**
+    - **E + E clean**: Foundations §1 ★★★ camera-relative 全 10 site wire-up (toEngineRelative helper 経由)
+    - **F1-F5**: Foundations §8.1 固定容量一族 (Material/Instance/Skin/Particle/DebugLine) 全部 dynamic 化
+    - **G**: BindlessTextureRegistry free-list + slot reuse
+    - **N**: VK_EXT_memory_priority 実利用 (allocator bit + 全 factory に priority 設定)
+    - **O**: VK_EXT_debug_utils GPU markers (8 pass label・debug_utils.{h,cpp} 新設)
+    - **W**: VK_LAYER_KHRONOS_synchronization_validation 有効化 + 即発見 swapchain hazard 修正
+    - **C**: transfer queue family + queue 取得 (P620 family 1 dedicated)
+    - **I**: VK_EXT_memory_budget enable + allocator bit
+    - **B**: **FrameSync の per-frame VkFence array → 単一 timeline semaphore に migration**。 副次効果 = 20 件の CullingPass cross-frame hazards 撲滅
+    - **D+L+K+T+Z+J+Q**: 8 receptacle 取得 → 5 (L/K/K/Z/J/Q) を実 enable (extension push + feature struct chain)
+    - **U**: JobSystem header-only worker thread pool 受け皿 (init(0) で inert-friendly)
+    - **M**: AsyncCompute timeline semaphore receptacle (header-only)
+    - **V/R/S/H/X/Y/P**: 7 rendering-technique design-memo headers (init/shutdown 空・Phase 着手時に実装)
+    - 詳細な妥協度評価 + P620 [Caps] 30 capability 一覧 + 新規ファイル一覧は引き継ぎブロック参照
   - **PART4 4d Pure GPU-driven cleanup 完了 (2026-05-29, commit f8d1e1f)**: HUD `Cull : 0 / 67` がどこを向いても 0 だった件の根本対応。 4-前-4 (15b89ad) で compactCmd が device-local 化されて以降、 旧 host-mapped readback 経路の `lastVisible_[]` を更新する code path が断たれて HUD は永久 0 だった (props は GPU compactCmd 経由で正常描画されていたため動作上は健全)。 option B 採用 = 純 GPU-driven の本来形 = HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up (`lastVisible_[]` / `lastCpuVisible_` / `lastGpuVisible` / `lastCpuVisible` / `lastCullGpuVisible_` / `lastCullTotal_` / `cullGpuVisible` / `cullTotal` / 各 getter ×6 + 代入 site ×4 + HUD field ×2) を 8 files +2 -51 で一括撤去。 struct size 変更 (§3-1a) で clean rebuild + mspdbsrv kill (§3-3) を実行。 Vulkan init + asset load + ReflectionPass rebuild + ModelLoader まで validation エラー / VUID / leak 0 で通過、 user 目視「画面 OK / Cull 行 HUD から消えている」確認済み。 同一フレーム精密照合が要る場合は別 commit で countBuf を small staging に CopyBuffer する形で復活可能。
   - **PART4 4c 完了 (2026-05-29, 8 commits ad97879 / 477985d / f242327 / 7e446a9 / e41cfd7 / 91a6885 / 2f7daf9 / ccf5c03)**: two-pass HZB occlusion 本体 + Tier 1 α (Nanite/Granite 2024 baseline) + 1-tap minmax fast path。 `CullingPass` に `executePass1` / `executePass2` 経路 + per-drawId 永続 `visHistory` 1bit buffer + HZB descriptor set (UPDATE_AFTER_BIND)、 `cull.comp` に `hzbSampleMinR` (spec const で 1-tap/4-tap 分岐)、 `MainPass` に `Pass enum` (Single / FirstOpaque / SecondAndNonOpaque) + loadOp 分岐 + `toAttach` skip 修正、 `pass_chain` が `Cull1→Main(First)→HiZ→depth barrier→Cull2→Main(Second)` をオーケストレート。 user 目視「画面正常」確認 (青背景の chest/gravestone/wall も正常描画)。 詳細は引き継ぎブロック参照。
   - **PART4 4d 大半完了 (2026-05-29, 10 commits = 082d792 / 4b9c32c / da74526 / 33e1511 / 47c3571 / a62b7f0 / fcef5ab / 7298968 / c01c2e5 / 1481049)**: audit-driven 最新技術取り込み。 α (4b Obs B sync2 fix) + γ × 3 (Post/Shadow/Reflection 全 dynamic rendering 化 = engine 全体で VkRenderPass/VkFramebuffer 実 API 使用ゼロ) + M3 (dynamic_rendering_local_read 受け皿) + M1 (**persistent VkPipelineCache** = Vulkan13 §3 Y closed、 全 14 vkCreate*Pipelines callsite が ctx_->pipelineCache() 経由、 user clean exit で 490KB 書き出し実証) + M2 (sync2 generic layouts へ全面置換・depth_layouts.h ヘルパ撤去で -45 行) + N1 (pipelineCreationCacheControl enable) + N4 (**Vulkan14Features chain 追加**・maintenance5/6 enable・engine が API 1.4 で動作中なのに 1.4 features を一切 enable してない構造欠陥を修正) + N2/N3 (graphics_pipeline_library / pipeline_binary 受け皿)。 P620 [Caps] 18 capability 中 17 が =1 で実走。 詳細は引き継ぎブロック参照。
