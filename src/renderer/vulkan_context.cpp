@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <set>
@@ -112,6 +113,11 @@ void VulkanContext::init(SDL_Window* window) {
     pickPhysicalDevice();
         createDevice();
 
+    // PART4 4d M1: persistent pipeline cache. Load before any vk*Pipelines
+    // create call (which all happen later in renderer init); shutdown
+    // saves back to disk.
+    createPipelineCache();
+
     // -------------------------------------------------------------------------
     // VMA (Vulkan Memory Allocator) initialization.
     // BUFFER_DEVICE_ADDRESS flag enables BDA buffers throughout the engine.
@@ -131,13 +137,18 @@ void VulkanContext::init(SDL_Window* window) {
 }
 
 void VulkanContext::shutdown() {
-    // 破棄順序: Device → Surface → DebugMessenger → Instance
+    // 破棄順序: Pipeline cache (save+release) → VMA → Device → Surface → DebugMessenger → Instance
     if (device_ != VK_NULL_HANDLE) {
+    // PART4 4d M1: persist the pipeline cache to disk + release the handle
+    // BEFORE vkDestroyDevice (the cache holds device-owned data).
+    savePipelineCache();
+    pipelineCache_.reset();
+
     if (allocator_ != VK_NULL_HANDLE) {
         vmaDestroyAllocator(allocator_);
         allocator_ = VK_NULL_HANDLE;
     }
-    
+
         vkDestroyDevice(device_, nullptr);
         device_ = VK_NULL_HANDLE;
     }
@@ -606,4 +617,91 @@ VkFormat VulkanContext::findDepthFormat() const {
             return fmt;
     }
     throw std::runtime_error("findDepthFormat: no supported depth format");
+}
+
+// =============================================================================
+// PART4 4d M1: Persistent Pipeline Cache (Vulkan13 §3 Y)
+// =============================================================================
+//
+// Stores compiled pipeline binaries to <SDL_GetPrefPath>/pipeline.cache so
+// subsequent runs skip the shader-compile step. Vulkan ignores cached data
+// whose header / pipelineCacheUUID doesn't match the current driver, so
+// driver updates invalidate the cache transparently (no manual versioning).
+//
+// All vkCreate{Graphics,Compute}Pipelines callers pass pipelineCache_ via
+// VulkanContext::pipelineCache(); the cache is created BEFORE any pipeline
+// in init() (right after createDevice) and saved + released BEFORE
+// vkDestroyDevice in shutdown().
+//
+// First run: file doesn't exist -> create empty cache; shutdown writes the
+// file. Subsequent runs: load + create with initial data; shutdown overwrites.
+
+void VulkanContext::createPipelineCache() {
+    if (device_ == VK_NULL_HANDLE) return;
+
+    // Resolve user pref path matching SettingsIO's convention.
+    char* prefPath = SDL_GetPrefPath("MyEngine", "MyEngine");
+    if (prefPath) {
+        pipelineCachePath_ = std::string(prefPath) + "pipeline.cache";
+        SDL_free(prefPath);
+    } else {
+        const char* basePath = SDL_GetBasePath();
+        pipelineCachePath_ = (basePath ? std::string(basePath) : std::string{}) + "pipeline.cache";
+        std::cerr << "[PipelineCache] WARNING: SDL_GetPrefPath failed, falling back to "
+                  << pipelineCachePath_ << "\n";
+    }
+
+    // Try to load prior cache content. Vulkan validates the header (UUID,
+    // device ID, vendor ID, driver version) and ignores mismatched data.
+    std::vector<char> initialData;
+    {
+        std::ifstream in(pipelineCachePath_, std::ios::binary | std::ios::ate);
+        if (in) {
+            const std::streamsize size = in.tellg();
+            if (size > 0) {
+                in.seekg(0);
+                initialData.resize(static_cast<size_t>(size));
+                in.read(initialData.data(), size);
+                if (!in) initialData.clear();  // partial read = treat as empty
+            }
+        }
+    }
+
+    VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    ci.initialDataSize = initialData.size();
+    ci.pInitialData = initialData.empty() ? nullptr : initialData.data();
+    VkPipelineCache cache = VK_NULL_HANDLE;
+    if (vkCreatePipelineCache(device_, &ci, nullptr, &cache) != VK_SUCCESS) {
+        std::cerr << "[PipelineCache] WARNING: vkCreatePipelineCache failed, continuing without cache\n";
+        return;
+    }
+    pipelineCache_ = VkUnique<VkPipelineCache>(device_, cache);
+    std::cout << "[PipelineCache] " << (initialData.empty() ? "fresh (no prior data)" : "loaded")
+              << " from '" << pipelineCachePath_ << "' (" << initialData.size() << " B)\n";
+}
+
+void VulkanContext::savePipelineCache() {
+    if (device_ == VK_NULL_HANDLE || !pipelineCache_ || pipelineCachePath_.empty()) return;
+
+    // Two-call pattern: query size first, then allocate + fetch.
+    size_t size = 0;
+    if (vkGetPipelineCacheData(device_, pipelineCache_.get(), &size, nullptr) != VK_SUCCESS ||
+        size == 0) {
+        return;
+    }
+    std::vector<char> data(size);
+    if (vkGetPipelineCacheData(device_, pipelineCache_.get(), &size, data.data()) != VK_SUCCESS) {
+        return;
+    }
+
+    std::ofstream out(pipelineCachePath_, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        std::cerr << "[PipelineCache] WARNING: failed to open '" << pipelineCachePath_
+                  << "' for write\n";
+        return;
+    }
+    out.write(data.data(), static_cast<std::streamsize>(size));
+    if (out) {
+        std::cout << "[PipelineCache] saved " << size << " B to '" << pipelineCachePath_ << "'\n";
+    }
 }

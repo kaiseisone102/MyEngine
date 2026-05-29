@@ -31,6 +31,9 @@
 VK_DEFINE_HANDLE(VmaAllocator)
 
 #include <cstdint>
+#include <string>
+
+#include "renderer/vk_unique.h"  // PART4 4d M1: pipeline-cache VkUnique member
 
 class VulkanContext {
    public:
@@ -143,6 +146,18 @@ class VulkanContext {
     // VK_KHR_dynamic_rendering_local_read extension queried by ext name.
     bool dynamicRenderingLocalRead() const { return dynamicRenderingLocalRead_; }
 
+    // PART4 4d M1 (Vulkan13 §3 Y): persistent pipeline cache. All vk*Pipelines
+    // creation flows pass this handle so the driver de-dupes shader compile
+    // cost across runs. shutdown() reads the cache back via
+    // vkGetPipelineCacheData and writes it to the user pref-path file
+    // (`<SDL_GetPrefPath>/pipeline.cache`); init() restores it on next run.
+    // First-run gives an empty cache (vkCreatePipelineCache succeeds with
+    // initialDataSize = 0); the file appears at shutdown. Cache is keyed by
+    // pipelineCacheUUID baked into the binary, so driver updates invalidate
+    // the cache automatically (Vulkan ignores mismatched headers, falls back
+    // to compiling fresh).
+    VkPipelineCache pipelineCache() const { return pipelineCache_.get(); }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -208,6 +223,14 @@ class VulkanContext {
     // PART4 4d M3: queried Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
     // Phase 3 SS effects activate it; today it's a receptacle.
     bool dynamicRenderingLocalRead_ = false;
+
+    // PART4 4d M1: persistent pipeline cache (Vulkan13 §3 Y). createPipelineCache
+    // loads from disk + vkCreatePipelineCache; savePipelineCache writes back at
+    // shutdown. Path is resolved via SDL_GetPrefPath to match settings.json.
+    VkUnique<VkPipelineCache> pipelineCache_;
+    std::string pipelineCachePath_;
+    void createPipelineCache();
+    void savePipelineCache();
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

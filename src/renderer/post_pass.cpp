@@ -244,7 +244,7 @@ void PostPass::createPipeline(const std::string& shaderDir) {
     pci.subpass = 0;
 
     VkPipeline pipe = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipe) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(ctx_->device(), ctx_->pipelineCache(), 1, &pci, nullptr, &pipe) != VK_SUCCESS) {
         vkDestroyShaderModule(ctx_->device(), frag, nullptr);
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
         throw std::runtime_error("PostPass: vkCreateGraphicsPipelines failed");

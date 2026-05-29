@@ -307,7 +307,7 @@ void HiZPass::createPipeline(const std::string& shaderDir) {
     cci.stage = stage;
     cci.layout = pipelineLayout_.get();
     VkPipeline p = VK_NULL_HANDLE;
-    VkResult r = vkCreateComputePipelines(ctx_->device(), VK_NULL_HANDLE, 1, &cci, nullptr, &p);
+    VkResult r = vkCreateComputePipelines(ctx_->device(), ctx_->pipelineCache(), 1, &cci, nullptr, &p);
     vkDestroyShaderModule(ctx_->device(), mod, nullptr);
     if (r != VK_SUCCESS) throw std::runtime_error("HiZPass: vkCreateComputePipelines failed");
     pipeline_ = VkUnique<VkPipeline>(ctx_->device(), p);

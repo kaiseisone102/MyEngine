@@ -49,6 +49,7 @@ namespace {
 
 struct ShadowPipelineParams {
     VkDevice device;
+    VkPipelineCache cache;  // PART4 4d M1: persistent pipeline cache from VulkanContext
     VkFormat depthFormat;
     VkPipelineLayout layout;
     VkShaderModule vert;
@@ -138,7 +139,7 @@ VkPipeline createShadowPipeline(const ShadowPipelineParams& p) {
     pci.subpass = 0;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(p.device, VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline) !=
+    if (vkCreateGraphicsPipelines(p.device, p.cache, 1, &pci, nullptr, &pipeline) !=
         VK_SUCCESS) {
         throw std::runtime_error("ShadowPass: vkCreateGraphicsPipelines failed");
     }
@@ -171,7 +172,7 @@ void ShadowPass::createStaticPipeline(VkDescriptorSetLayout frameSetLayout,
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), depthFormat_, staticLayout_.get(), vert, false};
+        ShadowPipelineParams p{ctx_->device(), ctx_->pipelineCache(), depthFormat_, staticLayout_.get(), vert, false};
         staticPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);
@@ -202,7 +203,7 @@ void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
     VkShaderModule vert =
         shader_util::loadShaderModule(ctx_->device(), shaderDir + "shadow_skinned_vert.spv");
     try {
-        ShadowPipelineParams p{ctx_->device(), depthFormat_, skinnedLayout_.get(), vert, true};
+        ShadowPipelineParams p{ctx_->device(), ctx_->pipelineCache(), depthFormat_, skinnedLayout_.get(), vert, true};
         skinnedPipeline_ = VkUnique<VkPipeline>(ctx_->device(), createShadowPipeline(p));
     } catch (...) {
         vkDestroyShaderModule(ctx_->device(), vert, nullptr);

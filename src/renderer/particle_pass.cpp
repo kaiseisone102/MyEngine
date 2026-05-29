@@ -180,7 +180,7 @@ void ParticlePass::createPipeline(const std::string& shaderDir) {
 
     VkPipeline pipe = VK_NULL_HANDLE;
     const VkResult r =
-        vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pci, nullptr, &pipe);
+        vkCreateGraphicsPipelines(ctx_->device(), ctx_->pipelineCache(), 1, &pci, nullptr, &pipe);
 
     vkDestroyShaderModule(ctx_->device(), vert, nullptr);
     vkDestroyShaderModule(ctx_->device(), frag, nullptr);

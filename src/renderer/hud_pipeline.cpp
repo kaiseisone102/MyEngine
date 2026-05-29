@@ -136,7 +136,7 @@ void HudPipeline::createPipeline(const std::string& shaderDir) {
     pi.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipe = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(ctx_->device(), VK_NULL_HANDLE, 1, &pi, nullptr, &pipe) !=
+    if (vkCreateGraphicsPipelines(ctx_->device(), ctx_->pipelineCache(), 1, &pi, nullptr, &pipe) !=
         VK_SUCCESS) {
         throw std::runtime_error("HudPipeline: vkCreateGraphicsPipelines failed");
     }

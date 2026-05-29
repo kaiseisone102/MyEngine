@@ -271,7 +271,7 @@ void BloomPass::createPipelines(const std::string& shaderDir) {
         ci.stage = stage;
         ci.layout = pipelineLayout_.get();
         VkPipeline p = VK_NULL_HANDLE;
-        VkResult r = vkCreateComputePipelines(ctx_->device(), VK_NULL_HANDLE, 1, &ci, nullptr, &p);
+        VkResult r = vkCreateComputePipelines(ctx_->device(), ctx_->pipelineCache(), 1, &ci, nullptr, &p);
         vkDestroyShaderModule(ctx_->device(), mod, nullptr);
         if (r != VK_SUCCESS) throw std::runtime_error("BloomPass: vkCreateComputePipelines failed");
         return p;
