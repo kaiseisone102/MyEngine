@@ -2,135 +2,60 @@
 
 #include "renderer/mesh.h"
 
-#include <tiny_obj_loader.h>
+#include <vector>
 
-#include <cstring>
-#include <stdexcept>
-#include <unordered_map>
-
-#include "renderer/resource_factory.h"
-#include "renderer/vulkan_context.h"
 #include "renderer/geometry_buffer.h"
-
-void Mesh::loadFromObj(const VulkanContext* ctx, const ResourceFactory* resources,
-                       const std::string& path, GeometryBuffer* geom) {
-    ctx_ = ctx;
-
-    // 1) OBJ をパースして CPU 側データを組み立てる
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
-
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str())) {
-        throw std::runtime_error("Mesh::loadFromObj: " + warn + err);
-    }
-
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    std::unordered_map<Vertex, uint32_t> uniqueVertices;
-
-    for (const auto& shape : shapes) {
-        for (const auto& index : shape.mesh.indices) {
-            Vertex v{};
-            v.pos = {attrib.vertices[3 * index.vertex_index + 0],
-                     attrib.vertices[3 * index.vertex_index + 1],
-                     attrib.vertices[3 * index.vertex_index + 2]};
-
-            // OBJ は V 軸が下→上、Vulkan は上→下なので反転
-            if (index.texcoord_index >= 0) {
-                v.texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
-                              1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
-            }
-
-            if (index.normal_index >= 0) {
-                v.normal = {attrib.normals[3 * size_t(index.normal_index) + 0],
-                            attrib.normals[3 * size_t(index.normal_index) + 1],
-                            attrib.normals[3 * size_t(index.normal_index) + 2]};
-            } else {
-                v.normal = {0.f, 1.f, 0.f};
-            }
-
-            v.color = {1.f, 1.f, 1.f};
-
-            if (uniqueVertices.count(v) == 0) {
-                uniqueVertices[v] = static_cast<uint32_t>(vertices.size());
-                vertices.push_back(v);
-            }
-            indices.push_back(uniqueVertices[v]);
-        }
-    }
-
-    // 2) GPU 転送: geom があれば共有 megabuffer に alloc、無ければ従来の private buffer。
-    if (geom) {
-        const MeshHandle h = geom->alloc(vertices, indices);
-        geom_ = geom;
-        firstIndex_ = h.firstIndex;
-        vertexOffset_ = h.vertexOffset;
-        blockIndex_ = h.blockIndex;
-        indexCount_ = h.indexCount;
-    } else {
-        indexCount_ = static_cast<uint32_t>(indices.size());
-        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
-    }
-}
+#include "renderer/vulkan_context.h"
 
 // =============================================================================
-// createCube — 足元基準の 1x1x1 cube をコードで生成
+// createCube - foot-based 1x1x1 cube generated in code (no .obj file needed)
 // =============================================================================
-// 頂点座標:
+// Vertex coords:
 //   X: [-0.5, +0.5]
-//   Y: [ 0  ,  1  ]   ← 足元基準
+//   Y: [ 0  ,  1  ]   foot-based
 //   Z: [-0.5, +0.5]
 //
-// scale 適用後の AABB は AABB::fromBottomCenter(pos, scale) と完全に一致:
+// After scale, the AABB equals AABB::fromBottomCenter(pos, scale):
 //   X: [pos.x - scale.x*0.5, pos.x + scale.x*0.5]
 //   Y: [pos.y, pos.y + scale.y]
 //   Z: [pos.z - scale.z*0.5, pos.z + scale.z*0.5]
 //
-// 6 面 × 4 頂点 = 24 頂点 (面ごとに別頂点。 法線と UV が面ごとに異なるため共有不可)。
-// 6 面 × 2 三角形 = 12 三角形 = 36 インデックス。
+// 6 faces x 4 vertices = 24 vertices (per-face vertices; normal/UV differ).
+// 6 faces x 2 triangles = 12 triangles = 36 indices.
 //
-// 巻き方向:
-//   Vulkan の規約 (front face = CCW、 cullMode=BACK) に合わせて、
-//   外側から見て CCW になるように頂点順を選ぶ。
+// Winding: CCW seen from outside (Vulkan front face = CCW, cullMode = BACK).
 // =============================================================================
-void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources,
-                      GeometryBuffer* geom) {
+void Mesh::createCube(const VulkanContext* ctx, GeometryBuffer* geom) {
     ctx_ = ctx;
 
-    // 立方体の 8 隅 (足元基準: Y は [0, 1])
-    //   y=0 (底面)              y=1 (上面)
+    // 8 corners of the cube (foot-based: Y in [0, 1])
+    //   y=0 (bottom)             y=1 (top)
     //     (-x,0,+z) (+x,0,+z)     (-x,1,+z) (+x,1,+z)
     //     (-x,0,-z) (+x,0,-z)     (-x,1,-z) (+x,1,-z)
-    const float h = 0.5f;  // 水平方向のハーフサイズ
+    const float h = 0.5f;  // horizontal half-size
 
-    // 各面 (法線、 4 頂点の座標) を定義し、 UV と triangulation を共通処理。
+    // Each face: normal + 4 corners (CCW from outside). UV and triangulation shared.
     struct Face {
         glm::vec3 normal;
-        glm::vec3 corners[4];  // 反時計回り (外から見て)
+        glm::vec3 corners[4];
     };
 
     const Face faces[6] = {
-        // +Y (上面)
+        // +Y (top)
         {{0.f, 1.f, 0.f}, {{-h, 1.f, -h}, {-h, 1.f, +h}, {+h, 1.f, +h}, {+h, 1.f, -h}}},
-        // -Y (底面)
+        // -Y (bottom)
         {{0.f, -1.f, 0.f}, {{-h, 0.f, +h}, {-h, 0.f, -h}, {+h, 0.f, -h}, {+h, 0.f, +h}}},
-        // +X (右面)
+        // +X (right)
         {{1.f, 0.f, 0.f}, {{+h, 0.f, -h}, {+h, 1.f, -h}, {+h, 1.f, +h}, {+h, 0.f, +h}}},
-        // -X (左面)
+        // -X (left)
         {{-1.f, 0.f, 0.f}, {{-h, 0.f, +h}, {-h, 1.f, +h}, {-h, 1.f, -h}, {-h, 0.f, -h}}},
-        // +Z (奥面)
+        // +Z (back)
         {{0.f, 0.f, 1.f}, {{+h, 0.f, +h}, {+h, 1.f, +h}, {-h, 1.f, +h}, {-h, 0.f, +h}}},
-        // -Z (前面)
+        // -Z (front)
         {{0.f, 0.f, -1.f}, {{-h, 0.f, -h}, {-h, 1.f, -h}, {+h, 1.f, -h}, {+h, 0.f, -h}}},
     };
 
-    // UV: 各面で (0,0)→(0,1)→(1,1)→(1,0) (左下→左上→右上→右下)。
-    // V 反転は loadFromObj と異なり、 ここでは画像座標と直接対応させる。
+    // UV per face: (0,1) -> (0,0) -> (1,0) -> (1,1)  (bot-left, top-left, top-right, bot-right)
     const glm::vec2 uvs[4] = {{0.f, 1.f}, {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}};
 
     std::vector<Vertex> vertices;
@@ -146,10 +71,8 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
             v.color = {1.f, 1.f, 1.f};
             v.texCoord = uvs[i];
             v.normal = f.normal;
-            // jointIndices / jointWeights は default 初期化で 0
             vertices.push_back(v);
         }
-        // 4 頂点を 2 三角形に: (0,1,2) と (0,2,3) (反時計回り = 外向き)
         indices.push_back(baseIdx + 0);
         indices.push_back(baseIdx + 1);
         indices.push_back(baseIdx + 2);
@@ -158,33 +81,24 @@ void Mesh::createCube(const VulkanContext* ctx, const ResourceFactory* resources
         indices.push_back(baseIdx + 3);
     }
 
-    if (geom) {
-        const MeshHandle h = geom->alloc(vertices, indices);
-        geom_ = geom;
-        firstIndex_ = h.firstIndex;
-        vertexOffset_ = h.vertexOffset;
-        blockIndex_ = h.blockIndex;
-        indexCount_ = h.indexCount;
-    } else {
-        indexCount_ = static_cast<uint32_t>(indices.size());
-        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
-    }
+    const MeshHandle handle = geom->alloc(vertices, indices);
+    geom_ = geom;
+    firstIndex_ = handle.firstIndex;
+    vertexOffset_ = handle.vertexOffset;
+    blockIndex_ = handle.blockIndex;
+    indexCount_ = handle.indexCount;
 }
 
 // =============================================================================
-// createCrossQuad - Phase 1F: 2 vertical quads crossed at 90 deg, for grass
+// createCrossQuad - Phase 1F: 2 vertical quads crossed at 90 deg, for grass.
+// Each quad is split into 2 vertical segments (3 rows) so a future wind shader
+// can bend only the upper part. The blade shape (multiple thin leaves) comes
+// from the texture, not the mesh.
 // =============================================================================
-void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* resources,
-                           GeometryBuffer* geom) {
+void Mesh::createCrossQuad(const VulkanContext* ctx, GeometryBuffer* geom) {
     ctx_ = ctx;
     const float h = 0.5f;  // half-width in X/Z
 
-    // Two flat quads crossed at 90 deg. Each quad is split into 2 vertical
-    // segments (3 rows) so a future wind shader can bend only the upper part.
-    // The blade SHAPE (multiple thin leaves) comes from the texture, not the mesh.
     const float rowY[3] = {0.0f, 0.5f, 1.0f};
     struct Plane { int axis; glm::vec3 normal; };
     const Plane planes[2] = {
@@ -220,59 +134,17 @@ void Mesh::createCrossQuad(const VulkanContext* ctx, const ResourceFactory* reso
             indices.push_back(a); indices.push_back(d); indices.push_back(b);
         }
     }
-    if (geom) {
-        const MeshHandle h = geom->alloc(vertices, indices);
-        geom_ = geom;
-        firstIndex_ = h.firstIndex;
-        vertexOffset_ = h.vertexOffset;
-        blockIndex_ = h.blockIndex;
-        indexCount_ = h.indexCount;
-    } else {
-        indexCount_ = static_cast<uint32_t>(indices.size());
-        uploadBuffer(resources, vertices.data(), sizeof(Vertex) * vertices.size(),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_, vertexBufferMemory_);
-        uploadBuffer(resources, indices.data(), sizeof(uint32_t) * indices.size(),
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_, indexBufferMemory_);
-    }
-}
 
-void Mesh::uploadBuffer(const ResourceFactory* resources, const void* src, VkDeviceSize size,
-                        VkBufferUsageFlags usage, VkUnique<VkBuffer>& buffer,
-                        VkUnique<VkDeviceMemory>& memory) const {
-    // staging(HOST_VISIBLE)→ device-local (高速)
-    VkBuffer staging{};
-    VkDeviceMemory stagingMem{};
-    resources->createBuffer(
-        size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging,
-        stagingMem);
-
-    void* data = nullptr;
-    vkMapMemory(ctx_->device(), stagingMem, 0, size, 0, &data);
-    std::memcpy(data, src, static_cast<size_t>(size));
-    vkUnmapMemory(ctx_->device(), stagingMem);
-
-    VkBuffer buf = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    resources->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buf, mem);
-    buffer = VkUnique<VkBuffer>(ctx_->device(), buf);
-    memory = VkUnique<VkDeviceMemory>(ctx_->device(), mem);
-    resources->copyBuffer(staging, buffer.get(), size);
-
-    vkDestroyBuffer(ctx_->device(), staging, nullptr);
-    vkFreeMemory(ctx_->device(), stagingMem, nullptr);
+    const MeshHandle handle = geom->alloc(vertices, indices);
+    geom_ = geom;
+    firstIndex_ = handle.firstIndex;
+    vertexOffset_ = handle.vertexOffset;
+    blockIndex_ = handle.blockIndex;
+    indexCount_ = handle.indexCount;
 }
 
 void Mesh::bind(VkCommandBuffer cmd) const {
-    if (geom_) {
-        geom_->bindBlock(cmd, blockIndex_);  // shared megabuffer; draw uses firstIndex()/vertexOffset()
-        return;
-    }
-    const VkDeviceSize offset = 0;
-    VkBuffer vb = vertexBuffer_.get();
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer_.get(), 0, VK_INDEX_TYPE_UINT32);
+    geom_->bindBlock(cmd, blockIndex_);  // draw uses firstIndex()/vertexOffset()
 }
 
 void Mesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
@@ -280,15 +152,4 @@ void Mesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
     bind(cmd);
     vkCmdDrawIndexed(cmd, indexCount(), instanceCount, firstIndex(), vertexOffset(),
                      firstInstance);
-}
-
-void Mesh::destroy() {
-    // VkUnique frees each handle (no-op if empty). The auto destructor would do
-    // the same if destroy() were never called.
-    indexBuffer_.reset();
-    indexBufferMemory_.reset();
-    vertexBuffer_.reset();
-    vertexBufferMemory_.reset();
-    indexCount_ = 0;
-    ctx_ = nullptr;
 }

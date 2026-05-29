@@ -59,7 +59,7 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
 void AssetRegistry::createDefaultMesh() {
     // 既定 cube mesh: 足元基準 [-0.5,+0.5] x [0,1] x [-0.5,+0.5] のコード生成。
     // cube.obj ファイル不要。 物理 AABB (足元基準) と完全に一致する。
-    defaultMesh_.createCube(ctx_, resources_, &geometry_);
+    defaultMesh_.createCube(ctx_, &geometry_);
 }
 
 void AssetRegistry::createSharedFlatTerrain() {
@@ -77,7 +77,7 @@ void AssetRegistry::createSharedFlatTerrain() {
 }
 
 void AssetRegistry::createGrass() {
-    grassMesh_.createCrossQuad(ctx_, resources_, &geometry_);
+    grassMesh_.createCrossQuad(ctx_, &geometry_);
     const int W = 128, H = 128;
     std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
 
