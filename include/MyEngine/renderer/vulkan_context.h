@@ -146,6 +146,20 @@ class VulkanContext {
     // VK_KHR_dynamic_rendering_local_read extension queried by ext name.
     bool dynamicRenderingLocalRead() const { return dynamicRenderingLocalRead_; }
 
+    // PART4 4d N1 (Vulkan 1.3 core / VK_EXT_pipeline_creation_cache_control):
+    // when true, callers can pass VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_
+    // REQUIRED_BIT in Vk*PipelineCreateInfo::flags. The driver then REJECTS
+    // pipeline creation that would require a fresh compile, returning
+    // VK_PIPELINE_COMPILE_REQUIRED instead of stalling for ~10-100ms while
+    // it runs the shader compiler. CRITICAL for open-world streaming: a
+    // streamed-in cell that triggers an unseen material variant can be
+    // marked "skip this frame, schedule async compile" instead of hitching
+    // the present chain. 4d N1 enables the feature; actual streaming
+    // pipeline creation paths (Phase 2A clustered light variants, Phase 3
+    // SS effect specialisations) opt in by setting the flag and handling
+    // the VK_PIPELINE_COMPILE_REQUIRED return.
+    bool pipelineCreationCacheControl() const { return pipelineCreationCacheControl_; }
+
     // PART4 4d M1 (Vulkan13 §3 Y): persistent pipeline cache. All vk*Pipelines
     // creation flows pass this handle so the driver de-dupes shader compile
     // cost across runs. shutdown() reads the cache back via
@@ -223,6 +237,11 @@ class VulkanContext {
     // PART4 4d M3: queried Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
     // Phase 3 SS effects activate it; today it's a receptacle.
     bool dynamicRenderingLocalRead_ = false;
+
+    // PART4 4d N1: queried Vulkan 1.3 core pipelineCreationCacheControl.
+    // Streaming pipeline creation (Phase 2A / Phase 3) sets
+    // FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT to avoid present-chain hitch.
+    bool pipelineCreationCacheControl_ = false;
 
     // PART4 4d M1: persistent pipeline cache (Vulkan13 §3 Y). createPipelineCache
     // loads from disk + vkCreatePipelineCache; savePipelineCache writes back at

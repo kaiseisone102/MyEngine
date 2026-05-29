@@ -451,6 +451,10 @@ void VulkanContext::createDevice() {
     // PART4 4d M3: Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
     // Receptacle today (no caller); Phase 3 SS effects activate it.
     dynamicRenderingLocalRead_ = (supportedLocalRead.dynamicRenderingLocalRead == VK_TRUE);
+    // PART4 4d N1: Vulkan 1.3 core pipelineCreationCacheControl. Streaming
+    // pipeline creation paths use FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT to
+    // skip-with-fallback instead of hitching on a fresh compile.
+    pipelineCreationCacheControl_ = (supportedVk13.pipelineCreationCacheControl == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -509,6 +513,7 @@ void VulkanContext::createDevice() {
               << " asyncComputeFamily=" << asyncComputeFamily_
               << " (dedicated=" << (asyncComputeFamily_ != graphicsFamily_ ? 1 : 0) << ")"
               << " dynamicRenderingLocalRead=" << (dynamicRenderingLocalRead_ ? 1 : 0)
+              << " pipelineCreationCacheControl=" << (pipelineCreationCacheControl_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
@@ -557,6 +562,12 @@ void VulkanContext::createDevice() {
     vk13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     vk13Features.synchronization2 = synchronization2_ ? VK_TRUE : VK_FALSE;
     vk13Features.dynamicRendering = dynamicRendering_ ? VK_TRUE : VK_FALSE;
+    // PART4 4d N1: pipelineCreationCacheControl for streaming-friendly
+    // pipeline creation (VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_
+    // REQUIRED_BIT). Receptacle for Phase 2A clustered light variants +
+    // Phase 3 SS effect specialisations.
+    vk13Features.pipelineCreationCacheControl =
+        pipelineCreationCacheControl_ ? VK_TRUE : VK_FALSE;
     vk12Features.pNext = &vk13Features;
 
     // PART4 4d M3 (Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read):
