@@ -36,7 +36,7 @@ void VulkanRenderer::init(SDL_Window* window) {
 
     frameUniforms_.init(&ctx_, &resources_);
 
-    skinBufferPool_.init(&ctx_, &resources_);
+    skinBufferPool_.init(&ctx_, &resources_, &deletionQueue_);
 
     {
         PassChain::InitInfo info{};

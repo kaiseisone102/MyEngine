@@ -81,7 +81,7 @@ DebugOverlayData buildDebugOverlayData(GameState& gameState) {
     d.shieldType = sh.type;
     d.shieldDurability = sh.durability;
     d.skinnedAllocated = static_cast<int>(pool.allocatedCount());
-    d.skinnedCapacity = static_cast<int>(SkinBufferPool::MAX_ENTITIES);
+    d.skinnedCapacity = static_cast<int>(pool.capacity());
     d.instancedVisible = gameState.worldState.data.vulkan.instancedVisible();
     d.instancedTotal = gameState.worldState.data.vulkan.instancedTotal();
 
@@ -178,7 +178,7 @@ void debugSpawnBurst(GameState& gameState, int count) {
 
     std::cout << "[Debug F12] Burst spawn: " << spawned << " succeeded, " << failed
               << " failed (Pool: " << wd.vulkan.skinBufferPool().allocatedCount() << "/"
-              << SkinBufferPool::MAX_ENTITIES << ")\n";
+              << wd.vulkan.skinBufferPool().capacity() << ")\n";
 }
 
 void debugClearEnemies(GameState& gameState) {
@@ -190,7 +190,7 @@ void debugClearEnemies(GameState& gameState) {
     wd.enemies.clear();
     std::cout << "[Debug F11] Cleared " << before
               << " enemies (Pool: " << wd.vulkan.skinBufferPool().allocatedCount() << "/"
-              << SkinBufferPool::MAX_ENTITIES << ")\n";
+              << wd.vulkan.skinBufferPool().capacity() << ")\n";
 }
 
 void debugLogPoolStatus(GameState& gameState) {
@@ -199,7 +199,7 @@ void debugLogPoolStatus(GameState& gameState) {
     gameState.worldState.data.world.each([&](const CTransform&) { ++entityCount; });
 
     std::cout << "[Debug F10] SkinBufferPool: " << pool.allocatedCount() << " / "
-              << SkinBufferPool::MAX_ENTITIES << " | Entities: " << entityCount
+              << pool.capacity() << " | Entities: " << entityCount
               << " | Enemies: " << gameState.worldState.data.enemies.size() << " | FPS: " << gameState.runtime.fps
               << "\n";
 }

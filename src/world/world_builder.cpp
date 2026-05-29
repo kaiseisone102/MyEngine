@@ -127,7 +127,7 @@ void WorldBuilder::reset(WorldData& data, bool keepPlayer) {
     std::cout << "[WorldBuilder] reset done"
               << (keepPlayer ? " (player kept)" : " (player destroyed)")
               << ". Pool: " << data.vulkan.skinBufferPool().allocatedCount() << "/"
-              << SkinBufferPool::MAX_ENTITIES << "\n";
+              << data.vulkan.skinBufferPool().capacity() << "\n";
 }
 void WorldBuilder::buildPlayer(WorldData& data, const glm::vec3& spawnPos) {
     data.player = data.world.entity("player")

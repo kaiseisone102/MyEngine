@@ -28,13 +28,21 @@
 
 class VulkanContext;
 class ResourceFactory;
+class DeletionQueue;
 
 class SkinBufferPool {
    public:
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = FrameSync::MAX_FRAMES_IN_FLIGHT;
     static constexpr uint32_t MAX_BONES_PER_ENTITY = 128;
-    static constexpr uint32_t MAX_ENTITIES = 128;
-    static constexpr uint32_t TOTAL_BONES = MAX_BONES_PER_ENTITY * MAX_ENTITIES;
+    // Initial entity capacity. Foundations \xc2\xa78.1 dynamic-growth pattern: when
+    // allocate() empties the free list, capacity_ doubles; new per-frame
+    // buffers are created at the larger size and the old pair is handed to
+    // the DeletionQueue. Existing Slots stay valid -- their boneOffset (in
+    // mat4 units) is < oldCapacity * MAX_BONES_PER_ENTITY, which is still
+    // inside the new buffer's first oldCapacity slots, so callers never see
+    // an invalidated handle. Bone matrices are rewritten every frame via
+    // update(), so no data copy is needed across the grow.
+    static constexpr uint32_t INITIAL_CAPACITY = 128;
 
     struct Slot {
         uint32_t boneOffset = 0;
@@ -43,7 +51,7 @@ class SkinBufferPool {
         static Slot invalid() { return Slot{0, 0}; }
     };
 
-    void init(VulkanContext* ctx, ResourceFactory* resources);
+    void init(VulkanContext* ctx, ResourceFactory* resources, DeletionQueue* dq);
     void shutdown();
 
     Slot allocate();
@@ -57,9 +65,12 @@ class SkinBufferPool {
 
     uint32_t allocatedCount() const { return allocatedCount_; }
 
+    uint32_t capacity() const { return capacity_; }
+
    private:
     VulkanContext* ctx_ = nullptr;
-    VkDeviceSize bufferSize_ = 0;
+    DeletionQueue* dq_ = nullptr;
+    uint32_t capacity_ = 0;
 
     // VMA-managed buffers with BDA support
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
@@ -67,6 +78,7 @@ class SkinBufferPool {
     std::vector<uint32_t> freeSlots_;
     uint32_t allocatedCount_ = 0;
 
-    void createBuffers(ResourceFactory* resources);
-    void initFreeList();
+    void allocateBuffers();
+    void growToDouble();  // capacity_ *= 2, recreate buffers, extend freeSlots_
+    void appendFreeSlots(uint32_t fromIdx, uint32_t toIdx);
 };
