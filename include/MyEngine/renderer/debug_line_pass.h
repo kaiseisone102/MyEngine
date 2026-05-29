@@ -33,18 +33,22 @@
 class VulkanContext;
 class ResourceFactory;
 class Swapchain;
+class DeletionQueue;
 
 class DebugLinePass {
    public:
-    // 1 フレームあたりの最大頂点数 (line + triangle 合計)。
-    // 攻撃可視化の典型用途では 200 程度なので、 10000 で大幅余裕。
-    // 1 頂点 28 bytes、 10000 頂点で 280KB/frame。
-    static constexpr uint32_t kMaxVerticesPerFrame = 10000;
+    // Initial per-frame vertex capacity. Foundations \xc2\xa78.1: starting size,
+    // not an upper bound -- execute() doubles capacity_ and re-creates the
+    // line + triangle VB pair via the DeletionQueue when the live count
+    // exceeds it. Attack-visualisation use sits around 200 verts so 10000
+    // is generous enough that growth basically never fires today.
+    static constexpr uint32_t INITIAL_CAPACITY = 10000;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         Swapchain* swapchain = nullptr;
+        DeletionQueue* deletionQueue = nullptr;  // F5: grow path defers old VBs
         // PART4 4a-1: main_pass uses Vulkan 1.3 dynamic rendering, so we no
         // longer share a VkRenderPass. The child pipeline is compatible by
         // matching color and depth attachment formats.
@@ -72,6 +76,8 @@ class DebugLinePass {
     VulkanContext* ctx_ = nullptr;
     ResourceFactory* resources_ = nullptr;
     Swapchain* swapchain_ = nullptr;
+    DeletionQueue* dq_ = nullptr;
+    uint32_t capacity_ = 0;
 
     VkUnique<VkPipelineLayout> layout_;
     VkUnique<VkPipeline> linePipeline_;   // VK_PRIMITIVE_TOPOLOGY_LINE_LIST
@@ -91,4 +97,5 @@ class DebugLinePass {
     VkPipeline buildPipeline(const std::string& shaderDir, VkPrimitiveTopology topology);
     void createVertexBuffers();
     void destroyVertexBuffers();
+    void growToFit(uint32_t requiredVertices);  // F5: double capacity_, replace VBs
 };

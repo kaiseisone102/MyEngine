@@ -141,6 +141,7 @@ void PassChain::init(const InitInfo& info) {
         di.ctx = info.ctx;
         di.resources = info.resources;
         di.swapchain = info.swapchain;
+        di.deletionQueue = info.deletionQueue;
         di.colorFormat = mainColorFormat;
         di.depthFormat = mainDepthFormat;
         di.frameSetLayout = info.frameUniforms->layout();

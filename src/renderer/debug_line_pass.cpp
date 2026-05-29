@@ -13,10 +13,13 @@
 #include <cstring>
 #include <stdexcept>
 
+#include "renderer/deletion_queue.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
+
+#include <vk_mem_alloc.h>
 
 void DebugLinePass::init(const InitInfo& info) {
     if (!info.ctx || !info.resources || !info.swapchain)
@@ -28,6 +31,8 @@ void DebugLinePass::init(const InitInfo& info) {
     ctx_ = info.ctx;
     resources_ = info.resources;
     swapchain_ = info.swapchain;
+    dq_ = info.deletionQueue;
+    capacity_ = INITIAL_CAPACITY;
     colorFormat_ = info.colorFormat;
     depthFormat_ = info.depthFormat;
 
@@ -172,14 +177,30 @@ VkPipeline DebugLinePass::buildPipeline(const std::string& shaderDir,
 }
 
 void DebugLinePass::createVertexBuffers() {
-    const VkDeviceSize bufSize = sizeof(DebugLineVertex) * kMaxVerticesPerFrame;
-
+    const VkDeviceSize bufSize = sizeof(DebugLineVertex) * capacity_;
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
         lineVBs_[i] =
             VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         triVBs_[i] =
             VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
+}
+
+void DebugLinePass::growToFit(uint32_t requiredVertices) {
+    uint32_t newCapacity = capacity_;
+    while (newCapacity < requiredVertices) newCapacity *= 2;
+    if (newCapacity == capacity_ || !dq_) return;
+
+    for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkBuffer ob = lineVBs_[i].buffer();
+        VmaAllocation oa = lineVBs_[i].allocation();
+        if (ob != VK_NULL_HANDLE) { dq_->enqueueBuffer(ob, oa); lineVBs_[i].release(); }
+        ob = triVBs_[i].buffer();
+        oa = triVBs_[i].allocation();
+        if (ob != VK_NULL_HANDLE) { dq_->enqueueBuffer(ob, oa); triVBs_[i].release(); }
+    }
+    capacity_ = newCapacity;
+    createVertexBuffers();
 }
 
 void DebugLinePass::destroyVertexBuffers() {
@@ -213,9 +234,16 @@ void DebugLinePass::execute(const ExecuteInfo& info) {
     // 早期 return: 描画するものがなければ何もしない (パイプライン bind すら不要)
     if (lineCount == 0 && triCount == 0) return;
 
-    // 上限チェック (超過した場合は超えた分を捨てる)
-    const size_t lineUsed = (lineCount < kMaxVerticesPerFrame) ? lineCount : kMaxVerticesPerFrame;
-    const size_t triUsed  = (triCount  < kMaxVerticesPerFrame) ? triCount  : kMaxVerticesPerFrame;
+    // F5: dynamic capacity -- grow if either bucket exceeds the current VB.
+    const size_t maxNeeded = (lineCount > triCount) ? lineCount : triCount;
+    if (maxNeeded > capacity_) {
+        growToFit(static_cast<uint32_t>(maxNeeded));
+    }
+
+    // \xe4\xb8\x8a\xe9\x99\x90\xe3\x83\x81\xe3\x82\xa7\xe3\x83\x83\xe3\x82\xaf (defence-in-depth: if growToFit is a no-op due to a
+    // missing DeletionQueue, clip at capacity_ rather than overrun the VB)
+    const size_t lineUsed = (lineCount < capacity_) ? lineCount : capacity_;
+    const size_t triUsed  = (triCount  < capacity_) ? triCount  : capacity_;
 
     // 頂点バッファに書き込む (vkMapMemory は init 時に永続マップ済み)
     if (lineUsed > 0) {
