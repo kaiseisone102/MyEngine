@@ -1,6 +1,6 @@
-# MyEngine 設計知見 — 横断インデックス (rev.5)
+# MyEngine 設計知見 — 横断インデックス (rev.6)
 
-最終更新: 2026-05-29 (rev.5: **PART4 §6 4c 完了 + 4d 大半完了反映 (18 commits)**。 §1 表で (C) (F) を ✅完了 に (Tier 1 α 適用込み)、 (T) を ✅完了 に (γ-1/2/3 で他 pass も全 dynamic rendering 化)、 (U) は据え置き 🟡 (timeline semaphore は未着手)、 (V) は ✅完了 (受け皿)、 (X) は据え置き 🟡、 (Y) を ✅完了 (a62b7f0 persistent pipeline cache、 14 callsite が経由・490KB 書き出し実証)、 §2 表で 4c / 4d を ✅完了 に、 §7 現在の状態を「PART4 essentially complete (P620 [Caps] 18 中 17 = 1 で実走) / 次は §8 畳み込み or 後段 Phase」に書き換え、 各正本 rev を最新化。 / rev.4: **PART4 §6 4b 完了反映**。 §1 で (M) SPD と (N) min+max ペア HZB を ✅完了 に更新、 §2 表で 4b を ✅完了 に、 ★次 = 4c に、 §7 現在の状態を「PART4 §6 4b まで完了・次は 4c (two-pass occlusion 本体)」に更新、 Codebase_Guide rev を 12 → 13 に、 Roadmap rev を 9 → 10 に、 Phase_Dependencies rev を 8 → 9 に、 HiZ 設計書 rev を 7 → 8 に。 / rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
+最終更新: 2026-05-29 (rev.6: **PART4 §6 4d「Pure GPU-driven cleanup = 完了」追加反映 (commit f8d1e1f)**。 user 報告「HUD `Cull : 0 / 67` 永久 0」を契機: 4-前-4 (15b89ad) で compactCmd device-local 化以降 readback 経路が断たれていたのを option B (純 GPU-driven 化) で清算 = HUD 行 + CPU Frustum オラクル + 全 wire-up 撤去 (8 files +2 -51)。 §0 ファイル構成 rev 表を最新化 (HiZ_PART4_Design.md rev.9→10 / START_HERE 更新 / Codebase_Guide rev.14→15 / Roadmap rev.11→12 / Phase_Dependencies rev.10→11)、 §7 現在の状態 = 「Pure GPU-driven cleanup 含む 28 commits」に追記。 / rev.5: **PART4 §6 4c 完了 + 4d 大半完了反映 (18 commits)**。 §1 表で (C) (F) を ✅完了 に (Tier 1 α 適用込み)、 (T) を ✅完了 に (γ-1/2/3 で他 pass も全 dynamic rendering 化)、 (U) は据え置き 🟡 (timeline semaphore は未着手)、 (V) は ✅完了 (受け皿)、 (X) は据え置き 🟡、 (Y) を ✅完了 (a62b7f0 persistent pipeline cache、 14 callsite が経由・490KB 書き出し実証)、 §2 表で 4c / 4d を ✅完了 に、 §7 現在の状態を「PART4 essentially complete (P620 [Caps] 18 中 17 = 1 で実走) / 次は §8 畳み込み or 後段 Phase」に書き換え、 各正本 rev を最新化。 / rev.4: **PART4 §6 4b 完了反映**。 §1 で (M) SPD と (N) min+max ペア HZB を ✅完了 に更新、 §2 表で 4b を ✅完了 に、 ★次 = 4c に、 §7 現在の状態を「PART4 §6 4b まで完了・次は 4c (two-pass occlusion 本体)」に更新、 Codebase_Guide rev を 12 → 13 に、 Roadmap rev を 9 → 10 に、 Phase_Dependencies rev を 8 → 9 に、 HiZ 設計書 rev を 7 → 8 に。 / rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
 
 > **このファイルの位置づけ**: 各セッション最初に最優先で Read する横断索引。「全部読まないと判断できない」状態を解消し、必要箇所だけ深掘りできるようにする。本文は他ファイルにある (このファイルは目次)。
 > **読む順序の推奨**: ① **本 INDEX** → ② 正本5枚で原則確認 → ③ 着手する作業に応じて PART4 / Foundations / Vulkan13 のうち該当§のみ深掘り。
@@ -11,15 +11,15 @@
 
 | 系統 | ファイル | rev | 行数 | 役割 |
 |---|---|---|---|---|
-| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4c + 4d 大半完了反映) |
-| | MyEngine_Graphics_Roadmap_2026.md | rev.11 | — | 全 Phase 計画 (PART4 essentially complete 反映) |
-| | MyEngine_Phase_Dependencies.md | rev.10 | — | Phase 間依存マップ (Hi-Z ノード完了) |
-| | MyEngine_Codebase_Guide.md | rev.14 | — | コード構造の地図 (visHistory / HZB desc set / pipelineCache / generic layouts 反映) |
+| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4c + 4d 大半 + Pure GPU-driven cleanup 反映) |
+| | MyEngine_Graphics_Roadmap_2026.md | rev.12 | — | 全 Phase 計画 (PART4 essentially complete + cleanup 反映) |
+| | MyEngine_Phase_Dependencies.md | rev.11 | — | Phase 間依存マップ (Hi-Z ノード完了 + cleanup) |
+| | MyEngine_Codebase_Guide.md | rev.15 | — | コード構造の地図 (visHistory / HZB desc set / pipelineCache / generic layouts / pure GPU-driven 反映) |
 | | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 |
-| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.9 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半完了) |
+| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.10 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半 + cleanup 完了) |
 | **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 |
 | **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.3 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・M3/N1/N4/N2/N3 追加) |
-| **索引** | MyEngine_INDEX.md (本書) | rev.5 | — | 横断インデックス |
+| **索引** | MyEngine_INDEX.md (本書) | rev.6 | — | 横断インデックス |
 
 ---
 
@@ -171,9 +171,10 @@
 
 ---
 
-## 7. 現在の状態 (2026-05-29 時点・**PART4 essentially complete** = 4c + 4d 大半完了・残作業は別 commit / 別 Phase に集約)
+## 7. 現在の状態 (2026-05-29 時点・**PART4 essentially complete** = 4c + 4d 大半 + Pure GPU-driven cleanup 完了・残作業は別 commit / 別 Phase に集約)
 
-- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b + 4c + 4d 大半 = 完了** (4-前 ~ 4a-2 の 8 commits + 4b ffe9673 + 4c 8 commits ad97879..ccf5c03 + 4d 10 commits 082d792..1481049 + Vulkan13 W e1494bf = **計 27 commits**)。 **P620 [Caps] 18 capability 中 17 が =1** で実走 (DGC のみ 0 で fallback 経路あり)。 user 目視「画面正常」確認。
+- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b + 4c + 4d 大半 + Pure GPU-driven cleanup = 完了** (4-前 ~ 4a-2 の 8 commits + 4b ffe9673 + 4c 8 commits ad97879..ccf5c03 + 4d 10 commits 082d792..1481049 + cleanup f8d1e1f = **PART4 §6 計 28 commits** ・ 別軸で Vulkan13 W e1494bf も完了)。 **P620 [Caps] 18 capability 中 17 が =1** で実走 (DGC のみ 0 で fallback 経路あり)。 user 目視「画面 OK / Cull 行 HUD から消えている」確認。
+- **Pure GPU-driven cleanup (commit f8d1e1f)**: user 報告「HUD `Cull : 0 / 67` 永久 0」契機。 4-前-4 (15b89ad) で compactCmd device-local 化以降、 旧 host-mapped readback 経路の `lastVisible_[]` を更新する code path が断たれていた (props は GPU 経由で正常描画されていたため動作上は健全・HUD だけ stale)。 option B 採用 = 純 GPU-driven の本来形 = HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up 撤去 (8 files +2 -51・getter ×6 + 代入 site ×4 + HUD field ×2)。
 - **次の着手候補** (どれから着手するかは user 判断):
   1. **§8 畳み込み**: 本書・Roadmap §4 / 付記・Phase_Dependencies Hi-Z ノード・Codebase_Guide §3.5・Work_Protocol §5f への PART4 完了内容書き戻し (この作業)。
   2. **2C LOD** (P620 を救う / 大規模オープンワールド前提に必要)
