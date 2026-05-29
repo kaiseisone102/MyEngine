@@ -63,7 +63,6 @@ class ReflectionPass {
 
     void rebuild(ReflectionQuality quality, uint32_t baseWidth, uint32_t baseHeight);
 
-    VkRenderPass renderPass() const { return renderPass_.get(); }
     const ReflectionTarget& target() const { return target_; }
     bool enabled() const { return quality_ != ReflectionQuality::Off; }
     ReflectionQuality quality() const { return quality_; }
@@ -81,17 +80,16 @@ class ReflectionPass {
     VkFormat depthFormat_ = VK_FORMAT_UNDEFINED;
     ReflectionQuality quality_ = ReflectionQuality::Half;
 
+    // PART4 4d: dynamic rendering migration. VkRenderPass + VkFramebuffer
+    // removed; pipelines declare VkPipelineRenderingCreateInfo and execute()
+    // wraps draws in vkCmdBeginRendering with color + depth attachments.
     ReflectionTarget target_;
-    VkUnique<VkRenderPass> renderPass_;
-    VkUnique<VkFramebuffer> framebuffer_;
 
     VkUnique<VkPipelineLayout> staticLayout_;
     VkUnique<VkPipeline> staticPipeline_;
     VkUnique<VkPipelineLayout> skinnedLayout_;
     VkUnique<VkPipeline> skinnedPipeline_;
 
-    void createRenderPass();
-    void createFramebuffer();
     void createStaticLayout(VkDescriptorSetLayout frameSetLayout,
                             VkDescriptorSetLayout bindlessSetLayout);
     void createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
@@ -105,5 +103,6 @@ class ReflectionPass {
     };
     VkPipeline buildPipeline(const PipelineBuildArgs& args, const std::string& shaderDir);
 
-    void destroyTargetAndFramebuffer();
+    // PART4 4d: framebuffer is gone; only the target needs teardown now.
+    void destroyTarget();
 };
