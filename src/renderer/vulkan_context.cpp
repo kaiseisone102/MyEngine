@@ -409,6 +409,10 @@ void VulkanContext::createDevice() {
     if (memoryBudget_) {
         deviceExtsVec.push_back("VK_EXT_memory_budget");  // I
     }
+    // D/L/K/T/Z/J/Q receptacles: queried only (queried-only is the same flow
+    // as DGC / graphics_pipeline_library / pipeline_binary). Per-Phase
+    // activation will add to deviceExtsVec and enable the matching feature
+    // struct in pNext at that time.
     const float priority = 1.f;
 
     // PART4 4c-B (§3.4-V receptacle): pick a queue family that supports
@@ -537,6 +541,22 @@ void VulkanContext::createDevice() {
                 memoryPriority_ = true;  // N: VRAM eviction priority hints
             } else if (std::strcmp(e.extensionName, "VK_EXT_memory_budget") == 0) {
                 memoryBudget_ = true;  // I: VRAM budget visibility (Roadmap \xc2\xa76)
+            } else if (std::strcmp(e.extensionName, "VK_EXT_extended_dynamic_state3") == 0) {
+                extendedDynamicState3_ = true;  // D: EDS3 (EDS1/2 are 1.3 core)
+            } else if (std::strcmp(e.extensionName, "VK_EXT_shader_object") == 0) {
+                shaderObject_ = true;  // L: modern triad's third extension
+            } else if (std::strcmp(e.extensionName, "VK_KHR_present_id") == 0) {
+                presentId_ = true;  // K
+            } else if (std::strcmp(e.extensionName, "VK_KHR_present_wait") == 0) {
+                presentWait_ = true;  // K
+            } else if (std::strcmp(e.extensionName, "VK_EXT_swapchain_maintenance1") == 0) {
+                swapchainMaintenance1_ = true;  // T: VRR / present-mode swap
+            } else if (std::strcmp(e.extensionName, "VK_EXT_image_view_min_lod") == 0) {
+                imageViewMinLod_ = true;  // Z: texture mip streaming bias
+            } else if (std::strcmp(e.extensionName, "VK_EXT_host_image_copy") == 0) {
+                hostImageCopy_ = true;  // J: staging-less host->image upload (1.4 promotion)
+            } else if (std::strcmp(e.extensionName, "VK_KHR_calibrated_timestamps") == 0) {
+                calibratedTimestamps_ = true;  // Q: CPU<->GPU timeline correlation
             }
         }
         // B: timelineSemaphore is Vulkan 1.2 core. We target API 1.4, so it
@@ -593,6 +613,14 @@ void VulkanContext::createDevice() {
               << " memoryPriority=" << (memoryPriority_ ? 1 : 0)
               << " memoryBudget=" << (memoryBudget_ ? 1 : 0)
               << " timelineSemaphore=" << (timelineSemaphore_ ? 1 : 0)
+              << " extDynState3=" << (extendedDynamicState3_ ? 1 : 0)
+              << " shaderObject=" << (shaderObject_ ? 1 : 0)
+              << " presentId=" << (presentId_ ? 1 : 0)
+              << " presentWait=" << (presentWait_ ? 1 : 0)
+              << " swapchainMaint1=" << (swapchainMaintenance1_ ? 1 : 0)
+              << " imageViewMinLod=" << (imageViewMinLod_ ? 1 : 0)
+              << " hostImageCopy=" << (hostImageCopy_ ? 1 : 0)
+              << " calibratedTimestamps=" << (calibratedTimestamps_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)

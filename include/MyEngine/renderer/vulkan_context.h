@@ -147,6 +147,19 @@ class VulkanContext {
     // and async compute), enabled by this receptacle.
     bool timelineSemaphore() const { return timelineSemaphore_; }
 
+    // D/L/K/T/Z/J/Q receptacles -- queried only, same flow as the DGC /
+    // graphics_pipeline_library / pipeline_binary trio. Per-Phase activation
+    // adds the extension to deviceExtsVec and enables the matching feature
+    // struct.
+    bool extendedDynamicState3() const { return extendedDynamicState3_; }  // D (EDS1/2 core in 1.3)
+    bool shaderObject()          const { return shaderObject_;          }  // L (modern triad 3rd)
+    bool presentId()             const { return presentId_;             }  // K
+    bool presentWait()           const { return presentWait_;           }  // K
+    bool swapchainMaintenance1() const { return swapchainMaintenance1_; }  // T (VRR)
+    bool imageViewMinLod()       const { return imageViewMinLod_;       }  // Z (mip streaming)
+    bool hostImageCopy()         const { return hostImageCopy_;         }  // J (1.4 promotion)
+    bool calibratedTimestamps()  const { return calibratedTimestamps_;  }  // Q (GPU timing)
+
     // PART4 4c-B (§3.4-V receptacle promoted from 4d): a queue family that
     // supports COMPUTE WITHOUT GRAPHICS, if the device exposes one (NVIDIA
     // Pascal+ and most AMD/Intel discrete typically do; integrated may not).
@@ -332,6 +345,16 @@ class VulkanContext {
     // B: timelineSemaphore (Vulkan 1.2 core). Set unconditionally to true
     // when we run on a 1.2+ device (we target API 1.4 -- always satisfied).
     bool timelineSemaphore_ = false;
+
+    // D/L/K/T/Z/J/Q queried-only receptacles.
+    bool extendedDynamicState3_ = false;
+    bool shaderObject_          = false;
+    bool presentId_             = false;
+    bool presentWait_           = false;
+    bool swapchainMaintenance1_ = false;
+    bool imageViewMinLod_       = false;
+    bool hostImageCopy_         = false;
+    bool calibratedTimestamps_  = false;
 
     // PART4 4c-B (§3.4-V receptacle): a queue family with COMPUTE without
     // GRAPHICS if the device exposes one; else equal to graphicsFamily_.
