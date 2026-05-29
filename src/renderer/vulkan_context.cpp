@@ -409,10 +409,34 @@ void VulkanContext::createDevice() {
     if (memoryBudget_) {
         deviceExtsVec.push_back("VK_EXT_memory_budget");  // I
     }
-    // D/L/K/T/Z/J/Q receptacles: queried only (queried-only is the same flow
-    // as DGC / graphics_pipeline_library / pipeline_binary). Per-Phase
-    // activation will add to deviceExtsVec and enable the matching feature
-    // struct in pNext at that time.
+    // L/K/Z/Q: activated. Their feature structs (chained below in pNext)
+    // set the bool to TRUE so vkCreateDevice accepts them. T (swapchain_
+    // maintenance1) is held back because it requires the
+    // VK_EXT_surface_maintenance1 INSTANCE extension which we did not
+    // enable at instance creation; revisiting it after the instance-side
+    // ext is added. D (EDS3) is held back because its feature struct has
+    // ~30 individual bool fields and a proper enable wants a prior
+    // VkPhysicalDeviceFeatures2 query to enable only what the driver
+    // supports -- the receptacle stays queried-only until that query
+    // lands.
+    if (shaderObject_) {
+        deviceExtsVec.push_back("VK_EXT_shader_object");  // L
+    }
+    if (presentId_) {
+        deviceExtsVec.push_back("VK_KHR_present_id");  // K
+    }
+    if (presentWait_) {
+        deviceExtsVec.push_back("VK_KHR_present_wait");  // K
+    }
+    if (imageViewMinLod_) {
+        deviceExtsVec.push_back("VK_EXT_image_view_min_lod");  // Z
+    }
+    if (calibratedTimestamps_) {
+        deviceExtsVec.push_back("VK_KHR_calibrated_timestamps");  // Q (no feature struct)
+    }
+    // J (host_image_copy) is enabled via vk14Features.hostImageCopy in the
+    // feature chain below; the Vulkan 1.4 core promotion handles loader
+    // visibility so no extension entry is needed.
     const float priority = 1.f;
 
     // PART4 4c-B (§3.4-V receptacle): pick a queue family that supports
@@ -700,6 +724,12 @@ void VulkanContext::createDevice() {
     vk14Features.maintenance6 = maintenance6_ ? VK_TRUE : VK_FALSE;
     vk13Features.pNext = &vk14Features;
 
+    // J: host_image_copy is Vulkan 1.4 core (promoted from
+    // VK_EXT_host_image_copy). Setting the feature flag activates
+    // vkCopyMemoryToImage / vkCopyImageToMemory / vkTransitionImageLayout
+    // for staging-less host->image upload.
+    vk14Features.hostImageCopy = hostImageCopy_ ? VK_TRUE : VK_FALSE;
+
     // N: VK_EXT_memory_priority feature struct. Enables VMA priority hints
     // (ai.priority on each VmaAllocation) so the driver knows which
     // allocations to keep resident under VRAM pressure.
@@ -707,9 +737,65 @@ void VulkanContext::createDevice() {
     memPriorityFeatures.sType =
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT;
     memPriorityFeatures.memoryPriority = memoryPriority_ ? VK_TRUE : VK_FALSE;
-    if (memoryPriority_) {
-        vk14Features.pNext = &memPriorityFeatures;
-    }
+
+    // L: VK_EXT_shader_object feature struct. Activating shaderObject lets
+    // vkCreateShadersEXT / vkCmdBindShadersEXT load; together with EDS
+    // (already in 1.3 core) it lets the engine drop VkPipeline objects
+    // entirely on the day a caller chooses to.
+    VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures{};
+    shaderObjectFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT;
+    shaderObjectFeatures.shaderObject = shaderObject_ ? VK_TRUE : VK_FALSE;
+
+    // K: VK_KHR_present_id + VK_KHR_present_wait feature structs. Pair:
+    // present_id tags each present with a monotonically increasing 64-bit
+    // value (set via VkPresentIdKHR in vkQueuePresentKHR's pNext);
+    // present_wait blocks vkWaitForPresentKHR until the matching present
+    // has reached the display. Required for any modern frame-pacing /
+    // input-latency control (Reflex-equivalent open loop).
+    VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures{};
+    presentIdFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+    presentIdFeatures.presentId = presentId_ ? VK_TRUE : VK_FALSE;
+
+    VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures{};
+    presentWaitFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+    presentWaitFeatures.presentWait = presentWait_ ? VK_TRUE : VK_FALSE;
+
+    // Z: VK_EXT_image_view_min_lod feature struct. Activating minLod lets
+    // VkImageViewMinLodCreateInfoEXT chain into VkImageViewCreateInfo's
+    // pNext, clamping the lowest mip the view can sample. Critical for
+    // texture mip streaming: rebuild a per-texture view with minLod = N
+    // and only mips >= N have to be GPU-resident.
+    VkPhysicalDeviceImageViewMinLodFeaturesEXT imageViewMinLodFeatures{};
+    imageViewMinLodFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_MIN_LOD_FEATURES_EXT;
+    imageViewMinLodFeatures.minLod = imageViewMinLod_ ? VK_TRUE : VK_FALSE;
+
+    // Chain the activated features into pNext. Order is irrelevant as long
+    // as each struct's pNext lives until vkCreateDevice returns. N stays
+    // first because it was first in time; the new structs append after.
+    VkBaseOutStructure* tail = nullptr;
+    auto appendToChain = [&tail, &vk14Features](VkBaseOutStructure* node) {
+        if (!tail) {
+            tail = reinterpret_cast<VkBaseOutStructure*>(&vk14Features);
+            while (tail->pNext) tail = tail->pNext;
+        }
+        node->pNext = nullptr;
+        tail->pNext = node;
+        tail = node;
+    };
+    if (memoryPriority_)
+        appendToChain(reinterpret_cast<VkBaseOutStructure*>(&memPriorityFeatures));
+    if (shaderObject_)
+        appendToChain(reinterpret_cast<VkBaseOutStructure*>(&shaderObjectFeatures));
+    if (presentId_)
+        appendToChain(reinterpret_cast<VkBaseOutStructure*>(&presentIdFeatures));
+    if (presentWait_)
+        appendToChain(reinterpret_cast<VkBaseOutStructure*>(&presentWaitFeatures));
+    if (imageViewMinLod_)
+        appendToChain(reinterpret_cast<VkBaseOutStructure*>(&imageViewMinLodFeatures));
 
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &vk12Features;
