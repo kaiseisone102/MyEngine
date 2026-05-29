@@ -35,20 +35,35 @@
 #include "renderer/vk_unique.h"
 
 #include <cstdint>
+#include <vector>
 
 class VulkanContext;
 
 class BindlessTextureRegistry {
    public:
+    // Bindless descriptor array size. The VkDescriptorPool's descriptorCount
+    // is fixed at create time, so this acts as a hard ceiling on live
+    // textures -- but releaseTexture()/free-list reuse keeps the live count
+    // bounded by the working set (loaded textures) rather than the lifetime
+    // count (textures ever loaded). Growth past MAX_TEXTURES requires
+    // recreating pool + set + descriptor writes; that's a separate Phase
+    // (G+: pool grow), tracked in Foundations \xc2\xa78.1.
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t BINDING_SLOT = 0;
 
     void init(VulkanContext* ctx);
     void shutdown();
 
-    /// Register a texture, returns its bindless index.
-    /// Returns UINT32_MAX on failure (e.g., out of slots).
+    /// Register a texture, returns its bindless index. Reuses an index from
+    /// the free-list when one is available; otherwise advances nextIndex_.
+    /// Returns UINT32_MAX on failure (out of slots and free-list empty).
     uint32_t registerTexture(VkImageView view, VkSampler sampler);
+
+    /// Free a bindless index for reuse. The descriptor stays bound (the
+    /// shader must not sample from it once the underlying view/sampler is
+    /// destroyed); the next registerTexture call may overwrite the slot.
+    /// PARTIALLY_BOUND_BIT lets the empty-but-allocated state remain valid.
+    void releaseTexture(uint32_t index);
 
     /// Overwrite the descriptor at an existing index (e.g., for streaming).
     void updateTexture(uint32_t index, VkImageView view, VkSampler sampler);
@@ -56,7 +71,11 @@ class BindlessTextureRegistry {
     VkDescriptorSetLayout layout() const { return layout_.get(); }
     VkDescriptorSet descriptorSet() const { return set_; }
 
-    uint32_t count() const { return nextIndex_; }
+    /// Total textures alive right now (nextIndex_ - freeSlots_.size()).
+    uint32_t count() const {
+        return nextIndex_ - static_cast<uint32_t>(freeSlots_.size());
+    }
+    uint32_t capacity() const { return MAX_TEXTURES; }
     bool initialized() const { return set_ != VK_NULL_HANDLE; }
 
    private:
@@ -65,6 +84,7 @@ class BindlessTextureRegistry {
     VkUnique<VkDescriptorPool> pool_;
     VkDescriptorSet set_ = VK_NULL_HANDLE;
     uint32_t nextIndex_ = 0;
+    std::vector<uint32_t> freeSlots_;  // G: released indices, reused before nextIndex_
 
     void writeDescriptor(uint32_t index, VkImageView view, VkSampler sampler);
 };

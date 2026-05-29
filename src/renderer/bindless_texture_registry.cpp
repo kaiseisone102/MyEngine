@@ -80,18 +80,38 @@ void BindlessTextureRegistry::init(VulkanContext* ctx) {
 }
 
 uint32_t BindlessTextureRegistry::registerTexture(VkImageView view, VkSampler sampler) {
-    if (nextIndex_ >= MAX_TEXTURES) {
-        std::cerr << "[BindlessTextureRegistry] WARNING: out of texture slots (max="
-                  << MAX_TEXTURES << ")\n";
-        return UINT32_MAX;
-    }
     if (view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
         std::cerr << "[BindlessTextureRegistry] WARNING: cannot register null view/sampler\n";
         return UINT32_MAX;
     }
-    const uint32_t idx = nextIndex_++;
+    uint32_t idx;
+    if (!freeSlots_.empty()) {
+        // G: reuse a released slot first (streaming load/unload pattern).
+        idx = freeSlots_.back();
+        freeSlots_.pop_back();
+    } else {
+        if (nextIndex_ >= MAX_TEXTURES) {
+            std::cerr << "[BindlessTextureRegistry] WARNING: out of texture slots (max="
+                      << MAX_TEXTURES << ")\n";
+            return UINT32_MAX;
+        }
+        idx = nextIndex_++;
+    }
     writeDescriptor(idx, view, sampler);
     return idx;
+}
+
+void BindlessTextureRegistry::releaseTexture(uint32_t index) {
+    if (index >= MAX_TEXTURES) {
+        std::cerr << "[BindlessTextureRegistry] WARNING: releaseTexture index out of range "
+                  << index << "\n";
+        return;
+    }
+    // PARTIALLY_BOUND_BIT allows the slot to remain bound but unused. The
+    // descriptor is not cleared -- the caller is responsible for ensuring
+    // no in-flight draw still samples from this index. The next
+    // registerTexture call will overwrite the descriptor.
+    freeSlots_.push_back(index);
 }
 
 void BindlessTextureRegistry::updateTexture(uint32_t index, VkImageView view, VkSampler sampler) {
@@ -128,5 +148,6 @@ void BindlessTextureRegistry::shutdown() {
     set_ = VK_NULL_HANDLE;
     layout_.reset();
     nextIndex_ = 0;
+    freeSlots_.clear();
     ctx_ = nullptr;
 }
