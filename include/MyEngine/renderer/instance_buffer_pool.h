@@ -29,14 +29,22 @@
 
 class VulkanContext;
 class ResourceFactory;
+class DeletionQueue;
 
 class InstanceBufferPool {
    public:
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = FrameSync::MAX_FRAMES_IN_FLIGHT;
-    // Total instance matrices per frame across all instanced draws.
-    static constexpr uint32_t MAX_INSTANCES = 8192;
+    // Starting capacity (Foundations \xc2\xa78.1 dynamic-growth pattern): when a
+    // push() requests more than capacity_ instances, peakRequested_ records the
+    // need and the next beginFrame() doubles capacity_, recreates both
+    // per-frame buffers at the new size, and hands the old pair to the
+    // DeletionQueue so any in-flight cmd buffer that baked their BDA stays
+    // valid. Mid-frame overflows are still lost (returning UINT32_MAX) -- we
+    // cannot grow a buffer the GPU is currently reading from -- but the next
+    // frame fits.
+    static constexpr uint32_t INITIAL_CAPACITY = 8192;
 
-    void init(VulkanContext* ctx, ResourceFactory* resources);
+    void init(VulkanContext* ctx, ResourceFactory* resources, DeletionQueue* dq);
     void shutdown();
 
     // Reset the linear write cursor for a new frame.
@@ -55,14 +63,18 @@ class InstanceBufferPool {
     uint32_t usedThisFrame(uint32_t frameIndex) const {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? cursor_[frameIndex] : 0;
     }
+    uint32_t capacity() const { return capacity_; }
 
    private:
     VulkanContext* ctx_ = nullptr;
-    VkDeviceSize bufferSize_ = 0;
+    DeletionQueue* dq_ = nullptr;
+    uint32_t capacity_ = 0;
+    uint32_t peakRequested_ = 0;  // tracks the largest needed amount; triggers grow
 
     std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> buffers_{};
     // Linear write cursor (in matrix units), reset each frame.
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> cursor_{};
 
-    void createBuffers(ResourceFactory* resources);
+    void allocateBuffers();
+    void growToFitPeak();
 };

@@ -90,7 +90,7 @@ void PassChain::init(const InitInfo& info) {
     }
 
     // Phase 1E: instance matrix pool
-    instancePool_.init(info.ctx, info.resources);
+    instancePool_.init(info.ctx, info.resources, info.deletionQueue);
     // PART4 4-前-3: DrawDataPool needs DeletionQueue for the grow path.
     drawDataPool_.init(info.ctx, info.deletionQueue);
 
