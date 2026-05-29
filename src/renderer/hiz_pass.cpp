@@ -459,13 +459,18 @@ void HiZPass::initialTransitionToGeneral(VkCommandBuffer cmd, uint32_t frameInde
     PerFrame& fr = frames_[frameIndex];
     if (fr.pyramidInited) return;
     // One-shot per-frame slot: UNDEFINED -> GENERAL covering ALL mips.
+    // PART4 4b Obs B resolved: sync2 best practice for UNDEFINED -> X is
+    // VK_PIPELINE_STAGE_2_NONE + VK_ACCESS_2_NONE on the producer side -
+    // there is no prior work to synchronise against. The deprecated
+    // VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT was tolerated by Vulkan for
+    // back-compat but stricter validators flag it.
     barrier::ImageBarrier ib{};
     ib.image = fr.pyramid.image();
     ib.range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipCount_, 0, 1};
     ib.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     ib.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    ib.srcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    ib.srcAccess = 0;
+    ib.srcStage = VK_PIPELINE_STAGE_2_NONE;
+    ib.srcAccess = VK_ACCESS_2_NONE;
     ib.dstStage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     ib.dstAccess = VK_ACCESS_2_SHADER_WRITE_BIT;
     barrier::recordImage(*ctx_, cmd, ib);
