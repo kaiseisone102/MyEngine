@@ -136,6 +136,17 @@ class VulkanContext {
     // live numbers; HUD + streaming-budget tracker land per-Phase.
     bool memoryBudget() const { return memoryBudget_; }
 
+    // B (INDEX U, Vulkan13 \xc2\xa76 U): timelineSemaphore (Vulkan 1.2 core / 2020
+    // standard). Receptacle: feature is enabled at device creation so any
+    // caller can supply VkSemaphoreTypeCreateInfo with
+    // VK_SEMAPHORE_TYPE_TIMELINE in vkCreateSemaphore, then drive sync
+    // through values via vkSignalSemaphore / vkWaitSemaphores /
+    // VkTimelineSemaphoreSubmitInfo. FrameSync today still uses the
+    // binary-semaphore + VkFence Vulkan 1.0 pattern; the migration is a
+    // Phase 2F prerequisite (value-based wait across the transfer queue
+    // and async compute), enabled by this receptacle.
+    bool timelineSemaphore() const { return timelineSemaphore_; }
+
     // PART4 4c-B (§3.4-V receptacle promoted from 4d): a queue family that
     // supports COMPUTE WITHOUT GRAPHICS, if the device exposes one (NVIDIA
     // Pascal+ and most AMD/Intel discrete typically do; integrated may not).
@@ -317,6 +328,10 @@ class VulkanContext {
     // present and we enabled it). vmaGetHeapBudgets uses live values when
     // the allocator carries VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT.
     bool memoryBudget_ = false;
+
+    // B: timelineSemaphore (Vulkan 1.2 core). Set unconditionally to true
+    // when we run on a 1.2+ device (we target API 1.4 -- always satisfied).
+    bool timelineSemaphore_ = false;
 
     // PART4 4c-B (§3.4-V receptacle): a queue family with COMPUTE without
     // GRAPHICS if the device exposes one; else equal to graphicsFamily_.

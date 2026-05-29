@@ -539,6 +539,10 @@ void VulkanContext::createDevice() {
                 memoryBudget_ = true;  // I: VRAM budget visibility (Roadmap \xc2\xa76)
             }
         }
+        // B: timelineSemaphore is Vulkan 1.2 core. We target API 1.4, so it
+        // is always present; setting the flag here keeps it visible in the
+        // [Caps] log alongside the extension capabilities.
+        timelineSemaphore_ = true;
     }
 
     // PART4 4b: query subgroup properties (Vulkan 1.1 core). HiZPass's
@@ -588,6 +592,7 @@ void VulkanContext::createDevice() {
               << " pipelineBinary=" << (pipelineBinary_ ? 1 : 0)
               << " memoryPriority=" << (memoryPriority_ ? 1 : 0)
               << " memoryBudget=" << (memoryBudget_ ? 1 : 0)
+              << " timelineSemaphore=" << (timelineSemaphore_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
@@ -606,6 +611,15 @@ void VulkanContext::createDevice() {
     vk12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     vk12Features.bufferDeviceAddress = VK_TRUE;
     vk12Features.descriptorIndexing = VK_TRUE;  // bindless texture array support
+    // B (Vulkan13 \xc2\xa76 U / INDEX U): timelineSemaphore (Vulkan 1.2 core, 2020
+    // standard). Receptacle: feature is enabled so vkCreateSemaphore can
+    // supply a VkSemaphoreTypeCreateInfo with VK_SEMAPHORE_TYPE_TIMELINE.
+    // FrameSync still ships on binary semaphores + VkFence today; the timeline
+    // migration is a Phase 2F prerequisite for value-based wait across async
+    // compute and the transfer queue. Keeping the gate live now means the
+    // value-based path (vkSignalSemaphore / vkWaitSemaphores / chained
+    // VkTimelineSemaphoreSubmitInfo) can land without re-enabling features.
+    vk12Features.timelineSemaphore = VK_TRUE;  // (already set above)
     vk12Features.runtimeDescriptorArray = VK_TRUE;
     vk12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     vk12Features.descriptorBindingPartiallyBound = VK_TRUE;
