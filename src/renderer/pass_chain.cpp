@@ -25,6 +25,8 @@
 #include "scene/scene_data.h"
 #include "renderer/terrain_mesh.h"
 #include "renderer/static_cull_build.h"
+#include "renderer/barrier.h"        // PART4 4c-D: depth readOnly->attachment barrier
+#include "renderer/depth_layouts.h"  // PART4 4c-D: separate vs combined layout picker
 
 namespace {
 
@@ -460,7 +462,44 @@ void PassChain::recordFrame(const RecordInfo& info) {
     // before HiZPass.execute() has run for this slot. No-op after the first
     // kMaxFramesInFlight frames.
     hizPass_.ensureAllSlotsInGeneral(info.cmd);
+
+    // PART4 4c-D: build HizParams for both pass1 and pass2 (Camera set) and
+    // upload them to CullingPass's per-frame BDA buffer BEFORE the first cull
+    // dispatch reads it. The viewProj / viewport / mip-chain shape is the
+    // same for both passes; only hizInfo.w (passIndex) differs. visHistoryAddr
+    // points at CullingPass's persistent Camera visHistory bitmap; cull.comp
+    // pass1 READS it as "was visible last frame", pass2 reads it to skip
+    // pass1's set AND writes the new value for next frame.
     {
+        myengine::shared::HizParams p{};
+        p.viewProj = info.normalLighting.proj * info.normalLighting.view;
+        const VkExtent2D extent = swapchain_->extent();
+        p.invViewportSize = glm::vec4(
+            1.0f / static_cast<float>(extent.width),
+            1.0f / static_cast<float>(extent.height),
+            static_cast<float>(extent.width),
+            static_cast<float>(extent.height));
+        p.hizInfo = glm::uvec4(
+            hizPass_.mipCount(),
+            hizPass_.baseWidth(),
+            hizPass_.baseHeight(),
+            1u);  // passIndex
+        const VkDeviceAddress visHistAddr =
+            cullingPass_.visHistoryAddress(CullingPass::CullSet::Camera);
+        p.visHistoryAddr = glm::uvec4(
+            static_cast<uint32_t>(visHistAddr & 0xFFFFFFFFu),
+            static_cast<uint32_t>(visHistAddr >> 32),
+            0u, 0u);
+        cullingPass_.writeHizParams(info.frameIndex, 1, p);
+        p.hizInfo.w = 2u;  // passIndex for the pass2 slot
+        cullingPass_.writeHizParams(info.frameIndex, 2, p);
+    }
+
+    {
+        // PART4 4c-D: Camera pass1 cull (Nanite-style two-pass; design-doc
+        // spec): predicate = visHistory[drawId] && frustum && cone.
+        // twoPassEnabled = true so cull.comp enters its pass1 branch and
+        // routes scatter to compactCmd1 / countBuf1.
         CullingPass::ExecuteInfo ce{};
         ce.cmd = info.cmd;
         ce.frameIndex = info.frameIndex;
@@ -472,30 +511,20 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.inputAlreadyUploaded = false;
         ce.viewProj = info.normalLighting.proj * info.normalLighting.view;
         ce.viewPos  = glm::vec3(info.normalLighting.viewPos);   // PART4 4-前-2: cone test
-        // PART4 4c-C: bind HZB descriptor set 0 (cullLayout_ now requires it).
-        // twoPassEnabled stays FALSE here so cull.comp falls through to its
-        // legacy frustum+cone predicate. Flipping twoPassEnabled = true plus
-        // wiring the FirstOpaque / SecondAndNonOpaque MainPass split (PART4
-        // 4c-D) activates the actual two-pass occlusion.
         ce.hizSampler  = hizPass_.minReductionSampler();
         ce.hizPrevView = hizPass_.previousPyramidView(info.frameIndex);
         ce.hizCurrView = hizPass_.pyramidView(info.frameIndex);
-        ce.twoPassEnabled = false;
+        ce.twoPassEnabled = true;
         ce.passIndex = 1;
         cullingPass_.execute(ce);
 
-        // PART4 4-前-5: second cull dispatch into the Shadow set. Same
-        // CullObject input (already on-device from the Camera pass) - we only
-        // re-run cull + scan with the light's view-projection so shadow_pass
-        // can read its own compactCmd / countBuf. HZB sampler still bound
-        // (layout requirement); twoPassEnabled stays false (shadow two-pass
-        // is a future Phase per the design doc).
+        // PART4 4-前-5: Shadow cull (single-pass, twoPassEnabled stays false;
+        // shadow two-pass is a future Phase). Same CullObject input, only
+        // viewProj differs. HZB sampler still wired so set 0 binds.
         ce.set = CullingPass::CullSet::Shadow;
         ce.inputAlreadyUploaded = true;
         ce.viewProj = info.normalLighting.lightVP;
-        // viewPos stays the camera world position; the cone test is a no-op
-        // today (cosHalfAngle sentinel = 2.0), and a real cone test for
-        // shadow caster culling would use the light direction instead.
+        ce.twoPassEnabled = false;
         cullingPass_.execute(ce);
     }
 
@@ -646,25 +675,84 @@ void PassChain::recordFrame(const RecordInfo& info) {
 
 
         mi.indirectCommandBuffer = cullingPass_.commandBuffer(info.frameIndex);  // PART3c-2 fallback
-        // PART4 4-前-4: compacted draw + per-block count buffers. main_pass
-        // hands these to indirect_exec which picks DGC / IndirectCount / Legacy.
+
+        // ─── PART4 4c-D: two-pass HZB occlusion orchestration ─────────
+        //   1. MainPass(FirstOpaque): draw what pass1 cull picked
+        //      (visHistory[N-1] && frustum && cone) into compactCmd1.
+        //      Skips non-prop opaques (terrain / grass / skinned / bindless
+        //      cube) and the non-opaque section; leaves depth in readOnly.
+        //   2. HiZPass.execute: build the current-frame depth pyramid from
+        //      the just-rasterised pass1 depth (now in readOnly layout).
+        //   3. Depth barrier readOnly -> attachment so pass2 main can LOAD +
+        //      write the same depth buffer.
+        //   4. Camera pass2 cull (twoPassEnabled, passIndex=2): predicate =
+        //      frustum && cone && !hzbOccluded(curr) && !drewByPass1.
+        //      Writes visHistory for next frame.
+        //   5. MainPass(SecondAndNonOpaque): opaque LOAD + draw pass2's set
+        //      (compactCmd2) + non-prop opaques + non-opaque section + the
+        //      full post-pass barrier to OverlayPass.
+
+        // 1) MainPass FirstOpaque (pass1 indirect)
         mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Camera, 0);
         mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 0);
-
+        mi.pass = MainPass::Pass::FirstOpaque;
         mainPass_.execute(mi);
-    }
 
-    // ─── HiZPass (PART4 4b) ─────────────────────────────────────
-    // SPD single-dispatch pyramid generation. main_pass leaves swapchain
-    // depth in DEPTH_READ_ONLY_OPTIMAL (separate or combined layout, picked
-    // by depth_layouts::readOnly()); HiZPass samples it from compute.
-    // OverlayPass below doesn't touch depth, so this fits cleanly between
-    // them.
-    {
-        HiZPass::ExecuteInfo he{};
-        he.cmd = info.cmd;
-        he.frameIndex = info.frameIndex;
-        hizPass_.execute(he);
+        // 2) HiZPass.execute - depth is in readOnly thanks to FirstOpaque
+        // early return's depth transition.
+        {
+            HiZPass::ExecuteInfo he{};
+            he.cmd = info.cmd;
+            he.frameIndex = info.frameIndex;
+            hizPass_.execute(he);
+        }
+
+        // 3) Depth back to attachment for pass2 main's LOAD + write. After
+        // pass2 + non-opaque, main_pass's existing post-pass barrier handles
+        // the final transition back to readOnly for OverlayPass.
+        {
+            barrier::ImageBarrier depthToAttachment{};
+            depthToAttachment.image = swapchain_->depthImage();
+            depthToAttachment.range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+            depthToAttachment.oldLayout = depth_layouts::readOnly(*ctx_);
+            depthToAttachment.newLayout = depth_layouts::attachment(*ctx_);
+            depthToAttachment.srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            depthToAttachment.srcAccess = VK_ACCESS_2_SHADER_READ_BIT;
+            depthToAttachment.dstStage  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                          VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            depthToAttachment.dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            barrier::recordImage(*ctx_, info.cmd, depthToAttachment);
+        }
+
+        // 4) Camera pass2 cull. Same input as pass1 (inputAlreadyUploaded =
+        // true), passIndex = 2 so cull.comp reads hzbCurr + writes
+        // visHistory for next frame.
+        {
+            CullingPass::ExecuteInfo ce2{};
+            ce2.cmd = info.cmd;
+            ce2.frameIndex = info.frameIndex;
+            ce2.cullObjects = &built.cullObjects;
+            ce2.drawTemplates = &built.drawTemplates;
+            ce2.blockRanges = built.blockRanges.data();
+            ce2.blockRangeCount = static_cast<uint32_t>(built.blockRanges.size());
+            ce2.set = CullingPass::CullSet::Camera;
+            ce2.inputAlreadyUploaded = true;
+            ce2.viewProj = info.normalLighting.proj * info.normalLighting.view;
+            ce2.viewPos  = glm::vec3(info.normalLighting.viewPos);
+            ce2.hizSampler  = hizPass_.minReductionSampler();
+            ce2.hizPrevView = hizPass_.previousPyramidView(info.frameIndex);
+            ce2.hizCurrView = hizPass_.pyramidView(info.frameIndex);
+            ce2.twoPassEnabled = true;
+            ce2.passIndex = 2;
+            cullingPass_.execute(ce2);
+        }
+
+        // 5) MainPass SecondAndNonOpaque (pass2 indirect + non-opaque scope)
+        mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Camera, 1);
+        mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 1);
+        mi.pass = MainPass::Pass::SecondAndNonOpaque;
+        mainPass_.execute(mi);
     }
 
     // ─── OverlayPass (PART4 4a-2) ────────────────────────────────

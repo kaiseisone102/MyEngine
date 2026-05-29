@@ -538,12 +538,17 @@ void MainPass::execute(const ExecuteInfo& info) {
         // PART3c scope: terrain is a separate bucket (own GeometryBuffer + cull +
         // splat material, built in the streaming Phase). For now it stays on the
         // legacy CPU loop, drawn after the GPU-driven props.
-        if (terrainOp)
+        // PART4 4c-D: skip non-prop opaque draws in pass1 (FirstOpaque) so we
+        // don't double-render. pass2 (SecondAndNonOpaque) and Single emit them.
+        if (terrainOp && info.pass != Pass::FirstOpaque)
             static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainOp, true);
     }
 
     // === Phase 1F: instanced grass (alpha-tested, bindless texture) ===
-    if (info.grassDrawList && !info.grassDrawList->empty()
+    // PART4 4c-D: skip in pass1 (no cull → would double-render across the two
+    // main_pass calls). Grass is not in CullingPass scope today.
+    if (info.pass != Pass::FirstOpaque
+        && info.grassDrawList && !info.grassDrawList->empty()
         && info.instanceBufferAddress != 0 && grassPipeline_
         && info.bindlessSet != VK_NULL_HANDLE) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, grassPipeline_.get());
@@ -567,7 +572,9 @@ void MainPass::execute(const ExecuteInfo& info) {
         }
     }
 
-    if (modelOp && !modelOp->empty()) {
+    // PART4 4c-D: skinned models are not in CullingPass scope; skip in pass1
+    // to avoid double-render. pass2 (SecondAndNonOpaque) + Single emit them.
+    if (info.pass != Pass::FirstOpaque && modelOp && !modelOp->empty()) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
@@ -583,8 +590,10 @@ void MainPass::execute(const ExecuteInfo& info) {
     // Phase 1D-2d: bindless test cube (opaque demo, moved into the opaque MRT
     // pass by PART4 4a-2 so it writes to all three attachments and is no
     // longer drawn on top of transparent geometry).
+    // PART4 4c-D: same FirstOpaque skip as the others - not in CullingPass.
     // ============================================================
-    if (bindlessPipelineOpaque_ && info.bindlessSet != VK_NULL_HANDLE && info.mesh) {
+    if (info.pass != Pass::FirstOpaque
+        && bindlessPipelineOpaque_ && info.bindlessSet != VK_NULL_HANDLE && info.mesh) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bindlessPipelineOpaque_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
@@ -614,13 +623,28 @@ void MainPass::execute(const ExecuteInfo& info) {
     // GBuffer attachments. HDR + depth carry through via loadOp=LOAD.
     vkCmdEndRendering(info.cmd);
 
-    // PART4 4c-C: pass1 (FirstOpaque) stops here. pass2 (SecondAndNonOpaque)
-    // will re-enter execute() with opaqueLoadOp = LOAD, draw the second
-    // batch into the same HDR / depth attachments, then run the non-opaque
-    // section + the post-pass GBuffer transition below. Single is unchanged
-    // (it falls through to the non-opaque section and the post-pass barrier
-    // immediately).
-    if (info.pass == Pass::FirstOpaque) return;
+    // PART4 4c-D: pass1 (FirstOpaque) stops here. Transition just the depth
+    // attachment to readOnly so HiZPass.execute() can sample it from compute;
+    // HDR + GBuffer stay in COLOR_ATTACHMENT for pass2's loadOp = LOAD.
+    // pass_chain runs the reverse depth transition (readOnly -> attachment)
+    // before MainPass(SecondAndNonOpaque) so pass2 can write depth again.
+    // Single + SecondAndNonOpaque both fall through to the non-opaque section
+    // and the full post-pass barrier (which transitions GBuffer + depth at
+    // the end of the frame for OverlayPass).
+    if (info.pass == Pass::FirstOpaque) {
+        barrier::ImageBarrier depthToRead{
+            .image = swapchain_->depthImage(),
+            .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+            .oldLayout = depth_layouts::attachment(*ctx_),
+            .newLayout = depth_layouts::readOnly(*ctx_),
+            .srcStage  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            .srcAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccess = VK_ACCESS_2_SHADER_READ_BIT,
+        };
+        barrier::recordImage(*ctx_, info.cmd, depthToRead);
+        return;
+    }
 
     VkRenderingAttachmentInfo nonOpaqueColorAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     nonOpaqueColorAtt.imageView = hdrColorView_;
