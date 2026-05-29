@@ -136,6 +136,13 @@ void VulkanContext::init(SDL_Window* window) {
         if (memoryPriority_) {
             allocInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT;
         }
+        // I: live per-heap budget tracking so vmaGetHeapBudgets reflects
+        // the driver's current usage / budget rather than VMA's internal
+        // estimate. Required for any meaningful VRAM HUD or streaming
+        // residency manager.
+        if (memoryBudget_) {
+            allocInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+        }
         if (vmaCreateAllocator(&allocInfo, &allocator_) != VK_SUCCESS) {
             throw std::runtime_error("VulkanContext: vmaCreateAllocator failed");
         }
@@ -399,6 +406,9 @@ void VulkanContext::createDevice() {
     if (memoryPriority_) {
         deviceExtsVec.push_back("VK_EXT_memory_priority");
     }
+    if (memoryBudget_) {
+        deviceExtsVec.push_back("VK_EXT_memory_budget");  // I
+    }
     const float priority = 1.f;
 
     // PART4 4c-B (§3.4-V receptacle): pick a queue family that supports
@@ -525,6 +535,8 @@ void VulkanContext::createDevice() {
                 pipelineBinary_ = true;  // PART4 4d N3
             } else if (std::strcmp(e.extensionName, "VK_EXT_memory_priority") == 0) {
                 memoryPriority_ = true;  // N: VRAM eviction priority hints
+            } else if (std::strcmp(e.extensionName, "VK_EXT_memory_budget") == 0) {
+                memoryBudget_ = true;  // I: VRAM budget visibility (Roadmap \xc2\xa76)
             }
         }
     }
@@ -575,6 +587,7 @@ void VulkanContext::createDevice() {
               << " graphicsPipelineLibrary=" << (graphicsPipelineLibrary_ ? 1 : 0)
               << " pipelineBinary=" << (pipelineBinary_ ? 1 : 0)
               << " memoryPriority=" << (memoryPriority_ ? 1 : 0)
+              << " memoryBudget=" << (memoryBudget_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)

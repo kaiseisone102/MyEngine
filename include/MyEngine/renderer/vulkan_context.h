@@ -126,6 +126,16 @@ class VulkanContext {
     // residency manager.
     bool memoryPriority() const { return memoryPriority_; }
 
+    // I (Roadmap \xc2\xa76): VK_EXT_memory_budget -- per-heap usage and budget
+    // reported by the driver, refreshed by the allocator (or by an explicit
+    // vkGetPhysicalDeviceMemoryProperties2 chained with
+    // VkPhysicalDeviceMemoryBudgetPropertiesEXT). Open-world streaming on
+    // P620's 2 GB VRAM needs this calibre to know when to evict. Today the
+    // capability flag is exposed and the allocator carries
+    // VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT so vmaGetHeapBudgets returns
+    // live numbers; HUD + streaming-budget tracker land per-Phase.
+    bool memoryBudget() const { return memoryBudget_; }
+
     // PART4 4c-B (§3.4-V receptacle promoted from 4d): a queue family that
     // supports COMPUTE WITHOUT GRAPHICS, if the device exposes one (NVIDIA
     // Pascal+ and most AMD/Intel discrete typically do; integrated may not).
@@ -302,6 +312,11 @@ class VulkanContext {
     // VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT and ai.priority on each
     // VmaAllocation is honored.
     bool memoryPriority_ = false;
+
+    // I: VK_EXT_memory_budget feature flag (true when the extension is
+    // present and we enabled it). vmaGetHeapBudgets uses live values when
+    // the allocator carries VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT.
+    bool memoryBudget_ = false;
 
     // PART4 4c-B (§3.4-V receptacle): a queue family with COMPUTE without
     // GRAPHICS if the device exposes one; else equal to graphicsFamily_.
