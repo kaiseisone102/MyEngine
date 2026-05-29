@@ -12,7 +12,6 @@
 #include "core/aabb.h"
 #include "renderer/material.h"
 #include "renderer/mesh.h"
-#include "renderer/vk_unique.h"
 #include "renderer/skeleton.h"
 #include "renderer/texture.h"
 
@@ -21,27 +20,21 @@ class ResourceFactory;
 class AssetRegistry;
 class GeometryBuffer;
 
+// SubMesh range inside the shared GeometryBuffer megabuffer. ModelLoader uploads
+// every aiMesh into the megabuffer at load; the legacy private vertex/index
+// buffers were removed once all draw paths went through firstIndex/vertexOffset.
 struct SubMesh {
-    VkUnique<VkBuffer> vertexBuffer;
-    VkUnique<VkDeviceMemory> vertexBufferMemory;
-    VkUnique<VkBuffer> indexBuffer;
-    VkUnique<VkDeviceMemory> indexBufferMemory;
-    uint32_t indexCount = 0;
-    uint32_t materialIndex = 0;
-
-    // Phase 2B PART3a: when uploaded into the shared GeometryBuffer, geom is set and
-    // firstIndex/vertexOffset locate this submesh in the megabuffers (the private
-    // VkUnique buffers above stay empty). bind() is hybrid: megabuffer if on geom,
-    // else the legacy private buffers. Draw sites use firstIndex()/vertexOffset().
     GeometryBuffer* geom = nullptr;
     uint32_t firstIndex = 0;
     int32_t vertexOffset = 0;
     uint32_t blockIndex = 0;
+    uint32_t indexCount = 0;
+    uint32_t materialIndex = 0;
 
     void bind(VkCommandBuffer cmd) const;
-    // PART3b: bind this submesh's block + draw its range in one call (block bind
-    // and firstIndex/vertexOffset stay paired -- structural fix for PART3a's
-    // missed-bind device-lost). PART3c will pass firstInstance = drawId.
+    // Bind the megabuffer block and draw the submesh range in one call so the
+    // block bind and firstIndex/vertexOffset can never desync. firstInstance
+    // carries drawId for the per-draw SSBO lookup (PART3c).
     void bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount = 1,
                      uint32_t firstInstance = 0) const;
 };

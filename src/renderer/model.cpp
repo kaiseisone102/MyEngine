@@ -1,18 +1,10 @@
 // src/renderer/model.cpp
 #include "renderer/model.h"
 
-#include "renderer/vulkan_context.h"
 #include "renderer/geometry_buffer.h"
 
 void SubMesh::bind(VkCommandBuffer cmd) const {
-    if (geom) {
-        geom->bindBlock(cmd, blockIndex);  // shared megabuffer; draw uses firstIndex/vertexOffset
-        return;
-    }
-    const VkDeviceSize offset = 0;
-    VkBuffer vb = vertexBuffer.get();
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
+    geom->bindBlock(cmd, blockIndex);  // draw uses firstIndex/vertexOffset
 }
 
 void SubMesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
@@ -23,9 +15,9 @@ void SubMesh::bindAndDraw(VkCommandBuffer cmd, uint32_t instanceCount,
 }
 
 void Model::destroy() {
-    if (!ctx_) return;
-    VkDevice device = ctx_->device();
-
+    // GeometryBuffer owns the per-SubMesh memory; just drop materials/textures
+    // here (each has its own destroy()). SubMesh handles become stale ranges
+    // into a megabuffer that survives this Model.
     for (Material& m : materials_) {
         m.destroy();
     }
@@ -36,15 +28,6 @@ void Model::destroy() {
     }
     textures_.clear();
 
-    for (SubMesh& sm : subMeshes_) {
-        // VkUnique frees each handle (no-op if empty).
-        sm.indexBuffer.reset();
-        sm.indexBufferMemory.reset();
-        sm.vertexBuffer.reset();
-        sm.vertexBufferMemory.reset();
-        sm.indexCount = 0;
-    }
     subMeshes_.clear();
-
     ctx_ = nullptr;
 }

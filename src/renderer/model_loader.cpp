@@ -166,53 +166,17 @@ SubMeshCpuData buildSubMeshCpu(const aiMesh* mesh) {
     return out;
 }
 
-void uploadBuffer(const VulkanContext* ctx, const ResourceFactory* resources, const void* src,
-                  VkDeviceSize size, VkBufferUsageFlags usage, VkUnique<VkBuffer>& outBuffer,
-                  VkUnique<VkDeviceMemory>& outMemory) {
-    VkBuffer staging{};
-    VkDeviceMemory stagingMem{};
-    resources->createBuffer(
-        size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging,
-        stagingMem);
-
-    void* data = nullptr;
-    vkMapMemory(ctx->device(), stagingMem, 0, size, 0, &data);
-    std::memcpy(data, src, static_cast<size_t>(size));
-    vkUnmapMemory(ctx->device(), stagingMem);
-
-    VkBuffer buf = VK_NULL_HANDLE;
-    VkDeviceMemory mem = VK_NULL_HANDLE;
-    resources->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buf, mem);
-    outBuffer = VkUnique<VkBuffer>(ctx->device(), buf);
-    outMemory = VkUnique<VkDeviceMemory>(ctx->device(), mem);
-    resources->copyBuffer(staging, outBuffer.get(), size);
-
-    vkDestroyBuffer(ctx->device(), staging, nullptr);
-    vkFreeMemory(ctx->device(), stagingMem, nullptr);
-}
-
-void uploadSubMeshToGpu(const VulkanContext* ctx, const ResourceFactory* resources,
-                        const SubMeshCpuData& cpu, SubMesh& gpu, GeometryBuffer* geom) {
+void uploadSubMeshToGpu(const SubMeshCpuData& cpu, SubMesh& gpu, GeometryBuffer& geom) {
     if (cpu.vertices.empty() || cpu.indices.empty()) {
         std::cerr << "[ModelLoader] empty submesh, skipping upload\n";
         return;
     }
-    if (geom) {
-        const MeshHandle h = geom->alloc(cpu.vertices, cpu.indices);
-        gpu.geom = geom;
-        gpu.firstIndex = h.firstIndex;
-        gpu.vertexOffset = h.vertexOffset;
-        gpu.blockIndex = h.blockIndex;
-        // gpu.indexCount is set by the caller; keep it consistent with the handle.
-        gpu.indexCount = h.indexCount;
-        return;
-    }
-    uploadBuffer(ctx, resources, cpu.vertices.data(), sizeof(Vertex) * cpu.vertices.size(),
-                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, gpu.vertexBuffer, gpu.vertexBufferMemory);
-    uploadBuffer(ctx, resources, cpu.indices.data(), sizeof(uint32_t) * cpu.indices.size(),
-                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, gpu.indexBuffer, gpu.indexBufferMemory);
+    const MeshHandle h = geom.alloc(cpu.vertices, cpu.indices);
+    gpu.geom = &geom;
+    gpu.firstIndex = h.firstIndex;
+    gpu.vertexOffset = h.vertexOffset;
+    gpu.blockIndex = h.blockIndex;
+    gpu.indexCount = h.indexCount;  // keep consistent with the handle
 }
 
 // linearIndices: embedded texture indices that are DATA maps (normal/MR/AO) and
@@ -550,7 +514,7 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
         gpu.materialIndex =
             (cpuData[i].materialIndex < matCount) ? cpuData[i].materialIndex : 0;
         gpu.indexCount = static_cast<uint32_t>(cpuData[i].indices.size());
-        uploadSubMeshToGpu(ctx, resources, cpuData[i], gpu, &assets.geometry());
+        uploadSubMeshToGpu(cpuData[i], gpu, assets.geometry());
     }
 
     extractAnimationsByName(scene, outAnimations);
