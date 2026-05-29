@@ -90,7 +90,6 @@ void TitleLayer::update(float dt, bool isTop, const ActionState& input) {
 }
 
 void TitleLayer::buildScene(SceneData& scene) {
-    static int s_dbg=0; if (s_dbg++<3) std::cout<<"[DEBUG] TitleLayer::buildScene called, knight="<<(knightModel_?"yes":"no")<<" skinValid="<<skinSlot_.valid()<<"\n";
     // ----- 1. Camera / projection -----
     int winW = 1280, winH = 720;
     if (window_) SDL_GetWindowSize(window_, &winW, &winH);

@@ -4,7 +4,6 @@
 #include "renderer/pass_chain.h"
 
 #include <stdexcept>
-#include <iostream>
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
@@ -440,20 +439,6 @@ void PassChain::recordFrame(const RecordInfo& info) {
     static_cull::BuildResult built =
         static_cull::build(drawDataPool_, info.frameIndex, mesh, meshOpaque, staticOpaque,
                            terrainOpaque);
-    {
-        static int s_blockDbg = 0;
-        if (s_blockDbg < 3 && built.draws.size() > 1) {
-            ++s_blockDbg;
-            std::string seq;
-            uint32_t prevBlock = UINT32_MAX, switches = 0;
-            for (const static_cull::PreparedDraw& preparedDraw : built.draws) {
-                seq += std::to_string(preparedDraw.blockIndex) + " ";
-                if (preparedDraw.blockIndex != prevBlock) { ++switches; prevBlock = preparedDraw.blockIndex; }
-            }
-            std::cout << "[BlockDbg] draws=" << built.draws.size()
-                      << " blockSwitches=" << switches << " seq=" << seq << "\n";
-        }
-    }
 
     // ─── 2.6 CullingPass (Phase 2B): GPU frustum cull BEFORE MainPass ──
     // PART4 4c-C: idempotent UNDEFINED -> GENERAL on every per-frame HZB
