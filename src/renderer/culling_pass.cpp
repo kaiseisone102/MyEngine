@@ -234,7 +234,22 @@ VkUnique<VkPipelineLayout> CullingPass::createCullPipelineLayout() {
 }
 
 void CullingPass::createHizDescriptorInfra() {
-    // PART4 4c-C: set layout = 2 combined image samplers in COMPUTE.
+    // PART4 4c-D: set layout = 2 combined image samplers in COMPUTE, with
+    // UPDATE_AFTER_BIND so execute() can rewrite the bindings between cull
+    // dispatches (pass1 -> Shadow -> pass2) within one frame. Without this
+    // flag, updating a descriptor set that is referenced by a recording
+    // command buffer invalidates the buffer (validation: "destroyed or
+    // updated without UPDATE_AFTER_BIND"). Same pattern the bindless
+    // texture array uses.
+    VkDescriptorBindingFlags bf[2] = {
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+    };
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bfci{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
+    bfci.bindingCount = 2;
+    bfci.pBindingFlags = bf;
+
     VkDescriptorSetLayoutBinding b[2]{};
     b[0].binding = 0;
     b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -244,6 +259,8 @@ void CullingPass::createHizDescriptorInfra() {
     b[1].binding = 1;
 
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    li.pNext = &bfci;
+    li.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
     li.bindingCount = 2;
     li.pBindings = b;
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
@@ -252,10 +269,12 @@ void CullingPass::createHizDescriptorInfra() {
     hizSetLayout_ = VkUnique<VkDescriptorSetLayout>(ctx_->device(), layout);
 
     // Pool: 2 sets * 2 samplers each = 4 combined image samplers total.
+    // UPDATE_AFTER_BIND_BIT must match the set layout flag.
     VkDescriptorPoolSize ps{};
     ps.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     ps.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pi.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     pi.maxSets = MAX_FRAMES_IN_FLIGHT;
     pi.poolSizeCount = 1;
     pi.pPoolSizes = &ps;
