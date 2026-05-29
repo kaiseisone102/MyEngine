@@ -470,10 +470,18 @@ void VulkanContext::createDevice() {
         vkEnumerateDeviceExtensionProperties(physical_, nullptr, &extCount, nullptr);
         std::vector<VkExtensionProperties> exts(extCount);
         vkEnumerateDeviceExtensionProperties(physical_, nullptr, &extCount, exts.data());
+        // PART4 4-前-4: VK_EXT_device_generated_commands (DGC) extension
+        // receptacle. PART4 4d N2 / N3: graphics_pipeline_library +
+        // pipeline_binary receptacles for the open-world streaming
+        // pipeline strategy. All are queried by name only - no feature
+        // enable / no add to deviceExts yet; activation lands per-Phase.
         for (const VkExtensionProperties& e : exts) {
             if (std::strcmp(e.extensionName, "VK_EXT_device_generated_commands") == 0) {
                 deviceGeneratedCommands_ = true;
-                break;
+            } else if (std::strcmp(e.extensionName, "VK_EXT_graphics_pipeline_library") == 0) {
+                graphicsPipelineLibrary_ = true;  // PART4 4d N2
+            } else if (std::strcmp(e.extensionName, "VK_KHR_pipeline_binary") == 0) {
+                pipelineBinary_ = true;  // PART4 4d N3
             }
         }
     }
@@ -519,6 +527,8 @@ void VulkanContext::createDevice() {
               << " pipelineCreationCacheControl=" << (pipelineCreationCacheControl_ ? 1 : 0)
               << " maintenance5=" << (maintenance5_ ? 1 : 0)
               << " maintenance6=" << (maintenance6_ ? 1 : 0)
+              << " graphicsPipelineLibrary=" << (graphicsPipelineLibrary_ ? 1 : 0)
+              << " pipelineBinary=" << (pipelineBinary_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)

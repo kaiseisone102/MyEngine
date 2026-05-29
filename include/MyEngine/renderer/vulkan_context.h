@@ -160,6 +160,32 @@ class VulkanContext {
     // the VK_PIPELINE_COMPILE_REQUIRED return.
     bool pipelineCreationCacheControl() const { return pipelineCreationCacheControl_; }
 
+    // PART4 4d N2 (VK_EXT_graphics_pipeline_library): RECEPTACLE for the
+    // material-variant compile pattern open-world games use. The extension
+    // lets the app pre-compile vertex-stage and fragment-stage halves as
+    // separate "libraries" and combine them at draw time, without paying
+    // the full pipeline-compile cost for every (vertex, fragment, blend,
+    // depth) combination. Combined with pipelineCreationCacheControl (N1)
+    // and persistent pipeline cache (M1), this is the modern open-world
+    // pipeline strategy Maister's Granite + AC Shadows' Anvil micropolygon
+    // pipeline both use. Today no caller exercises it (engine creates
+    // monolithic pipelines at init); Phase 2A clustered-light variants
+    // and Phase 3 SS specialisations would be the first activators.
+    bool graphicsPipelineLibrary() const { return graphicsPipelineLibrary_; }
+
+    // PART4 4d N3 (VK_KHR_pipeline_binary, Vulkan 1.3.294 / Aug 2024):
+    // RECEPTACLE for the next-gen pipeline storage scheme. Where the
+    // existing VkPipelineCache stores opaque driver blobs that the app
+    // can only save/load as one chunk, VK_KHR_pipeline_binary exposes
+    // per-pipeline binaries the app can identify, store, ship, and
+    // selectively load. Intel ANV exposed it in Aug 2024; NVIDIA + AMD
+    // are tracking. When activated this gradually replaces M1's pipeline
+    // cache file with per-pipeline binary files (cleaner cache
+    // invalidation when single shaders change, distributable warm cache
+    // shipping with the game, etc). Receptacle only today; full activation
+    // is a future commit when the API is stable + widely deployed.
+    bool pipelineBinary() const { return pipelineBinary_; }
+
     // PART4 4d N4 (Vulkan 1.4 core / VK_KHR_maintenance5, VK_KHR_maintenance6):
     // Vulkan 1.4 (Dec 2024) promoted these maintenance extensions to core.
     // Receptacles for future open-world subsystems:
@@ -272,6 +298,13 @@ class VulkanContext {
     // chain - making the 1.4 promotion bits unreachable. N4 fixes that.
     bool maintenance5_ = false;
     bool maintenance6_ = false;
+
+    // PART4 4d N2 / N3: queried VK_EXT_graphics_pipeline_library and
+    // VK_KHR_pipeline_binary extensions by name. Pure receptacles - no
+    // caller and no feature enable today. Activation lands when the
+    // streaming + material-variant subsystems land (Phase 2A / Phase 3).
+    bool graphicsPipelineLibrary_ = false;
+    bool pipelineBinary_ = false;
 
     // PART4 4d M1: persistent pipeline cache (Vulkan13 §3 Y). createPipelineCache
     // loads from disk + vkCreatePipelineCache; savePipelineCache writes back at
