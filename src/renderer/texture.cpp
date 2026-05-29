@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "renderer/resource_factory.h"
+#include "renderer/vma_buffer.h"
 #include "renderer/vulkan_context.h"
 
 void Texture::generateCheckerboard(uint8_t* dst, int w, int h) {
@@ -99,36 +100,29 @@ void Texture::createImageAndView(const ResourceFactory* resources, const uint8_t
     const VkFormat fmt = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * 4);
 
-    VkBuffer staging{};
-    VkDeviceMemory stagingMem{};
-    resources->createBuffer(
-        imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging,
-        stagingMem);
+    // Persistently-mapped host-visible staging buffer; RAII-destroyed at scope
+    // end after the device-side copy completes (copyBufferToImage submits a
+    // one-time command buffer that vkQueueWaitIdles before returning).
+    // ctx_ is const here; the VMA factories need non-const, so cast (same
+    // precedent as VmaImage::createAttachment below).
+    VulkanContext* nonConstCtx = const_cast<VulkanContext*>(ctx_);
+    VmaBuffer staging = VmaBuffer::createMappedHostVisible(
+        nonConstCtx, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    std::memcpy(staging.mapped(), pixels, static_cast<size_t>(imageSize));
 
-    void* data = nullptr;
-    vkMapMemory(ctx_->device(), stagingMem, 0, imageSize, 0, &data);
-    std::memcpy(data, pixels, static_cast<size_t>(imageSize));
-    vkUnmapMemory(ctx_->device(), stagingMem);
-
-    // Create image + memory into raw locals, then take ownership via VkUnique.
-    // Move-assign frees any previous handle first, so re-loading a Texture is safe.
-    // image memory is now VMA-managed via VmaImage::createAttachment.
-    // ctx_ is const here; createAttachment needs non-const (allocator()), so cast.
-    image_ = VmaImage::createAttachment(const_cast<VulkanContext*>(ctx_),
+    // image memory is VMA-managed via VmaImage::createAttachment.
+    image_ = VmaImage::createAttachment(nonConstCtx,
                                         static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                                         fmt,
                                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
     resources->transitionImageLayout(image_.image(), VK_IMAGE_LAYOUT_UNDEFINED,
                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    resources->copyBufferToImage(staging, image_.image(), static_cast<uint32_t>(width),
+    resources->copyBufferToImage(staging.buffer(), image_.image(),
+                                 static_cast<uint32_t>(width),
                                  static_cast<uint32_t>(height));
     resources->transitionImageLayout(image_.image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    vkDestroyBuffer(ctx_->device(), staging, nullptr);
-    vkFreeMemory(ctx_->device(), stagingMem, nullptr);
 
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = image_.image();
