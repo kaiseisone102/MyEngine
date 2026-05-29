@@ -1,6 +1,6 @@
-# MyEngine Phase 依存関係マップ (テキスト版 rev.11)
+# MyEngine Phase 依存関係マップ (テキスト版 rev.12)
 
-最終更新: 2026-05-29 (rev.11: **PART4 §6 4d「Pure GPU-driven cleanup = 完了」追加反映 (commit f8d1e1f)**。 user 報告「HUD `Cull : 0 / 67` 永久 0」を契機: 4-前-4 (15b89ad) で compactCmd device-local 化以降 readback 経路が断たれていた (props は GPU 経由で正常描画・HUD だけ stale)。 option B (純 GPU-driven 化) で HUD 行 + CPU Frustum オラクル + 全 wire-up 撤去 (8 files +2 -51)。 §4 Hi-Z node 残作業から該当項目撤去、 §6 着手順表に commit f8d1e1f 行追加、 §199 PART2 完了 entry に inline note。 / rev.10: **PART4 §6 4c + 4d 大半完了 (18 commits) = PART4 essentially complete**。 §4 の Hi-Z occlusion ノードを「完了」に・次は §8 畳み込み or 後段 Phase へ、 §6 着手順に 4c の 8 commits と 4d の 10 commits を追記、 ★次を「2C / 2A / 2F / 1I-D」に。 / rev.9: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §4 の Hi-Z occlusion ノードに 4b 完了 + 次 = 4c (two-pass occlusion 本体)、 §6 着手順に 4b 行を追記し ★次を 4c に。 / rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
+最終更新: 2026-05-29 (rev.12: **最新化マラソン 28 commits 反映**。 §1 土台 side で `buffer 側 VMA 化` を「未着手」から **「完了済み 2026-05-29 (A1-A5 commits)」** に書換 + 「**エンジン内 生 vkAllocateMemory ゼロ達成**」明記。 §1 に新規セクション 3 つ追加: **Transfer queue family** (C 解消) + **Worker thread pool / JobSystem** (U 受け皿) + 遅延破棄も F1-F5 + G + B で本格利用に発展。 チャンクストリーミング前提条件が「全 closed」状態に。 §4 Hi-Z occlusion ノードの「4d 残った仕事」から Timeline semaphore を ✅ 完了 (B) に書換、 Async compute は M 受け皿確保 (8b4deff) を反映、 28 commits 全体サマリー + 次推奨を最新化マラソン後に書換 (V/R/S/H/X/Y/P stub の本実装 / mailbox / pipelineCreationCacheControl 活用 等)。 §0 進捗マークも更新候補。 / rev.11: **PART4 §6 4d「Pure GPU-driven cleanup = 完了」追加反映 (commit f8d1e1f)**。 user 報告「HUD `Cull : 0 / 67` 永久 0」を契機: 4-前-4 (15b89ad) で compactCmd device-local 化以降 readback 経路が断たれていた (props は GPU 経由で正常描画・HUD だけ stale)。 option B (純 GPU-driven 化) で HUD 行 + CPU Frustum オラクル + 全 wire-up 撤去 (8 files +2 -51)。 §4 Hi-Z node 残作業から該当項目撤去、 §6 着手順表に commit f8d1e1f 行追加、 §199 PART2 完了 entry に inline note。 / rev.10: **PART4 §6 4c + 4d 大半完了 (18 commits) = PART4 essentially complete**。 §4 の Hi-Z occlusion ノードを「完了」に・次は §8 畳み込み or 後段 Phase へ、 §6 着手順に 4c の 8 commits と 4d の 10 commits を追記、 ★次を「2C / 2A / 2F / 1I-D」に。 / rev.9: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §4 の Hi-Z occlusion ノードに 4b 完了 + 次 = 4c (two-pass occlusion 本体)、 §6 着手順に 4b 行を追記し ★次を 4c に。 / rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
 
 このドキュメントは「どの Phase がどの Phase の前提か」を整理し、着手順を見誤らないための地図。ロードマップ本体 (MyEngine_Graphics_Roadmap_2026.md) と対で読む。土台 side (VmaImage / 遅延破棄 / ストリーミング) も込みで、土台と描画機能が一枚でどう絡むかを示す。
 
@@ -45,19 +45,37 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 - ← 前提: 段階1 (必須。VmaBuffer と同じ設計の image 版を足す)
 - これが足場になるもの: **ポスト系 Phase 全部 (1I/1J/2D/2E)**。これらは中間 render target (image) を増やすので、image が VMA 管理だと VRAM 使用量が見通せる
 - 状態: **完了** (commit b9ac20b → d5e7eaf → ad8fa08 → 70f30b6 → 1349a04)。`renderer/vma_image.h/.cpp` 新設 → RenderTarget / Texture / swapchain depth を移行 (ShadowPass output / ReflectionTarget も RenderTarget 経由で自動カバー) → 未使用化した `ResourceFactory::createImage`/`createImageVMA` を削除。**エンジン内に image 用の生 vkAllocateMemory は無い。** 1I (compute bloom) の mip 列もこの VmaImage で確保した。
-- 残り: buffer 側の VMA 化 (mesh/model_loader/terrain_mesh/texture staging の `createBuffer`) は別タスクで未着手。
 - 位置づけ: **確定ルール通り 1I の前に完了済み** (§6/§7)。これによりポスト系の VRAM 予算管理が楽になった。
+
+### buffer 側 VMA 化 (§6) 【完了済み 2026-05-29 (A1-A5 commits 995b779 / 46cb937 / 185ac09 / 80ccb76 / a030372)】
+- ← 前提: 段階1 + VmaImage 化 (パターン手本)
+- これが足場になるもの: チャンクストリーミング (アセット入替の頻繁な確保/解放を VMA で吸収) + Foundations §2 (transfer queue + worker pool で async upload)
+- 状態: **完了**。 A1 (Mesh) + A2 (TerrainMesh) + A3 (SubMesh + ModelLoader) + A4 (Texture staging) を VmaBuffer 化、 A5 で ResourceFactory の `createBuffer` / `createBufferVMA` / `findMemoryType` の legacy memory API 全削除。 ResourceFactory は **transient command pool + 4 one-time submit helper のみ**になった。 **エンジン内 生 `vkAllocateMemory` / `vkBindBufferMemory` / `vkMapMemory` / `vkUnmapMemory` / `vkFreeMemory` ゼロ達成** (resource_factory.cpp と debug_line_pass.cpp のコメント記述 2 件のみ)。 「メモリは全部 VMA」が buffer 側でも完成。
+- 位置づけ: VmaImage 化と対称の土台仕事が完成。 Phase 2F streaming の前提が一段 closed (残りは transfer queue + worker pool = ✅ C + U 解消済み)。
 
 ### 遅延破棄 (deferred deletion) キュー (§6)
 - ← 前提: 段階1 (必須)
 - これが足場になるもの: **チャンクストリーミング (必須前提)**、swapchain 再作成の安全性、動的なリソース入れ替えがある全機能
 - 620: 該当なし (土台作業)
+- 状態: **完了** (PART4 4-前-3 で導入・F1-F5 + G で本格利用)。 F1-F5 (dynamic capacity grow) と G (bindless free-list) と B (timeline semaphore migration) が全て DeletionQueue 経由で旧 buffer / 旧 BDA address を MAX_FRAMES_IN_FLIGHT フレーム保持して安全破棄するパターンに統一済み。
 - 位置づけ: WorldTerrain/WorldWater の手動 clear 撤去もここで解決
 
+### Transfer queue family (Foundations §2 a-2) 【✅ 取得済 2026-05-29 (C commit e7b852e)】
+- ← 前提: vulkan_context の queue family selection 拡張
+- これが足場になるもの: チャンクストリーミング (async asset upload を graphics queue から分離) + Phase 2F terrain bucket
+- 状態: **完了**。 `vulkan_context::transferFamily()` / `transferQueue()` / `hasDedicatedTransfer()` getter 追加。 P620 で **family 1 = dedicated transfer 検出** (`[Caps] transferFamily=1 (dedicated=1)`)。 fallback は graphicsFamily に alias。 実 streaming 利用は Phase 2F で。
+
+### Worker thread pool / JobSystem (Foundations §2 ★★★) 【✅ 受け皿確保 2026-05-29 (U commit fdbddda)】
+- ← 前提: なし (独立)
+- これが足場になるもの: チャンクストリーミング (async asset load + decode + chunk eviction) + parallel command recording
+- 状態: **受け皿確保**。 `include/MyEngine/core/job_system.h` header-only。 `JobSystem::init(workerCount)` で std::thread N 本起動 + condition_variable + packaged_task queue。 `init(0)` で **inert-friendly** (submit が calling thread で inline 実行) なので既存単一スレッド経路は無改修。 Phase 2F streaming 着手時に worker pool 起動。
+- 位置づけ: Foundations §2 ★★★「スレッド土台」の隠れ前提を closed。
+
 ### チャンクストリーミング
-- ← 前提: 遅延破棄 (必須 — in-flight リソースの破棄タイミング管理)、VmaImage/VmaBuffer (必須 — ロード/アンロードで頻繁に確保解放するので VMA 必須)
+- ← 前提: ✅ 遅延破棄 (完了) + ✅ VmaImage 化 (完了) + ✅ VmaBuffer 化 (完了 = A1-A5) + ✅ transfer queue (完了 = C) + ✅ JobSystem 受け皿 (完了 = U) + memory_priority + memory_budget (N + I 完了)
 - これが足場になるもの: 広いオープンワールド (描画範囲外をアンロードして VRAM を空ける)。620 の 2GB では特に重要
 - 620: 設計次第 (ストリーミング自体は CPU/IO 主体。むしろ 620 の VRAM を救う技術)
+- 状態: **全前提が closed**。 Phase 2F 着手時に persistent_object_buffer (H 受け皿確保済) + 実 worker pool 起動 + 実 transfer queue 利用 + per-mip image_view_min_lod (Z enable 済) を組み合わせて実装。
 - 位置づけ: オープンワールドのスケールを上げる本命。LOD (2C) と組むと効果大
 
 ---
@@ -147,8 +165,9 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
   - **4c (two-pass HZB occlusion + Tier 1 α + 1-tap fast path) = 完了** (8 commits ad97879 / 477985d / f242327 / 7e446a9 / e41cfd7 / 91a6885 / 2f7daf9 / ccf5c03)。 4c-A (half-extent + hzbPrev 受け皿) → 4c-B (capability + helpers) → 4c-C (full machinery gate-off) → 4c-D (activation) + fix #1 (UPDATE_AFTER_BIND) + fix #2 (toAttach skip for SecondAndNonOpaque) + Tier 1 α 活性化 + 1-tap fast path。 user 目視「画面正常」確認。
   - **4d 大半 (audit-driven 最新化) = 完了** (10 commits 082d792..1481049)。 α (4b Obs B sync2 fix) + γ-1/2/3 (Post/Shadow/Reflection 全 dynamic rendering 化 = engine 全体で VkRenderPass / VkFramebuffer 実 API 使用ゼロ) + M3 (dynamic_rendering_local_read 受け皿) + M1 (persistent VkPipelineCache = Vulkan13 §3 Y closed) + M2 (sync2 generic layouts へ全面置換) + N1 (pipelineCreationCacheControl) + N4 (Vulkan14Features chain + maintenance5/6 enable・engine が API 1.4 で動作中なのに 1.4 features を一切 enable してない構造欠陥を修正) + N2/N3 (graphics_pipeline_library / pipeline_binary 受け皿)。
 - **Pure GPU-driven cleanup (commit f8d1e1f, 2026-05-29) = 完了**: HUD `Cull` 行 + CPU Frustum オラクル + 全 wire-up 撤去 (`lastVisible_[]` / `lastCpuVisible_` / `lastCullGpuVisible_` / `lastCullTotal_` / `cullGpuVisible` / `cullTotal` / 各 getter + 代入 site)。 4-前-4 (15b89ad) で compactCmd device-local 化以降 readback 経路が断たれていたのを option B (純 GPU-driven の本来形) で清算。 同一フレーム精密照合が要る場合は別 commit で countBuf を small staging に CopyBuffer する形 (option A) で復活可能。
-- **4d で残った仕事 (PART4 完了を阻まない・別 commit / 別 Phase で着手可)**: DGC 経路 **実装** (`VkIndirectCommandsLayoutEXT` ラッパ・Pascal 非対応で実 device 必要) / Shader Object 経路 / Descriptor Buffer (Pascal 強制無効化ロジック) / Timeline semaphore / Async compute での HZB / cull 並列実行 (Foundations §2 と一緒) / debug log 掃除 / transparent MRT mismatch fix / 4b Obs C/D。
-- **次推奨 = PART4 §8 畳み込み** (本書 + Roadmap + Codebase_Guide + Work_Protocol への完了内容書き戻し・PART4 設計書を「履歴」として閉じる) → その後 **2C LOD / 2A 多光源 / Phase 2F terrain bucket / 1I PART D / 3B mesh shader** のいずれか。
+- **4d で残った仕事 (PART4 完了を阻まない・別 commit / 別 Phase で着手可)**: DGC 経路 **実装** (`VkIndirectCommandsLayoutEXT` ラッパ・Pascal 非対応で実 device 必要) / Shader Object 経路 / Descriptor Buffer (Pascal 強制無効化ロジック) / ~~Timeline semaphore~~ ✅ **完了 (B commit 3670ef1 + eeba2ed = FrameSync migration)** / Async compute での HZB / cull 並列実行 (Foundations §2 と一緒・M 受け皿 commit 8b4deff 確保済・実 cross-queue は Phase 仕事) / debug log 掃除 / transparent MRT mismatch fix / 4b Obs C/D。
+- **最新化マラソン 2026-05-29 で 28 commits 追加**: A1-A6 (raw vkAllocateMemory ZERO) + E + E clean (camera-relative 10 site) + F1-F5 (固定容量 5 クラス動的化) + G (bindless free-list) + N (memory_priority 実利用) + O (debug_utils GPU markers) + W + W fix (sync_validation + swapchain hazard fix) + C (transfer queue) + I (memory_budget) + B (Timeline semaphore migration) + D+L+K+T+Z+J+Q (8 受け皿 → 5 enable) + U (JobSystem) + M (AsyncCompute) + V/R/S/H/X/Y/P (7 design memos)。 Hi-Z occlusion 経路は **影響なし** (新規 cap getter 群追加 + barrier 化のみ)。 詳細は START_HERE §2 / INDEX 新 ID 群表 / Foundations_Audit / Vulkan13_Modernization。
+- **次推奨 = 残 V/R/S/H/X/Y/P stub の本実装 + L/K/Z/J/Q 受け皿の実 callsite 連携 + mailbox present mode + pipelineCreationCacheControl 活用** (per-Phase で順次) → その後 **2C LOD / 2A 多光源 / Phase 2F terrain bucket / 1I PART D / 3B mesh shader** のいずれか。 PART4 §8 畳み込みは Codebase_Guide rev.16 / Foundations rev.7 / Vulkan13 rev.4 / INDEX rev.7 で本セッション内に完了。
 
 ---
 

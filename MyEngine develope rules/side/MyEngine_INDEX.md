@@ -27,11 +27,11 @@
 | 系統 | ファイル | rev | 行数 | 役割 |
 |---|---|---|---|---|
 | **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4c + 4d 大半 + Pure GPU-driven cleanup 反映) |
-| | MyEngine_Graphics_Roadmap_2026.md | rev.12 | — | 全 Phase 計画 (PART4 essentially complete + cleanup 反映) |
-| | MyEngine_Phase_Dependencies.md | rev.11 | — | Phase 間依存マップ (Hi-Z ノード完了 + cleanup) |
+| | MyEngine_Graphics_Roadmap_2026.md | rev.13 | — | 全 Phase 計画 (PART4 essentially complete + 最新化マラソン 28 commits 付記反映) |
+| | MyEngine_Phase_Dependencies.md | rev.12 | — | Phase 間依存マップ (Hi-Z ノード完了 + 土台 §1 buffer 系 VMA 化 ✅ + transfer queue ✅ + JobSystem ✅ + チャンクストリーミング前提全 closed) |
 | | MyEngine_Codebase_Guide.md | rev.16 | — | コード構造の地図 (最新化マラソン 28 commits 反映: 新規 11 ファイル + frame_sync timeline + resource_factory minimal + N/I/B/C/D/L/K/T/Z/J/Q getter) |
-| | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 |
-| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.10 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半 + cleanup 完了) |
+| | MyEngine_Work_Protocol.md | rev.18 | — | 作業規範・原則 + §5f-§5j 確定パターン 5 件追加 (F1-F5 grow / toEngineRelative / Timeline migration / debug_utils / memory_priority) |
+| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.11 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半 + cleanup 完了 + B Timeline 完了 + V/M Async receptacle) |
 | **土台監査** | MyEngine_Foundations_Audit.md | rev.7 | — | 先回り受け皿 + 既存負債 (§1 E + §2 C+U + §3 G + §4 H + §8.1 F1-F5 + §8.2 A1-A5 + §8.3 A6 全部状態 update) |
 | **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.4 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・B Timeline migration + N memory_priority 実利用 + I memory_budget + 5/7 receptacle activate) |
 | **索引** | MyEngine_INDEX.md (本書) | rev.7 | — | 横断インデックス (最新化マラソン 28 commits 反映・新 ID 群表 + 妥協度評価 + P620 [Caps] 30 capability) |
