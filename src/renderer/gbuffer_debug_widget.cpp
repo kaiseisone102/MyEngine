@@ -6,7 +6,6 @@
 
 #include <stdexcept>
 
-#include "renderer/depth_layouts.h"
 #include "renderer/vulkan_context.h"
 
 void GBufferDebugWidget::init(VulkanContext* ctx) {
@@ -61,7 +60,7 @@ void GBufferDebugWidget::draw() {
         // Matches main_pass's post-pass barrier on the depth image (same
         // helper). See depth_layouts.h.
         depthId_ = ImGui_ImplVulkan_AddTexture(
-            smp, depthView_, depth_layouts::readOnly(*ctx_));
+            smp, depthView_, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         dirty_ = false;
     }
 

@@ -9,7 +9,6 @@
 #include <stdexcept>
 
 #include "renderer/barrier.h"
-#include "renderer/depth_layouts.h"
 #include "renderer/geometry_buffer.h"
 #include "renderer/indirect_exec.h"
 #include "renderer/mesh.h"
@@ -225,7 +224,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
         .image = target_.image(),
         .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = depth_layouts::attachment(*ctx_),
+        .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
         .srcStage  = VK_PIPELINE_STAGE_2_NONE,
         .srcAccess = VK_ACCESS_2_NONE,
         .dstStage  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -235,7 +234,7 @@ void ShadowPass::execute(const ExecuteInfo& info) {
 
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = target_.view();
-    depthAtt.imageLayout = depth_layouts::attachment(*ctx_);
+    depthAtt.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
     depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     depthAtt.clearValue.depthStencil = {1.0f, 0};
@@ -336,8 +335,8 @@ void ShadowPass::execute(const ExecuteInfo& info) {
     barrier::recordImage(*ctx_, info.cmd, barrier::ImageBarrier{
         .image = target_.image(),
         .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
-        .oldLayout = depth_layouts::attachment(*ctx_),
-        .newLayout = depth_layouts::readOnly(*ctx_),
+        .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
         .srcStage  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
         .srcAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .dstStage  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,

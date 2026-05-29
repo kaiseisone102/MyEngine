@@ -9,7 +9,6 @@
 #include <stdexcept>
 
 #include "renderer/barrier.h"
-#include "renderer/depth_layouts.h"
 #include "renderer/main_pass.h"
 #include "renderer/material.h"
 #include "renderer/mesh.h"
@@ -296,7 +295,7 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
             .image = target_.depth().image(),
             .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
             .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = depth_layouts::attachment(*ctx_),
+            .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
             .srcStage = VK_PIPELINE_STAGE_2_NONE,
             .srcAccess = VK_ACCESS_2_NONE,
             .dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -316,7 +315,7 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
 
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = target_.depth().view();
-    depthAtt.imageLayout = depth_layouts::attachment(*ctx_);
+    depthAtt.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
     depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  // reflection depth is throwaway
     depthAtt.clearValue.depthStencil = {0.0f, 0};  // reverse-Z: clear to far (= 0.0)

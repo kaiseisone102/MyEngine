@@ -26,7 +26,6 @@
 #include "renderer/terrain_mesh.h"
 #include "renderer/static_cull_build.h"
 #include "renderer/barrier.h"        // PART4 4c-D: depth readOnly->attachment barrier
-#include "renderer/depth_layouts.h"  // PART4 4c-D: separate vs combined layout picker
 
 namespace {
 
@@ -714,8 +713,8 @@ void PassChain::recordFrame(const RecordInfo& info) {
             barrier::ImageBarrier depthToAttachment{};
             depthToAttachment.image = swapchain_->depthImage();
             depthToAttachment.range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-            depthToAttachment.oldLayout = depth_layouts::readOnly(*ctx_);
-            depthToAttachment.newLayout = depth_layouts::attachment(*ctx_);
+            depthToAttachment.oldLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+            depthToAttachment.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
             depthToAttachment.srcStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             depthToAttachment.srcAccess = VK_ACCESS_2_SHADER_READ_BIT;
             depthToAttachment.dstStage  = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |

@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "renderer/barrier.h"
-#include "renderer/depth_layouts.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/vulkan_context.h"
@@ -221,7 +220,7 @@ void HiZPass::allocateAndWriteSets() {
         // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL otherwise. Hardcoding
         // the former trips VUID-vkCmdDispatch-imageLayout on devices lacking
         // that 1.2 optional feature.
-        depthDi.imageLayout = depth_layouts::readOnly(*ctx_);
+        depthDi.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
         depthDi.imageView = depthView_;
         depthDi.sampler = depthSampler_.get();
 
