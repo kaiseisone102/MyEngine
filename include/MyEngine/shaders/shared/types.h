@@ -55,7 +55,9 @@ struct FrameUBO {
     vec4 lightDir;       // direction the light travels (normalized)
     vec4 lightColor;     // .rgb used
     vec4 ambient;        // .rgb used
-    vec4 viewPos;        // .xyz = camera position
+    vec4 viewPos;        // .xyz = ENGINE-RELATIVE camera position (world - EngineOrigin::current())
+                         // see world/engine_origin.h. Today == world position
+                         // (EngineOrigin returns (0,0,0)).
     vec4 shadowParams;   // .x = shadow strength, yzw = reserved
 
     // === Phase 1C extensions ===
@@ -253,6 +255,14 @@ struct StaticDrawPushConstants {
 //   index this very array via firstInstance = drawId.
 //   mat4(64) + uint + float + 2*float pad = 80 bytes, std430 16-byte aligned.
 //   No BDA inside, so one definition serves both C++ and GLSL.
+//
+// Coordinate convention (Foundations Audit \xc2\xa71 / world/engine_origin.h):
+//   model is an ENGINE-RELATIVE transform. The translation column is
+//   model_world - EngineOrigin::current(). Today EngineOrigin returns
+//   (0,0,0), so engine-relative == world and no shift is applied. When the
+//   floating-origin rebase engages, the producer (CPU build side) subtracts
+//   EngineOrigin first; the shader never sees the origin and continues to
+//   work unchanged.
 // -----------------------------------------------------------------------------
 struct DrawData {
     mat4 model;
@@ -276,11 +286,18 @@ struct DrawData {
 //   in cull.comp is unchanged (80 is a multiple of 16). No BDA inside the
 //   struct, so one definition still serves both C++ and GLSL.
 // -----------------------------------------------------------------------------
+// Coordinate convention (Foundations Audit \xc2\xa71 / world/engine_origin.h):
+//   centerRadius.xyz, extentDrawId.xyz, coneApexCutoff.xyz, and
+//   coneAxisLodBias.xyz are ENGINE-RELATIVE (the rendering data path's
+//   "local" frame). Today EngineOrigin::current() == (0,0,0) so they equal
+//   their world values; under floating origin the producer subtracts
+//   EngineOrigin first. extentDrawId.xyz (half-extent) and coneAxisLodBias.xyz
+//   (a direction) are translation-invariant and never change under a rebase.
 struct CullObject {
-    vec4 centerRadius;       // xyz = world AABB center, w = bounding sphere radius
-    vec4 extentDrawId;       // xyz = world AABB half-extent, w = drawId (as float)
-    vec4 coneApexCutoff;     // xyz = cone apex (world), w = cos(half-angle); w > 1.0 disables
-    vec4 coneAxisLodBias;    // xyz = cone axis (world, normalized), w = reserved (future LOD bias)
+    vec4 centerRadius;       // xyz = engine-relative AABB center, w = bounding sphere radius
+    vec4 extentDrawId;       // xyz = AABB half-extent (invariant), w = drawId (as float)
+    vec4 coneApexCutoff;     // xyz = engine-relative cone apex, w = cos(half-angle); w > 1.0 disables
+    vec4 coneAxisLodBias;    // xyz = cone axis (normalized, invariant), w = reserved (future LOD bias)
     uvec4 clusterIds;        // x = parentClusterId (UINT32_MAX = none),
                              // y = childClusterIdMask,
                              // z = blockIndex (PART4 4-前-4: GeometryBuffer block for this draw,
