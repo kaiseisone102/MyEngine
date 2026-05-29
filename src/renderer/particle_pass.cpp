@@ -9,10 +9,13 @@
 
 #include <glm/glm.hpp>
 
+#include "renderer/deletion_queue.h"
 #include "renderer/resource_factory.h"
 #include "renderer/shader_util.h"
 #include "renderer/swapchain.h"
 #include "renderer/vulkan_context.h"
+
+#include <vk_mem_alloc.h>
 
 namespace {
 
@@ -44,6 +47,8 @@ void ParticlePass::init(const InitInfo& info) {
     ctx_ = info.ctx;
     resources_ = info.resources;
     swapchain_ = info.swapchain;
+    dq_ = info.deletionQueue;
+    capacity_ = INITIAL_CAPACITY;
     colorFormat_ = info.colorFormat;
     depthFormat_ = info.depthFormat;
 
@@ -206,12 +211,28 @@ void ParticlePass::createQuadBuffers() {
 }
 
 void ParticlePass::createInstanceBuffers() {
-    const VkDeviceSize bufSize = sizeof(particle::ParticleInstance) * kMaxParticlesPerFrame;
-
+    const VkDeviceSize bufSize = sizeof(particle::ParticleInstance) * capacity_;
     for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
         instanceVBs_[i] =
             VmaBuffer::createMappedHostVisible(ctx_, bufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
+}
+
+void ParticlePass::growToFit(uint32_t requiredParticles) {
+    uint32_t newCapacity = capacity_;
+    while (newCapacity < requiredParticles) newCapacity *= 2;
+    if (newCapacity == capacity_ || !dq_) return;
+
+    for (uint32_t i = 0; i < FrameSync::MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkBuffer oldBuf = instanceVBs_[i].buffer();
+        VmaAllocation oldAlloc = instanceVBs_[i].allocation();
+        if (oldBuf != VK_NULL_HANDLE) {
+            dq_->enqueueBuffer(oldBuf, oldAlloc);
+            instanceVBs_[i].release();
+        }
+    }
+    capacity_ = newCapacity;
+    createInstanceBuffers();
 }
 
 void ParticlePass::destroyBuffers() {
@@ -241,12 +262,23 @@ void ParticlePass::execute(const ExecuteInfo& info) {
     if (info.frameIndex >= FrameSync::MAX_FRAMES_IN_FLIGHT) return;
     if (!info.particles || info.particles->empty()) return;
 
+    // F4: count alive particles up-front so we can grow the per-frame VB
+    // before writing into it. Without the grow we used to clip at
+    // INITIAL_CAPACITY and silently drop the rest.
+    uint32_t aliveCountEstimate = 0;
+    for (const auto& p : *info.particles) {
+        if (p.alive) ++aliveCountEstimate;
+    }
+    if (aliveCountEstimate > capacity_) {
+        growToFit(aliveCountEstimate);
+    }
+
     particle::ParticleInstance* dst =
         reinterpret_cast<particle::ParticleInstance*>(instanceVBs_[info.frameIndex].mapped());
     uint32_t aliveN = 0;
     for (const auto& p : *info.particles) {
         if (!p.alive) continue;
-        if (aliveN >= kMaxParticlesPerFrame) break;
+        if (aliveN >= capacity_) break;  // F4: capacity_ is the live ceiling now
 
         const float t = p.age01();
         const float invT = 1.f - t;

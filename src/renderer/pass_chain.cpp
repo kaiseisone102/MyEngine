@@ -154,6 +154,7 @@ void PassChain::init(const InitInfo& info) {
         pi.ctx = info.ctx;
         pi.resources = info.resources;
         pi.swapchain = info.swapchain;
+        pi.deletionQueue = info.deletionQueue;
         pi.colorFormat = mainColorFormat;
         pi.depthFormat = mainDepthFormat;
         pi.frameSetLayout = info.frameUniforms->layout();

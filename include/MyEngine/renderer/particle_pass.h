@@ -27,19 +27,26 @@
 class VulkanContext;
 class ResourceFactory;
 class Swapchain;
+class DeletionQueue;
 
 class ParticlePass {
    public:
-    static constexpr uint32_t kMaxParticlesPerFrame = 2048;
+    // Initial per-frame particle capacity. Foundations \xc2\xa78.1 dynamic-growth:
+    // when execute() sees more alive particles than capacity_, growToFit()
+    // doubles capacity_, hands the in-flight instance VB pair to the
+    // DeletionQueue, allocates a larger pair, and the write proceeds at
+    // the new size. Initial value matches the historical kMaxParticlesPerFrame.
+    static constexpr uint32_t INITIAL_CAPACITY = 2048;
 
-    // フェード範囲の比率 (cullingDistance に対する比)。
-    // fadeStart = cullingDistance * kFadeStartRatio、 fadeEnd = cullingDistance。
+    // \xe3\x83\x95\xe3\x82\xa7\xe3\x83\xbc\xe3\x83\x89\xe7\xaf\x84\xe5\x9b\xb2\xe3\x81\xae\xe6\xaf\x94\xe7\x8e\x87 (cullingDistance \xe3\x81\xab\xe5\xaf\xbe\xe3\x81\x99\xe3\x82\x8b\xe6\xaf\x94)\xe3\x80\x82
+    // fadeStart = cullingDistance * kFadeStartRatio\xe3\x80\x81 fadeEnd = cullingDistance\xe3\x80\x82
     static constexpr float kFadeStartRatio = 0.6f;
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         ResourceFactory* resources = nullptr;
         Swapchain* swapchain = nullptr;
+        DeletionQueue* deletionQueue = nullptr;  // F4: grow path defers old VBs
         // PART4 4a-1: dynamic rendering. See debug_line_pass.h.
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;
         VkFormat depthFormat = VK_FORMAT_UNDEFINED;
@@ -73,6 +80,8 @@ class ParticlePass {
     VulkanContext* ctx_ = nullptr;
     ResourceFactory* resources_ = nullptr;
     Swapchain* swapchain_ = nullptr;
+    DeletionQueue* dq_ = nullptr;
+    uint32_t capacity_ = 0;
 
     VkUnique<VkPipelineLayout> layout_;
     VkUnique<VkPipeline> pipeline_;
@@ -91,4 +100,5 @@ class ParticlePass {
     void createQuadBuffers();
     void createInstanceBuffers();
     void destroyBuffers();
+    void growToFit(uint32_t requiredParticles);  // F4: double capacity_, replace VBs
 };
