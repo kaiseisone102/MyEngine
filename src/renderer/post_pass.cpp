@@ -276,7 +276,13 @@ void PostPass::execute(const ExecuteInfo& info) {
         .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
         .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .srcStage  = VK_PIPELINE_STAGE_2_NONE,
+        // W fix (sync_validation hazard): the queue waits on
+        // imageAvailableSemaphore at COLOR_ATTACHMENT_OUTPUT_BIT. srcStage =
+        // NONE here lets the layout transition start before the semaphore
+        // wait completes -- the validation layer flagged that as
+        // WRITE_AFTER_READ against vkAcquireNextImageKHR's prior present.
+        // Matching the wait stage closes the dependency chain.
+        .srcStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .srcAccess = VK_ACCESS_2_NONE,
         .dstStage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
