@@ -17,7 +17,7 @@
 | | MyEngine_Codebase_Guide.md | rev.15 | — | コード構造の地図 (visHistory / HZB desc set / pipelineCache / generic layouts / pure GPU-driven 反映) |
 | | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 |
 | **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.10 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半 + cleanup 完了) |
-| **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 |
+| **土台監査** | MyEngine_Foundations_Audit.md | rev.6 | — | 先回り受け皿 + 実ソース確認済み既存負債 (§2 async compute family 取得済 反映) |
 | **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.3 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・M3/N1/N4/N2/N3 追加) |
 | **索引** | MyEngine_INDEX.md (本書) | rev.6 | — | 横断インデックス |
 
