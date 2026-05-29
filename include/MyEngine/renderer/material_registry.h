@@ -27,13 +27,20 @@
 
 class VulkanContext;
 class ResourceFactory;
+class DeletionQueue;
 
 class MaterialRegistry {
    public:
-    static constexpr uint32_t MAX_MATERIALS = 256;
+    // Initial capacity. Foundations \xc2\xa78.1 / \xc2\xa75b: this is the STARTING size,
+    // not an upper bound -- when add() overflows, capacity_ doubles and the
+    // old buffer is handed to the DeletionQueue for safe destruction after
+    // MAX_FRAMES_IN_FLIGHT frames. Mirrors the GeometryBuffer multi-block
+    // growth pattern that closed the same negative-capacity bug class for
+    // mesh data.
+    static constexpr uint32_t INITIAL_CAPACITY = 256;
     static constexpr uint32_t kDefaultMaterialId = 0;
 
-    void init(VulkanContext* ctx, ResourceFactory* resources);
+    void init(VulkanContext* ctx, ResourceFactory* resources, DeletionQueue* dq);
     void shutdown();
 
     // Register a material under a name, returning its stable id. If the name
@@ -56,10 +63,12 @@ class MaterialRegistry {
     }
 
     uint32_t count() const { return static_cast<uint32_t>(cpuMaterials_.size()); }
+    uint32_t capacity() const { return capacity_; }
 
    private:
     VulkanContext* ctx_ = nullptr;
-    VkDeviceSize bufferSize_ = 0;
+    DeletionQueue* dq_ = nullptr;
+    uint32_t capacity_ = 0;
 
     std::vector<myengine::shared::GpuMaterial> cpuMaterials_;
     std::unordered_map<std::string, uint32_t> nameToId_;
@@ -67,5 +76,10 @@ class MaterialRegistry {
 
     VmaBuffer buffer_;
 
-    void createBuffer(ResourceFactory* resources);
+    // Grow the GPU buffer to at least `requiredCount` slots (doubling). The
+    // old buffer is handed to the DeletionQueue and stays alive for the
+    // MAX_FRAMES_IN_FLIGHT window. Stable BDA across the growth window:
+    // every consumer reads bufferAddress() per frame, so the next FrameUBO
+    // build picks up the new address atomically.
+    void growTo(uint32_t requiredCount);
 };

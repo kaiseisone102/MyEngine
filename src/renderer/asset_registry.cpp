@@ -33,7 +33,7 @@ void AssetRegistry::init(VulkanContext* ctx, ResourceFactory* resources,
     createDefaultTexture();
     createDefaultMaterial();
     // Phase 1K-2: unified PBR material registry (SSBO + BDA)
-    materialRegistry_.init(ctx, resources);
+    materialRegistry_.init(ctx, resources, deletionQueue);
     createGrassMaterial();  // S6-b: needs registry init + grass bindless idx (createGrass ran above)
 
     // ─── Phase 3 段階: ステージ用テクスチャ/マテリアルを初期登録 ───
