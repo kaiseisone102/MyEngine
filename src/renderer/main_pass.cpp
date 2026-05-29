@@ -344,49 +344,61 @@ void MainPass::execute(const ExecuteInfo& info) {
     // depth/stencil layouts) - D32_SFLOAT has no stencil so this is the
     // precise layout; the combined DEPTH_STENCIL_*_OPTIMAL form is the legacy
     // shape kept for stencil-bearing formats.
-    barrier::ImageBarrier toAttach[4] = {
-        {
-            .image = hdrColorImage_,
-            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .srcStage = VK_PIPELINE_STAGE_2_NONE,
-            .srcAccess = 0,
-            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        },
-        {
-            .image = normalImage_,
-            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .srcStage = VK_PIPELINE_STAGE_2_NONE,
-            .srcAccess = 0,
-            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        },
-        {
-            .image = motionImage_,
-            .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .srcStage = VK_PIPELINE_STAGE_2_NONE,
-            .srcAccess = 0,
-            .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        },
-        {
-            .image = swapchain_->depthImage(),
-            .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = depth_layouts::attachment(*ctx_),
-            .srcStage = VK_PIPELINE_STAGE_2_NONE,
-            .srcAccess = 0,
-            .dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-            .dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        },
-    };
-    barrier::recordBatch(*ctx_, info.cmd, {}, {}, toAttach);
+    //
+    // PART4 4c-D: SKIP this barrier on SecondAndNonOpaque. Pass1 (FirstOpaque)
+    // already ran this barrier (UNDEFINED -> ATTACHMENT, contents discarded
+    // as intended), cleared the attachments + wrote pass1 content, then left
+    // HDR / GBuffer in COLOR_ATTACHMENT and depth in readOnly. pass_chain's
+    // depth barrier between HiZPass and pass2 main moves depth back to
+    // attachment. If we ran toAttach again here, the UNDEFINED -> ATTACHMENT
+    // transitions would DISCARD pass1's contents (Vulkan spec: UNDEFINED as
+    // oldLayout permits the implementation to destroy the contents). Pass2
+    // wants to LOAD pass1's content, so running toAttach is forbidden.
+    if (info.pass != Pass::SecondAndNonOpaque) {
+        barrier::ImageBarrier toAttach[4] = {
+            {
+                .image = hdrColorImage_,
+                .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .srcStage = VK_PIPELINE_STAGE_2_NONE,
+                .srcAccess = 0,
+                .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            },
+            {
+                .image = normalImage_,
+                .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .srcStage = VK_PIPELINE_STAGE_2_NONE,
+                .srcAccess = 0,
+                .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            },
+            {
+                .image = motionImage_,
+                .range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .srcStage = VK_PIPELINE_STAGE_2_NONE,
+                .srcAccess = 0,
+                .dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            },
+            {
+                .image = swapchain_->depthImage(),
+                .range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = depth_layouts::attachment(*ctx_),
+                .srcStage = VK_PIPELINE_STAGE_2_NONE,
+                .srcAccess = 0,
+                .dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+                .dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            },
+        };
+        barrier::recordBatch(*ctx_, info.cmd, {}, {}, toAttach);
+    }
 
     // PART4 4c-C: pass2 (SecondAndNonOpaque) reuses pass1's color + depth
     // contents instead of clearing - opaqueLoadOp/depthLoadOp switch to LOAD.
