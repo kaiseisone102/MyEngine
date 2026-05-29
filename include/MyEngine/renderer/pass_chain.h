@@ -112,10 +112,6 @@ class PassChain {
     // Phase 1F: instanced culling stats (for debug HUD)
     int lastInstancedVisible() const { return lastInstancedVisible_; }
     int lastInstancedTotal() const { return lastInstancedTotal_; }
-    // Phase 2B PART3c-2: GPU-driven prop cull stat (visible/total) for the HUD.
-    // visible is the previous same-frame dispatch, read after the frame fence.
-    int lastCullGpuVisible() const { return lastCullGpuVisible_; }
-    int lastCullTotal() const { return lastCullTotal_; }
     // PART4 4a-1/4a-2: forwards new HDR view + image and GBuffer
     // normal/motion attachments after a swapchain rebuild. All targets are
     // recreated together by VulkanRenderer::createHdrTarget.
@@ -152,8 +148,6 @@ class PassChain {
     bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
     int lastInstancedVisible_ = 0;  // Phase 1F
     int lastInstancedTotal_ = 0;
-    int lastCullGpuVisible_ = 0;  // Phase 2B PART3c-2: GPU-driven prop cull stat
-    int lastCullTotal_ = 0;
     PostPass postPass_;  // Phase 1H-3
     BloomPass bloomPass_;  // Phase 1I
     // PART4 4a-2: HUD + ImGui overlay rendered after main_pass and before

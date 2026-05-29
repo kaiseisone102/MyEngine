@@ -84,8 +84,6 @@ DebugOverlayData buildDebugOverlayData(GameState& gameState) {
     d.skinnedCapacity = static_cast<int>(SkinBufferPool::MAX_ENTITIES);
     d.instancedVisible = gameState.worldState.data.vulkan.instancedVisible();
     d.instancedTotal = gameState.worldState.data.vulkan.instancedTotal();
-    d.cullGpuVisible = gameState.worldState.data.vulkan.cullGpuVisible();  // Phase 2B PART3c-2
-    d.cullTotal = gameState.worldState.data.vulkan.cullTotal();
 
     if (gameState.worldState.data.player.has<CGrip>()) {
         const CGrip& g = gameState.worldState.data.player.get<CGrip>();

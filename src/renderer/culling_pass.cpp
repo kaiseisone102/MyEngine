@@ -142,7 +142,6 @@ void CullingPass::destroyBuffersToDeletionQueue() {
         enqueue(cmdBuf_[i]);
         enqueue(hizParamsBuf_[i]);  // PART4 4c-B
         lastCount_[i] = 0;
-        lastVisible_[i] = 0;
     }
 }
 
@@ -426,20 +425,6 @@ void CullingPass::execute(const ExecuteInfo& info) {
 
     ensureCapacity(count);
     ensureBlockCount(info.blockRangeCount);
-
-    // Debug: previous-dispatch instanceCount counts via the host-mapped
-    // template's compacted result is no longer trivially countable (we'd need
-    // to read compactCmd1Buf_, which is device-local). For now lastVisible_
-    // is left as the prior-frame value (not updated here); 4d's HUD cleanup
-    // re-routes this via a small readback buffer.
-    {
-        Frustum frDbg;
-        frDbg.extract(info.viewProj);
-        uint32_t cpuVis = 0;
-        for (const auto& o : *info.cullObjects)
-            if (frDbg.sphereVisible(glm::vec3(o.centerRadius), o.centerRadius.w)) ++cpuVis;
-        lastCpuVisible_ = cpuVis;
-    }
 
     lastCount_[frame] = count;
 

@@ -186,13 +186,6 @@ class CullingPass {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? lastCount_[frameIndex] : 0;
     }
 
-    // Debug: count instanceCount==1 in the most recent compactCmd (post-scan).
-    // gpuVisibleCount is the previous-dispatch result (frame-fence safe).
-    uint32_t lastGpuVisible(uint32_t frameIndex) const {
-        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? lastVisible_[frameIndex] : 0;
-    }
-    uint32_t lastCpuVisible() const { return lastCpuVisible_; }
-
     // PART4 4c-B: HizParams BDA + writer. The per-frame buffer carries two
     // slots back-to-back (passIndex == 1 / 2) so addresses are deterministic
     // without a heap lookup. cull.comp dereferences the slot specified by
@@ -315,8 +308,6 @@ class CullingPass {
     std::array<CullOutputs, kNumCullSets> cullOutputs_;
 
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastCount_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> lastVisible_{};
-    uint32_t lastCpuVisible_ = 0;
 
     // Pipelines for cull + 3-pass scan compaction.
     VkUnique<VkPipelineLayout> cullLayout_;

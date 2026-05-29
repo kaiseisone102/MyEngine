@@ -39,9 +39,6 @@ struct DebugOverlayData {
     // Phase 1F: instanced culling stats
     int instancedVisible = 0;
     int instancedTotal = 0;
-    // Phase 2B PART3c-2: GPU-driven prop cull stat (visible / total)
-    int cullGpuVisible = 0;
-    int cullTotal = 0;
 
     // ─── キーバインド ───────────────────────────────────────
     std::string moveKeysLabel        = "W/A/S/D";
