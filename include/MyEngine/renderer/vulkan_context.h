@@ -129,6 +129,20 @@ class VulkanContext {
         return asyncComputeFamily_ != graphicsFamily_;
     }
 
+    // PART4 4d M3 (Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read):
+    // RECEPTACLE for Phase 3 SS effects (SSAO / SSGI / SSR / DoF / TAA) and
+    // mobile / tile-based fast paths. When true, fragment shaders can READ
+    // attachments + resources written by previous draws within the SAME
+    // vkCmdBeginRendering scope - no inter-draw barrier dance, the driver
+    // can keep G-buffer + depth in tile memory on TBDR. Today no caller
+    // uses it (Phase 3 SS work will), but the getter is in so 4c-D's
+    // "受け皿を先に最新で用意" §0 promise extends to the latest 1.4 dynamic
+    // rendering work too. Pascal is desktop (not tile-based) so the perf
+    // win is smaller, but the descriptor / barrier simplification still
+    // applies. Vulkan 1.4 core; on a 1.3 driver this falls back to the
+    // VK_KHR_dynamic_rendering_local_read extension queried by ext name.
+    bool dynamicRenderingLocalRead() const { return dynamicRenderingLocalRead_; }
+
     // ─── ユーティリティ ────────────────────────────────────────────
     // GPU がサポートする最適な深度フォーマットを返す（D32_SFLOAT 優先）
     VkFormat findDepthFormat() const;
@@ -190,6 +204,10 @@ class VulkanContext {
     // is in effect (no dedicated family), asyncComputeQueue_ = graphicsQueue_.
     uint32_t asyncComputeFamily_ = VK_QUEUE_FAMILY_IGNORED;
     VkQueue  asyncComputeQueue_  = VK_NULL_HANDLE;
+
+    // PART4 4d M3: queried Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
+    // Phase 3 SS effects activate it; today it's a receptacle.
+    bool dynamicRenderingLocalRead_ = false;
 
     // デバッグビルドのみ有効。Release では VK_NULL_HANDLE のまま。
     VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;

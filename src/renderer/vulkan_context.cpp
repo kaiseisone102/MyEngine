@@ -413,17 +413,22 @@ void VulkanContext::createDevice() {
     features.multiDrawIndirect = multiDrawIndirect_ ? VK_TRUE : VK_FALSE;
     features.drawIndirectFirstInstance = drawIndirectFirstInstance_ ? VK_TRUE : VK_FALSE;
 
-    // Vulkan13 §1 (W) + PART4 4-前-4: query Vulkan 1.2 and 1.3 core features
-    // (synchronization2 / drawIndirectCount) plus the DGC extension feature
-    // chain in one Features2 call.
+    // Vulkan13 §1 (W) + PART4 4-前-4 + 4d M3: query Vulkan 1.2 / 1.3 core
+    // features plus VK_KHR_dynamic_rendering_local_read (Vulkan 1.4 core; on
+    // a 1.3 driver it's the KHR-suffixed extension feature struct, same
+    // layout). Chained into one Features2 call.
     VkPhysicalDeviceVulkan12Features supportedVk12{};
     supportedVk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     VkPhysicalDeviceVulkan13Features supportedVk13{};
     supportedVk13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     supportedVk13.pNext = &supportedVk12;
+    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR supportedLocalRead{};
+    supportedLocalRead.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+    supportedLocalRead.pNext = &supportedVk13;
     VkPhysicalDeviceFeatures2 supportedFeatures2{};
     supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    supportedFeatures2.pNext = &supportedVk13;
+    supportedFeatures2.pNext = &supportedLocalRead;
     vkGetPhysicalDeviceFeatures2(physical_, &supportedFeatures2);
     synchronization2_ = (supportedVk13.synchronization2 == VK_TRUE);
     drawIndirectCount_ = (supportedVk12.drawIndirectCount == VK_TRUE);
@@ -432,6 +437,9 @@ void VulkanContext::createDevice() {
     // PART4 4c-B: Vulkan 1.2 core samplerFilterMinmax. cull.comp's HZB sample
     // takes the 1-tap fast path when this is true, 4-tap manual min otherwise.
     samplerFilterMinmax_ = (supportedVk12.samplerFilterMinmax == VK_TRUE);
+    // PART4 4d M3: Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
+    // Receptacle today (no caller); Phase 3 SS effects activate it.
+    dynamicRenderingLocalRead_ = (supportedLocalRead.dynamicRenderingLocalRead == VK_TRUE);
 
     // PART4 4-前-4: VK_EXT_device_generated_commands is an extension; we check
     // it by name in the device-extension list. A future enable would require
@@ -489,6 +497,7 @@ void VulkanContext::createDevice() {
               << " samplerFilterMinmax=" << (samplerFilterMinmax_ ? 1 : 0)
               << " asyncComputeFamily=" << asyncComputeFamily_
               << " (dedicated=" << (asyncComputeFamily_ != graphicsFamily_ ? 1 : 0) << ")"
+              << " dynamicRenderingLocalRead=" << (dynamicRenderingLocalRead_ ? 1 : 0)
               << "\n";
     features.samplerAnisotropy = VK_TRUE;  // テクスチャ異方性フィルタ
     features.fillModeNonSolid = VK_TRUE;   // ワイヤーフレーム描画 (デバッグ)
@@ -538,6 +547,19 @@ void VulkanContext::createDevice() {
     vk13Features.synchronization2 = synchronization2_ ? VK_TRUE : VK_FALSE;
     vk13Features.dynamicRendering = dynamicRendering_ ? VK_TRUE : VK_FALSE;
     vk12Features.pNext = &vk13Features;
+
+    // PART4 4d M3 (Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read):
+    // enable the feature receptacle so Phase 3 SS effects can begin a
+    // single dynamic-rendering scope and read prior fragment-shader output
+    // from attachments without explicit barriers (G-buffer + depth stay in
+    // tile memory on TBDR; on desktop the barrier dance is removed). No
+    // caller exercises it today; enabling it costs nothing if unused.
+    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR localReadFeatures{};
+    localReadFeatures.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+    localReadFeatures.dynamicRenderingLocalRead =
+        dynamicRenderingLocalRead_ ? VK_TRUE : VK_FALSE;
+    vk13Features.pNext = &localReadFeatures;
 
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &vk12Features;
