@@ -16,6 +16,7 @@
 
 #include "renderer/asset_registry.h"
 #include "renderer/debug_line_renderer.h"
+#include "renderer/debug_utils.h"     // O: VK_EXT_debug_utils GPU markers
 #include "renderer/material.h"
 #include "renderer/model.h"
 #include "renderer/resource_factory.h"
@@ -427,7 +428,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ri.drawDataPool = &drawDataPool_;                                 // Phase 2B PART3b
         ri.drawBufferAddress = drawDataPool_.bufferAddress(info.frameIndex);
         ri.frameIndex = info.frameIndex;
-        reflectionPass_.execute(ri);
+        {
+            DBG_LABEL(info.cmd, "ReflectionPass");
+            reflectionPass_.execute(ri);
+        }
 
         reflectVP = info.normalLighting.proj * reflectView;
         waterUseReflection = true;
@@ -500,7 +504,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.hizCurrView = hizPass_.pyramidView(info.frameIndex);
         ce.twoPassEnabled = true;
         ce.passIndex = 1;
-        cullingPass_.execute(ce);
+        {
+            DBG_LABEL(info.cmd, "CullPass1 (Camera)");
+            cullingPass_.execute(ce);
+        }
 
         // PART4 4-前-5: Shadow cull (single-pass, twoPassEnabled stays false;
         // shadow two-pass is a future Phase). Same CullObject input, only
@@ -509,7 +516,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ce.inputAlreadyUploaded = true;
         ce.viewProj = info.normalLighting.lightVP;
         ce.twoPassEnabled = false;
-        cullingPass_.execute(ce);
+        {
+            DBG_LABEL(info.cmd, "CullPass (Shadow)");
+            cullingPass_.execute(ce);
+        }
     }
 
     // ─── 1. ShadowPass (PART4 4-前-5: post-cull) ───────────────────────────
@@ -530,7 +540,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         si.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Shadow, 0);
         si.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Shadow, 0);
         si.drawBufferAddress    = drawDataPool_.bufferAddress(info.frameIndex);
-        shadowPass_.execute(si);
+        {
+            DBG_LABEL(info.cmd, "ShadowPass");
+            shadowPass_.execute(si);
+        }
     }
 
     // ─── 3. MainPass ────────────────────────────────────────────
@@ -675,7 +688,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Camera, 0);
         mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 0);
         mi.pass = MainPass::Pass::FirstOpaque;
-        mainPass_.execute(mi);
+        {
+            DBG_LABEL(info.cmd, "MainPass (FirstOpaque)");
+            mainPass_.execute(mi);
+        }
 
         // 2) HiZPass.execute - depth is in readOnly thanks to FirstOpaque
         // early return's depth transition.
@@ -683,6 +699,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
             HiZPass::ExecuteInfo he{};
             he.cmd = info.cmd;
             he.frameIndex = info.frameIndex;
+            DBG_LABEL(info.cmd, "HiZPass");
             hizPass_.execute(he);
         }
 
@@ -724,6 +741,7 @@ void PassChain::recordFrame(const RecordInfo& info) {
             ce2.hizCurrView = hizPass_.pyramidView(info.frameIndex);
             ce2.twoPassEnabled = true;
             ce2.passIndex = 2;
+            DBG_LABEL(info.cmd, "CullPass2 (Camera)");
             cullingPass_.execute(ce2);
         }
 
@@ -731,7 +749,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.compactCommandBuffer = cullingPass_.compactCmdBuffer(CullingPass::CullSet::Camera, 1);
         mi.indirectCountBuffer  = cullingPass_.countBuffer(CullingPass::CullSet::Camera, 1);
         mi.pass = MainPass::Pass::SecondAndNonOpaque;
-        mainPass_.execute(mi);
+        {
+            DBG_LABEL(info.cmd, "MainPass (SecondAndNonOpaque)");
+            mainPass_.execute(mi);
+        }
     }
 
     // ─── OverlayPass (PART4 4a-2) ────────────────────────────────
@@ -746,14 +767,20 @@ void PassChain::recordFrame(const RecordInfo& info) {
         oe.screenW = info.screenW;
         oe.screenH = info.screenH;
         oe.imgui = &imgui_;
-        overlayPass_.execute(oe);
+        {
+            DBG_LABEL(info.cmd, "OverlayPass (HUD/ImGui)");
+            overlayPass_.execute(oe);
+        }
     }
 
     // Phase 1I: generate bloom texture from HDR (before tonemap composites it)
     if (bloomEnabled_) {
         BloomPass::ExecuteInfo be{};
         be.cmd = info.cmd;
-        bloomPass_.execute(be);
+        {
+            DBG_LABEL(info.cmd, "BloomPass (compute mip-chain)");
+            bloomPass_.execute(be);
+        }
     } else {
         // Bloom off: still make mip0 black + SHADER_READ_ONLY so PostPass can
         // sample it (zero contribution) without a layout mismatch.
@@ -765,7 +792,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         PostPass::ExecuteInfo poe{};
         poe.cmd = info.cmd;
         poe.imageIndex = info.imageIndex;
-        postPass_.execute(poe);
+        {
+            DBG_LABEL(info.cmd, "PostPass (tonemap)");
+            postPass_.execute(poe);
+        }
     }
 
     if (vkEndCommandBuffer(info.cmd) != VK_SUCCESS)
