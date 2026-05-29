@@ -1,6 +1,6 @@
-# MyEngine Phase 依存関係マップ (テキスト版 rev.9)
+# MyEngine Phase 依存関係マップ (テキスト版 rev.10)
 
-最終更新: 2026-05-28 (rev.9: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §4 の Hi-Z occlusion ノードに 4b 完了 + 次 = 4c (two-pass occlusion 本体)、 §6 着手順に 4b 行を追記し ★次を 4c に。 / rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
+最終更新: 2026-05-29 (rev.10: **PART4 §6 4c + 4d 大半完了 (18 commits) = PART4 essentially complete**。 §4 の Hi-Z occlusion ノードを「完了」に・次は §8 畳み込み or 後段 Phase へ、 §6 着手順に 4c の 8 commits と 4d の 10 commits を追記、 ★次を「2C / 2A / 2F / 1I-D」に。 / rev.9: **PART4 §6 4b 完了** (HiZPass = SPD-style single-dispatch min+max RG32F pyramid)。 §4 の Hi-Z occlusion ノードに 4b 完了 + 次 = 4c (two-pass occlusion 本体)、 §6 着手順に 4b 行を追記し ★次を 4c に。 / rev.8: PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 完了反映 = **PART4 Hi-Z 受け皿全部立った**。 §4 の Hi-Z occlusion ノードに 8 段の進捗マーク + 次 = 4b HZB SPD、 §6 着手順に PART4 4-前/4a の 8 段を追記し ★次を 4b に。 / rev.7: 2B PART3c-2 (prop の indirect 差し替え・CPU draw 撤去, 1cf23b9) 完了 = **Phase 2B 完了** を反映。§0 層図・進捗マークを 2B 完了に、§4 の 2B ノードを完了に、§6 着手順の ★次 を「2B 完了・次は 2C/Hi-Z/2F」に、§7 を PART3c-2 完了に更新。`drawIndirectFirstInstance` 必須・block 散在=連続区間 indirect の確定事実を追記 / rev.6: 2B PART3c のスコープを prop のみに明確化 (terrain は対象外)・PART3c-1 完了 (static_cull_build.h, GPU=CPU カリング一致) と PART3c-2 次を反映、**Phase 2F (terrain bucket) を新設**=完成形「terrain は別 bucket」を依存ノード化 (前提: 2B + 遅延破棄 + ストリーミング層)、§0 層図に 2F 追加、PART3c で terrain を prop bucket に統合し撤回した事故記録を追加 / rev.5: 2B PART3b (per-draw SSBO + shader 改修) 完了を反映、着手順を「次は 2B PART3c (indirect 差し替え)」に更新 / rev.4: 2B PART3a 完了、§7 のメッシュ統合ノードを完了に / rev.3: 1K 主要部 / 2B PART0-2 完了) / 対象: グラフィックスロードマップ rev.8 の全 Phase + 土台 side (リソース管理リファクタ)
 
 このドキュメントは「どの Phase がどの Phase の前提か」を整理し、着手順を見誤らないための地図。ロードマップ本体 (MyEngine_Graphics_Roadmap_2026.md) と対で読む。土台 side (VmaImage / 遅延破棄 / ストリーミング) も込みで、土台と描画機能が一枚でどう絡むかを示す。
 
@@ -138,22 +138,16 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 - 620: 快適 (むしろ 620 を救う)
 - 位置づけ: 2B の自然な発展。非力 GPU ほど恩恵大
 
-### Hi-Z occlusion culling (2B 発展・PART4)
+### Hi-Z occlusion culling (2B 発展・PART4) ✅ **essentially complete (4-前 + 4a + 4b + 4c + 4d 大半 = 27 commits)**
 - ← 前提: 2B (必須・**完了**)、深度ピラミッド生成 (4b で新設)
-- 620: 重い (ノブ)
-- 位置づけ: 2B の発展形。遮蔽されたオブジェクトも除外し、さらにドローを減らす
-- **進捗 (2026-05-28)**: PART4 §6 「4-前-0〜4-前-5 + 4a-1 + 4a-2 = 完了」。 受け皿は全部立った:
-  - **4-前-0 (Reverse-Z + 無限遠 perspective)**: 4b HZB の精度確保前提 (commit 702c773)
-  - **4-前-1 (block sort + BlockRange)**: builder 再構造化 (ff9f7a9)
-  - **4-前-2 (meshlet-ready CullObject + cone test 受け皿)**: 将来の mesh shader 経路で再利用 (b8e39b2)
-  - **4-前-3 (persistent device-local CullObject + bit-packed visBuf + grow)**: 4c two-pass cull の visBuf 受け皿 (ec9c586)
-  - **4-前-4 (3-pass scan compaction + IndirectCount + DGC 受け皿)**: 4c の visible-only 圧縮描画ベース (15b89ad)
-  - **4-前-5 (GPU-driven shadow / per-CullSet output buffer)**: main+shadow が同形で indirect 化 (986ba44)
-  - **4a-1 (main_pass を dynamic rendering 化)**: 4a-2 MRT 拡張前提 (af3dd72)
-  - **4a-2 (depth-normal-motion MRT + OverlayPass)**: 4b の深度 sample 入力 + Phase 3 SS 効果受け皿 (ed0d80e)
-- **4b (HZB SPD, 2026-05-28, commit ffe9673)**: 完了。 `renderer/hiz_pass.{h,cpp}` + **二派生 spv** (`shaders/hiz_spd.comp` LDS-only + `shaders/hiz_spd_wave.comp` wave-ops Phase C) + viewer `renderer/hzb_debug_widget.{h,cpp}` 新設。 per-frame 2 枚 `VK_FORMAT_R32G32_SFLOAT` mip chain (.r=min / .g=max) を 1 vkCmdDispatch で生成 (256 threads / 64×64 source tile / LDS + atomic counter for last-group continuation)。 capability `subgroupOps` (**basic + shuffle**) + `subgroupSize >= 32` で wave 経路 / それ以外で LDS-only fallback (P620 両対応 `subgroupSize=32` で wave 経路選択)。 atomic counter は device-local。 残 Obs B/C/D は side/MyEngine_HiZ_PART4_Design.md §6 「4b 完了後の残作業」参照。
-- **次 = 4c (two-pass occlusion 本体)**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。 設計詳細: side/MyEngine_HiZ_PART4_Design.md §6 「4c」。
-- 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象) と続く。
+- 620: 軽い (P620 [Caps] 18 中 17 = 1 で実走)
+- 位置づけ: 2B の発展形。遮蔽されたオブジェクトも除外し、さらにドローを減らす。 **Nanite/Granite 2024 baseline (Tier 1 α) 適合** = pass1 が前フレ HZB 経由で前フレ可視オブジェクトを早期 cull → MainPass(FirstOpaque) で描画 → 4b HZB 再生成 → pass2 で全 object を新 HZB で再評価 → MainPass(SecondAndNonOpaque) で残り描画。 visHistory で次フレ pass1 用 prev_vis 永続化。
+- **進捗 (2026-05-29)**: PART4 §6 全段完了:
+  - **4-前-0..5 + 4a-1/2 + 4b = 完了** (上記履歴・8 + 1 commits)
+  - **4c (two-pass HZB occlusion + Tier 1 α + 1-tap fast path) = 完了** (8 commits ad97879 / 477985d / f242327 / 7e446a9 / e41cfd7 / 91a6885 / 2f7daf9 / ccf5c03)。 4c-A (half-extent + hzbPrev 受け皿) → 4c-B (capability + helpers) → 4c-C (full machinery gate-off) → 4c-D (activation) + fix #1 (UPDATE_AFTER_BIND) + fix #2 (toAttach skip for SecondAndNonOpaque) + Tier 1 α 活性化 + 1-tap fast path。 user 目視「画面正常」確認。
+  - **4d 大半 (audit-driven 最新化) = 完了** (10 commits 082d792..1481049)。 α (4b Obs B sync2 fix) + γ-1/2/3 (Post/Shadow/Reflection 全 dynamic rendering 化 = engine 全体で VkRenderPass / VkFramebuffer 実 API 使用ゼロ) + M3 (dynamic_rendering_local_read 受け皿) + M1 (persistent VkPipelineCache = Vulkan13 §3 Y closed) + M2 (sync2 generic layouts へ全面置換) + N1 (pipelineCreationCacheControl) + N4 (Vulkan14Features chain + maintenance5/6 enable・engine が API 1.4 で動作中なのに 1.4 features を一切 enable してない構造欠陥を修正) + N2/N3 (graphics_pipeline_library / pipeline_binary 受け皿)。
+- **4d で残った仕事 (PART4 完了を阻まない・別 commit / 別 Phase で着手可)**: DGC 経路 **実装** (`VkIndirectCommandsLayoutEXT` ラッパ・Pascal 非対応で実 device 必要) / Shader Object 経路 / Descriptor Buffer (Pascal 強制無効化ロジック) / Timeline semaphore / Async compute での HZB / cull 並列実行 (Foundations §2 と一緒) / debug log 掃除 / lastCullGpuVisible HUD readback or 「純 GPU-driven 化」readback 撤去 / transparent MRT mismatch fix / 4b Obs C/D。
+- **次推奨 = PART4 §8 畳み込み** (本書 + Roadmap + Codebase_Guide + Work_Protocol への完了内容書き戻し・PART4 設計書を「履歴」として閉じる) → その後 **2C LOD / 2A 多光源 / Phase 2F terrain bucket / 1I PART D / 3B mesh shader** のいずれか。
 
 ---
 
@@ -220,14 +214,33 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 完了   PART4 4a-1                [main_pass を Vulkan 1.3 dynamic rendering 化]  af3dd72
 完了   PART4 4a-2                [depth-normal-motion MRT + OverlayPass 分離]  ed0d80e
 完了   PART4 4b HZB SPD          [hiz_spd.comp 新設・SPD-style single-dispatch min+max RG32F]  (commit ffe9673)
-       → 4b までで pyramid 生成完了。 4c が読む側 (two-pass occlusion 本体)
+完了   PART4 4c-A                [half-extent (CullObject.extentDrawId.xyz) 充填 + HiZPass::previousPyramidView() 受け皿]  ad97879
+完了   PART4 4c-B                [capability getters (samplerFilterMinmax, async compute family) + HizParams BDA + cull.comp helpers]  477985d
+完了   PART4 4c-C                [full machinery (HiZPass minReductionSampler + visHistory + HZB descriptor set + cull.comp pass1/2 + main_pass Pass enum) gate-off]  f242327
+完了   PART4 4c-D                [two-pass HZB occlusion 活性化]  7e446a9
+完了   PART4 4c-D fix #1         [HZB descriptor set UPDATE_AFTER_BIND 追加]  e41cfd7
+完了   PART4 4c-D fix #2         [main_pass SecondAndNonOpaque で toAttach barrier skip = user 目視で発見した青背景黒化 + prop 消失 bug]  91a6885
+完了   PART4 Tier 1 α            [pass1 が hzbPrev も sample = Nanite/Granite 2024 baseline 適合]  2f7daf9
+完了   PART4 1-tap fast path     [samplerFilterMinmax 経由で 1 textureLod 化・spec const 分岐]  ccf5c03
+完了   PART4 4d α                [4b Obs B 解決 = HiZPass initialTransitionToGeneral を sync2 STAGE_NONE]  082d792
+完了   PART4 4d γ-1 PostPass      [Vulkan 1.3 dynamic rendering 化]  4b9c32c
+完了   PART4 4d γ-2 ShadowPass    [Vulkan 1.3 dynamic rendering 化 + ShadowPipelineParams に VkPipelineCache 追加 = M1 同時配線]  da74526
+完了   PART4 4d γ-3 ReflectionPass [Vulkan 1.3 dynamic rendering 化 + outNormal/outMotion validation warning 4 件消滅]  33e1511
+完了   PART4 4d M3                [VK_KHR_dynamic_rendering_local_read (1.4 core) capability 受け皿]  47c3571
+完了   PART4 4d M1 (= Vulkan13 §3 Y) [persistent VkPipelineCache・SDL_GetPrefPath 経由・14 callsite 全経由・490KB 書き出し実証]  a62b7f0
+完了   PART4 4d M2                [depth_layouts.h ヘルパ撤去 → sync2 generic layouts 一括置換 19 callsites + ヘッダ削除・-45 行]  fcef5ab
+完了   PART4 4d N1                [pipelineCreationCacheControl (1.3 core) enable + FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT 受け皿]  7298968
+完了   PART4 4d N4                [VkPhysicalDeviceVulkan14Features chain 追加 + maintenance5/6 enable]  c01c2e5
+完了   PART4 4d N2+N3             [VK_EXT_graphics_pipeline_library + VK_KHR_pipeline_binary capability 受け皿]  1481049
+       → PART4 essentially complete (P620 [Caps] 18 中 17 = 1 で実走)
    ↓        ここから枝分かれ:
-   ├─→ PART4 4c 本体          [two-pass occlusion + AABB 遮蔽 + cull.comp 拡張]  ←★ 次の本命
-   ├─→ PART4 4d 仕上げ         [能力ゲート集約 + DGC/ShaderObj/DescBuf/Timeline/AsyncCompute 受け皿 + RenderTarget 抽象]
-   ├─→ 4b 中身高速化 (任意)    [hiz_spd_wave.comp 派生 + subgroupAdd/QuadSwap・useWavePath_ で経路切替]
-   ├─→ 2C LOD                (2B 必須)
-   ├─→ 3B mesh shader        (2B 必須・RTX更新後)
-   └─→ 2F terrain bucket     [専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミング]
+   ├─→ PART4 §8 畳み込み       [本書 + Roadmap + Codebase_Guide + Work_Protocol への完了内容書き戻し]  ←★ 次の本命
+   ├─→ 2C LOD                  (2B 必須・P620 を救う)
+   ├─→ 2A 多光源 (clustered)    (1K PBR の上に乗る・別系統)
+   ├─→ 2F terrain bucket       [専用 GeometryBuffer + 専用 cull + splat + 距離 LOD + チャンクストリーミング]
+   ├─→ 1I PART D               (bloom 品質ノブ settings 連携・仕上げ)
+   ├─→ 4d 残作業 (別 commit)    [DGC 実装 / shader_object / descriptor_buffer / timeline semaphore / async compute 並列化 / debug log 掃除 / readback / transparent MRT mismatch / 4b Obs C/D]
+   └─→ 3B mesh shader          (2B 必須・RTX更新後)
 ```
 
 **2B PART3 の中身 (A 方針 = オープンワールド GPU-driven の本筋) = 全完了。スコープは prop (cube + Model) のみ・terrain は別 bucket = Phase 2F**: static prop は (1) ~~SubMesh ごとに別 vertex/index buffer~~ → **PART3a で無制限 multi-block GeometryBuffer に統合 (ac7bbd1)** (2) ~~描画単位 = draw item×SubMesh~~ → **PART3c-1 で SubMesh 粒度の drawId 連番ビルダに (632433a)** (3) ~~per-SubMesh push constant 更新~~ → **PART3b で DrawData SSBO + gl_InstanceIndex 化 (c5adced)** (4) ~~drawId を SubMesh 粒度に再定義 → indirect 差し替え~~ → **PART3c-2 で `vkCmdDrawIndexedIndirect` 差し替え + CPU draw 撤去 (1cf23b9)**。多段 (~~PART3a~~ → ~~3b~~ → ~~3c-1~~ → ~~3c-2~~) で刻んで **2B 完了**。`drawIndirectFirstInstance` 必須 (firstInstance に DrawData slot を載せるため・P620 両対応実測)、block 散在のため連続区間ごと indirect。詳細は Codebase_Guide §3.5 / Work_Protocol §5e。

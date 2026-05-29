@@ -1,6 +1,6 @@
-# MyEngine 設計知見 — 横断インデックス (rev.4)
+# MyEngine 設計知見 — 横断インデックス (rev.5)
 
-最終更新: 2026-05-28 (rev.4: **PART4 §6 4b 完了反映**。 §1 で (M) SPD と (N) min+max ペア HZB を ✅完了 に更新、 §2 表で 4b を ✅完了 に、 ★次 = 4c に、 §7 現在の状態を「PART4 §6 4b まで完了・次は 4c (two-pass occlusion 本体)」に更新、 Codebase_Guide rev を 12 → 13 に、 Roadmap rev を 9 → 10 に、 Phase_Dependencies rev を 8 → 9 に、 HiZ 設計書 rev を 7 → 8 に。 / rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
+最終更新: 2026-05-29 (rev.5: **PART4 §6 4c 完了 + 4d 大半完了反映 (18 commits)**。 §1 表で (C) (F) を ✅完了 に (Tier 1 α 適用込み)、 (T) を ✅完了 に (γ-1/2/3 で他 pass も全 dynamic rendering 化)、 (U) は据え置き 🟡 (timeline semaphore は未着手)、 (V) は ✅完了 (受け皿)、 (X) は据え置き 🟡、 (Y) を ✅完了 (a62b7f0 persistent pipeline cache、 14 callsite が経由・490KB 書き出し実証)、 §2 表で 4c / 4d を ✅完了 に、 §7 現在の状態を「PART4 essentially complete (P620 [Caps] 18 中 17 = 1 で実走) / 次は §8 畳み込み or 後段 Phase」に書き換え、 各正本 rev を最新化。 / rev.4: **PART4 §6 4b 完了反映**。 §1 で (M) SPD と (N) min+max ペア HZB を ✅完了 に更新、 §2 表で 4b を ✅完了 に、 ★次 = 4c に、 §7 現在の状態を「PART4 §6 4b まで完了・次は 4c (two-pass occlusion 本体)」に更新、 Codebase_Guide rev を 12 → 13 に、 Roadmap rev を 9 → 10 に、 Phase_Dependencies rev を 8 → 9 に、 HiZ 設計書 rev を 7 → 8 に。 / rev.3: PART4 §6 4-前-0/1/2/3/4/5 + 4a-1 + 4a-2 完了反映。 §1 表で対象項目 ID (A/B/D/E/G/H/I/J/K/O/S/T/W/AA) の状態を 🟢実装済 / ✅完了 に更新、 §2 表に完了済みマーク (commit 番号付き) + 「次 = 4b HZB SPD」を明示、 §7 現在の状態を「PART4 §6 4-前/4a 全部完了・次は 4b」に更新、 Codebase_Guide rev を 11 → 12 に更新。 / rev.2: 運用モード切替で §6「ファイル添付の最小構成 (毎回必須)」を「セッション開始時に Read する最小構成」に書換。Work_Protocol rev.13 / START_HERE / Codebase_Guide rev.11 と整合 / rev.1: 設計知見が 4 系統 8 ファイルに分散したため横断インデックスを新設。全項目 ID (A)〜(AA) の一覧 + 担当ファイル§ + 着手時期 + 状態を 1 表に集約。同じ話題が複数ファイルに散る箇所のクロスリファレンス) / 対象: MyEngine の設計を**最短で見渡す**ためのインデックス。各ファイルへの参照は§単位
 
 > **このファイルの位置づけ**: 各セッション最初に最優先で Read する横断索引。「全部読まないと判断できない」状態を解消し、必要箇所だけ深掘りできるようにする。本文は他ファイルにある (このファイルは目次)。
 > **読む順序の推奨**: ① **本 INDEX** → ② 正本5枚で原則確認 → ③ 着手する作業に応じて PART4 / Foundations / Vulkan13 のうち該当§のみ深掘り。
@@ -11,15 +11,15 @@
 
 | 系統 | ファイル | rev | 行数 | 役割 |
 |---|---|---|---|---|
-| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4b 反映) |
-| | MyEngine_Graphics_Roadmap_2026.md | rev.10 | — | 全 Phase 計画 (PART4 4b 完了反映) |
-| | MyEngine_Phase_Dependencies.md | rev.9 | — | Phase 間依存マップ (Hi-Z ノードに 4b 完了) |
-| | MyEngine_Codebase_Guide.md | rev.13 | — | コード構造の地図 (hiz_pass / hzb_debug_widget / hiz_spd.comp 反映) |
-| | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 (§0/§1.5/§5b/§5c 等、 §3-1a 事例②追記) |
-| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.8 | — | Phase 2B PART4 Hi-Z 設計 (4-前/4a/4b 完了・次は 4c) |
-| **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 (§5 SS prepass 解消マーク) |
-| **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.2 | — | Vulkan 1.3 modernization (W/AA 完了・T 適用済) |
-| **索引** | MyEngine_INDEX.md (本書) | rev.3 | — | 横断インデックス |
+| **正本5枚** | MyEngine_START_HERE.md | — | — | 入口・ゴール・現在地・運用 (4c + 4d 大半完了反映) |
+| | MyEngine_Graphics_Roadmap_2026.md | rev.11 | — | 全 Phase 計画 (PART4 essentially complete 反映) |
+| | MyEngine_Phase_Dependencies.md | rev.10 | — | Phase 間依存マップ (Hi-Z ノード完了) |
+| | MyEngine_Codebase_Guide.md | rev.14 | — | コード構造の地図 (visHistory / HZB desc set / pipelineCache / generic layouts 反映) |
+| | MyEngine_Work_Protocol.md | rev.17 | — | 作業規範・原則 |
+| **作業正本** | MyEngine_HiZ_PART4_Design.md | rev.9 | — | Phase 2B PART4 Hi-Z 設計 (4c + 4d 大半完了) |
+| **土台監査** | MyEngine_Foundations_Audit.md | rev.5 | — | 先回り受け皿 + 実ソース確認済み既存負債 |
+| **隣接機能** | MyEngine_Vulkan13_Modernization.md | rev.3 | — | Vulkan 1.3/1.4 modernization (W/AA/Y 完了・M3/N1/N4/N2/N3 追加) |
+| **索引** | MyEngine_INDEX.md (本書) | rev.5 | — | 横断インデックス |
 
 ---
 
@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | (A) | draw-count + 可視コマンド圧縮 | PART4 §3.1-A | 4-前-4 | ✅完了 (15b89ad) |
 | (B) | 動的容量 (MAX_DRAWS 撤廃) | PART4 §3.1-B | 4-前-3 | ✅完了 (ec9c586) |
-| (C) | AABB 遮蔽 (half-extent 充填) | PART4 §3.1-C | 4c | 🟢実装 (未着手) |
+| (C) | AABB 遮蔽 (half-extent 充填) | PART4 §3.1-C | 4c | ✅完了 (ad97879 4c-A で extentDrawId.xyz 充填、 cull.comp で AABB 8 頂点画面投影) |
 | (D) | 可視履歴 (visBuf) | PART4 §3.1-D | 4-前-3 | ✅完了 (ec9c586, 受け皿) |
 | (E) | CPU indirect 呼び出し収束 (block sort) | PART4 §3.1-E | 4-前-1 | ✅完了 (ff9f7a9) |
 
@@ -45,7 +45,7 @@
 
 | ID | 名称 | 担当 | 着手時期 | 状態 |
 |---|---|---|---|---|
-| (F) | Two-pass HZB occlusion | PART4 §3.2-F | 4c | 🟢実装 (未着手) |
+| (F) | Two-pass HZB occlusion | PART4 §3.2-F | 4c | ✅完了 (4c-A..D + Tier 1 α 2f7daf9 で Nanite/Granite 2024 baseline + 1-tap fast path ccf5c03) |
 | (G) | Meshlet-ready CullObject | PART4 §3.2-G | 4-前-2 | ✅完了 (b8e39b2, 受け皿) |
 | (H) | Depth-normal prepass (軽量 GBuffer) | PART4 §3.2-H | 4a | ✅完了 (ed0d80e) |
 | (I) | Blelloch scan compaction | PART4 §3.2-I | 4-前-4 | ✅完了 (15b89ad, 3-pass scan) |
@@ -69,9 +69,9 @@
 | ID | 名称 | 担当 | 着手時期 | 状態 |
 |---|---|---|---|---|
 | (S) | Motion vector RT (4a MRT に追加) | PART4 §3.4-S | 4a | ✅完了 (ed0d80e) |
-| (T) | Dynamic rendering (VkRenderPass 撤廃) | PART4 §3.4-T | 4a-1 / 4a-2 → 4d | ✅完了 (af3dd72 main_pass + ed0d80e OverlayPass、 4d で RenderTarget 抽象 + 他 pass 段階移行残) |
-| (U) | Timeline semaphore | PART4 §3.4-U | 4d | 🟡受け皿 (未着手) |
-| (V) | Async compute queue family 取得 | PART4 §3.4-V | 4d | 🟡受け皿 (未着手・実並列化は Foundations §2) |
+| (T) | Dynamic rendering (VkRenderPass 撤廃) | PART4 §3.4-T | 4a-1/4a-2/4d γ-1/2/3 | ✅**完了** (af3dd72 main / ed0d80e OverlayPass / 4b9c32c PostPass / da74526 ShadowPass / 33e1511 ReflectionPass = engine 全体で VkRenderPass / VkFramebuffer 実 API 使用ゼロ) |
+| (U) | Timeline semaphore | PART4 §3.4-U | (未着手) | 🟡受け皿 (未着手・PART4 完了後の Phase で) |
+| (V) | Async compute queue family 取得 | PART4 §3.4-V | 4c-B | ✅完了 (477985d で `asyncComputeFamily()` getter + dedicated 判定 = P620 family 2 dedicated 検出・実並列化は Foundations §2) |
 
 ### 隣接最尖端 (Vulkan13_Modernization・rev.1)
 
@@ -79,7 +79,7 @@
 |---|---|---|---|---|
 | (W) | VK_KHR_synchronization2 (barrier API 現代化) | Vulkan13 §1 | PART4 4-前-0 の次 | ✅完了 (e1494bf, barrier.h ヘルパ + 段階移行) |
 | (X) | VK_EXT_extended_dynamic_state 1/2/3 | Vulkan13 §2 | PART4 4d (Q と同時) | 🟡受け皿 (未着手) |
-| (Y) | Pipeline cache 永続化 | Vulkan13 §3 | いつでも (並列可) | 🟢実装推奨 (未着手) |
+| (Y) | Pipeline cache 永続化 | Vulkan13 §3 | 4d M1 | ✅完了 (a62b7f0、 `<AppData>/MyEngine/MyEngine/pipeline.cache` に load/save、 全 14 vkCreate*Pipelines callsite が `ctx_->pipelineCache()` 経由、 user clean exit で 490KB 書き出し実証) |
 | (Z) | VK_KHR_fragment_shading_rate (VRS) | Vulkan13 §4 | Phase 3 | 🟡受け皿 (Pascal 非対応) |
 | (AA) | Infinite far plane (Reverse-Z の本来形) | Vulkan13 §5 | **4-前-0 と同時** | ✅完了 (702c773) |
 
@@ -99,9 +99,9 @@
 | **4a-1** | main_pass を Dynamic Rendering 化 (4a-2 前提) | (T) main_pass 部分 | ✅ 完了 (af3dd72) |
 | **4a-2** | Depth-normal-motion MRT + OverlayPass + 深度 SAMPLED + GBuffer viewer | (H) + (S) + (T) overlay 部分 | ✅ 完了 (ed0d80e) |
 | **4b** | HiZPass = SPD で min+max ペア生成 | (M) + (N) | ✅ 完了 (commit ffe9673) |
-| **4c** ★次 | Two-pass occlusion 本体 + AABB 遮蔽 | (F) + (C) | 🟢 未着手 |
-| **4d** | 能力ゲート集約 + 受け皿群 + 仕上げ | (Q) + (R) + (U) + (V) + (X)、 (T) は他 pass 段階移行 | 🟡 部分着手 (T main_pass+overlay 済) |
-| 並列 | Pipeline cache 永続化 (いつでも) | (Y) ← Vulkan13 §3 | 🟢 未着手 |
+| **4c** | Two-pass occlusion 本体 + AABB 遮蔽 + Tier 1 α + 1-tap fast path | (F) + (C) + (V) | ✅ **完了** (8 commits ad97879/477985d/f242327/7e446a9/e41cfd7/91a6885/2f7daf9/ccf5c03) |
+| **4d** | 能力ゲート集約 + 受け皿群 + 最新化 + 仕上げ | α (082d792 4b Obs B fix) + γ-1/2/3 (4b9c32c/da74526/33e1511 = (T) full) + M1 (a62b7f0 = (Y)) + M2 (fcef5ab generic layouts) + M3 (47c3571 dynamic_rendering_local_read) + N1 (7298968 pipelineCreationCacheControl) + N4 (c01c2e5 = Vulkan14Features chain + maintenance5/6) + N2/N3 (1481049 = graphics_pipeline_library + pipeline_binary) | ✅ **大半完了** (10 commits・残: (Q) shader_object / (R) descriptor_buffer / (U) timeline semaphore / (X) ext_dynamic_state は別 commit / 別 Phase で) |
+| 並列 | Pipeline cache 永続化 | (Y) ← Vulkan13 §3 / M1 | ✅ 完了 (a62b7f0) |
 | 後段 | TAA / 完全 dirty tracking / shadow HZB / DGC 実装 etc. | 受け皿利用 | — |
 | Phase 3 | VRS の本実装 | (Z) ← Vulkan13 §4 | — |
 
@@ -171,14 +171,16 @@
 
 ---
 
-## 7. 現在の状態 (2026-05-28 時点・PART4 §6 4b まで完了・次は 4c)
+## 7. 現在の状態 (2026-05-29 時点・**PART4 essentially complete** = 4c + 4d 大半完了・残作業は別 commit / 別 Phase に集約)
 
-- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b = 完了** (全 9 段, commit 702c773 / ff9f7a9 / b8e39b2 / ec9c586 / 15b89ad / 986ba44 / af3dd72 / ed0d80e + 4b commit ffe9673、 Vulkan13 W も完了 e1494bf)。 これで HZB pyramid 生成まで到達 = 4c (two-pass occlusion 本体) が読む側を着手できる。
-- **次の着手 = PART4 §6 4c**: CullingPass を `executePass1` / `executePass2` に分離、 4b の HZB を AABB 画面投影 + mip 選択で occluder と比較。 cull.comp に HZB sampler + visBuf 読み書き、 `static_cull_build.h` で half-extent 充填、 pass_chain が「パス1 cull → 描画 → 4b → パス2 cull → 描画」をオーケストレート。
-- **その次**: 4d (能力ゲート集約 + DGC/Shader Object/Descriptor Buffer/Timeline semaphore/Async compute 受け皿 + RenderTarget 抽象 + 一時ログ掃除)。
-- **4b 高速化 (済)**: `hiz_spd_wave.comp` (Phase C で `subgroupShuffleXor` 利用) を実装済み。 hiz_pass.cpp の `useWavePath_` (= `subgroupOps && subgroupSize >= 32`) で経路切替・P620 では wave 経路選択。 Phase D-F は subgroup 境界を越えるため LDS のまま (両派生共通)。
-- **4b 未対応の改善余地 (Obs B/C/D・別 commit 候補)**: いずれも P620 では実害ゼロ・correctness 上は問題なし。 詳細は MyEngine_HiZ_PART4_Design.md §6 「4b 完了後の残作業」参照。
-  - **Obs B**: 初期 layout 遷移 `VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT` → `VK_PIPELINE_STAGE_2_NONE` (sync2 best practice)。 4d で他 pass の barrier 統一時に巻き取る。
-  - **Obs C**: `VK_FORMAT_R32G32_SFLOAT` storage image 対応の format properties query + fallback (Vulkan optional feature)。 P620 以外の hardware 対応時に。
-  - **Obs D**: subgroup ID → linearIdx の canonical linear mapping 前提 (Vulkan spec 上 implementation-defined)。 `VK_EXT_subgroup_size_control + REQUIRE_FULL_SUBGROUPS` で固定する or shader を gl_SubgroupID ベースに書き換え。 mobile GPU 対応時に。
-- **PART4 §6 で完了した最尖端 ID 一覧** (§1 表より): (A) (B) (D) (E) (G) (H) (I) (J) (K) **(M)** **(N)** (O) (P 受け皿) (S) (T main+overlay) (W) (AA) = **17 ID 完了**。 残: (C) (F) ((T) 他 pass) (Q) (R) (U) (V) (X) (Y) (Z)。
+- **PART4 §6 4-前-0〜4-前-5 + 4a-1 + 4a-2 + 4b + 4c + 4d 大半 = 完了** (4-前 ~ 4a-2 の 8 commits + 4b ffe9673 + 4c 8 commits ad97879..ccf5c03 + 4d 10 commits 082d792..1481049 + Vulkan13 W e1494bf = **計 27 commits**)。 **P620 [Caps] 18 capability 中 17 が =1** で実走 (DGC のみ 0 で fallback 経路あり)。 user 目視「画面正常」確認。
+- **次の着手候補** (どれから着手するかは user 判断):
+  1. **§8 畳み込み**: 本書・Roadmap §4 / 付記・Phase_Dependencies Hi-Z ノード・Codebase_Guide §3.5・Work_Protocol §5f への PART4 完了内容書き戻し (この作業)。
+  2. **2C LOD** (P620 を救う / 大規模オープンワールド前提に必要)
+  3. **2A 多光源 (clustered forward+)** (Foundations §5 + bindless 連携)
+  4. **Phase 2F terrain bucket** (専用 GeometryBuffer + 専用 cull + splat マテリアル経路 + チャンクストリーミング)
+  5. **1I PART D** (bloom ノブ settings 連携)
+- **4c 内訳**: 4c-A (ad97879 half-extent + hzbPrev 受け皿) → 4c-B (477985d capability getters + helpers) → 4c-C (f242327 full machinery gate-off) → 4c-D (7e446a9 activation) + fix #1 (e41cfd7 UPDATE_AFTER_BIND) + fix #2 (91a6885 toAttach skip) + Tier 1 α (2f7daf9 Nanite/Granite 2024 baseline) + 1-tap fast path (ccf5c03)。
+- **4d 内訳**: α (082d792 sync2) + γ-1/2/3 (4b9c32c PostPass / da74526 ShadowPass / 33e1511 ReflectionPass = engine 全体で VkRenderPass / VkFramebuffer 実 API 使用ゼロ) + M3 (47c3571 dynamic_rendering_local_read) + M1 (a62b7f0 persistent pipeline cache = Y closed) + M2 (fcef5ab sync2 generic layouts) + N1 (7298968 pipelineCreationCacheControl) + N4 (c01c2e5 Vulkan14Features chain + maintenance5/6) + N2/N3 (1481049 graphics_pipeline_library + pipeline_binary 受け皿)。
+- **4b 残作業の経過**: Obs B = ✅完了 (082d792 α)。 Obs C / D は据え置き (P620 実害ゼロ・mobile/legacy device 対応時に)。
+- **PART4 §6 で完了した最尖端 ID 一覧** (§1 表より): (A) (B) **(C)** (D) (E) **(F)** (G) (H) (I) (J) (K) (M) (N) (O) (P 受け皿) (S) **(T full)** **(V)** (W) **(Y)** (AA) = **21 ID 完了**。 残: (Q) (R) (U) (X) (Z) — いずれも別 commit / 別 Phase で着手可、 PART4 完了を阻まない。
