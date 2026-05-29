@@ -143,6 +143,18 @@ class VulkanContext {
         return asyncComputeFamily_ != graphicsFamily_;
     }
 
+    // C (Foundations \xc2\xa72 a-2): dedicated transfer-only queue family used by
+    // Phase 2F streaming for async asset uploads (decoupled from frame
+    // recording). Falls back to graphicsFamily()/graphicsQueue() when the
+    // device has no transfer-only family, so callers can submit through the
+    // returned queue without a branch. hasDedicatedTransfer() reports whether
+    // real overlap with the graphics queue is available.
+    uint32_t transferFamily() const { return transferFamily_; }
+    VkQueue  transferQueue()  const { return transferQueue_;  }
+    bool     hasDedicatedTransfer() const {
+        return transferFamily_ != graphicsFamily_;
+    }
+
     // PART4 4d M3 (Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read):
     // RECEPTACLE for Phase 3 SS effects (SSAO / SSGI / SSR / DoF / TAA) and
     // mobile / tile-based fast paths. When true, fragment shaders can READ
@@ -299,6 +311,12 @@ class VulkanContext {
     // is in effect (no dedicated family), asyncComputeQueue_ = graphicsQueue_.
     uint32_t asyncComputeFamily_ = VK_QUEUE_FAMILY_IGNORED;
     VkQueue  asyncComputeQueue_  = VK_NULL_HANDLE;
+
+    // C (Foundations \xc2\xa72 a-2): dedicated transfer-only family/queue. Same
+    // fallback rule as asyncCompute_: family/queue mirror graphicsFamily_/
+    // graphicsQueue_ when the device has no transfer-only family.
+    uint32_t transferFamily_ = VK_QUEUE_FAMILY_IGNORED;
+    VkQueue  transferQueue_  = VK_NULL_HANDLE;
 
     // PART4 4d M3: queried Vulkan 1.4 core / VK_KHR_dynamic_rendering_local_read.
     // Phase 3 SS effects activate it; today it's a receptacle.

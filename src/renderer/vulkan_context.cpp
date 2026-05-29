@@ -408,6 +408,7 @@ void VulkanContext::createDevice() {
     // integrated GPUs may not. Fall back to graphicsFamily_ so the API form
     // (queue argument) stays portable even on devices without async compute.
     asyncComputeFamily_ = graphicsFamily_;  // safe fallback
+    transferFamily_ = graphicsFamily_;       // C: safe fallback
     {
         uint32_t qCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physical_, &qCount, nullptr);
@@ -421,10 +422,24 @@ void VulkanContext::createDevice() {
                 break;
             }
         }
+        // C (Foundations \xc2\xa72 a-2): dedicated transfer-only family for streaming
+        // uploads (Phase 2F). Most discrete GPUs expose family with TRANSFER
+        // bit only and no GRAPHICS / COMPUTE. Falls back to graphicsFamily_
+        // (already set above) when absent so transferQueue() is always usable.
+        for (uint32_t i = 0; i < qCount; ++i) {
+            const VkQueueFlags f = qProps[i].queueFlags;
+            if ((f & VK_QUEUE_TRANSFER_BIT) != 0 &&
+                (f & VK_QUEUE_GRAPHICS_BIT) == 0 &&
+                (f & VK_QUEUE_COMPUTE_BIT) == 0) {
+                transferFamily_ = i;  // first dedicated transfer family wins
+                break;
+            }
+        }
     }
 
-    // graphics と present (と async compute) が同じキューファミリーなら 1 つだけ作成
-    std::set<uint32_t> uniqueFamilies = {graphicsFamily_, presentFamily_, asyncComputeFamily_};
+    // graphics と present (と async compute, C transfer) が同じキューファミリーなら 1 つだけ作成
+    std::set<uint32_t> uniqueFamilies = {graphicsFamily_, presentFamily_, asyncComputeFamily_,
+                                         transferFamily_};
     std::vector<VkDeviceQueueCreateInfo> queueCis;
     for (uint32_t fam : uniqueFamilies) {
         VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -551,6 +566,8 @@ void VulkanContext::createDevice() {
               << " samplerFilterMinmax=" << (samplerFilterMinmax_ ? 1 : 0)
               << " asyncComputeFamily=" << asyncComputeFamily_
               << " (dedicated=" << (asyncComputeFamily_ != graphicsFamily_ ? 1 : 0) << ")"
+              << " transferFamily=" << transferFamily_
+              << " (dedicated=" << (transferFamily_ != graphicsFamily_ ? 1 : 0) << ")"
               << " dynamicRenderingLocalRead=" << (dynamicRenderingLocalRead_ ? 1 : 0)
               << " pipelineCreationCacheControl=" << (pipelineCreationCacheControl_ ? 1 : 0)
               << " maintenance5=" << (maintenance5_ ? 1 : 0)
@@ -667,6 +684,13 @@ void VulkanContext::createDevice() {
         vkGetDeviceQueue(device_, asyncComputeFamily_, 0, &asyncComputeQueue_);
     } else {
         asyncComputeQueue_ = graphicsQueue_;
+    }
+    // C: same pattern -- dedicated transfer queue when the device has a
+    // transfer-only family, otherwise alias graphicsQueue_.
+    if (transferFamily_ != graphicsFamily_) {
+        vkGetDeviceQueue(device_, transferFamily_, 0, &transferQueue_);
+    } else {
+        transferQueue_ = graphicsQueue_;
     }
 }
 
