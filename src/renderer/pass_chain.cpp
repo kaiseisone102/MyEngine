@@ -418,7 +418,28 @@ void PassChain::recordFrame(const RecordInfo& info) {
     {
         skinnedVertexPool_.beginFrame(info.frameIndex);
         skinInstancePool_.beginFrame(info.frameIndex);
+        // Count total skinned vertices FIRST so the pool grows ONCE up front.
+        // Reserving per-submesh inside the build loop would let ensureCapacity
+        // reallocate the pool's buffers mid-loop, leaving the SkinInstance
+        // entries already built pointing at the freed (stale) BDA -> GPU
+        // device-lost on burst spawn (F12 spawns 20 skinned enemies, which
+        // exceeds INITIAL_CAPACITY and triggered exactly this grow-mid-loop).
         uint32_t totalSkinnedVerts = 0;
+        auto countSkinned = [&](const std::vector<SkinnedDrawItem>& list) {
+            for (const SkinnedDrawItem& item : list) {
+                if (!item.sourceModel) continue;
+                for (const SubMesh& sm : item.sourceModel->subMeshes()) {
+                    if (sm.vertexCount == 0 || !sm.geom) continue;
+                    totalSkinnedVerts += sm.vertexCount;
+                }
+            }
+        };
+        countSkinned(modelOpaque);
+        countSkinned(modelTransparent);
+        // Single grow for the whole frame; addresses captured AFTER this stay
+        // valid for every SkinInstance built below (no mid-loop reallocation).
+        if (totalSkinnedVerts > 0) skinnedVertexPool_.ensureCapacity(totalSkinnedVerts);
+        totalSkinnedVerts = 0;  // reused below as the running firstVertexGlobal prefix
         const VkDeviceAddress skinAddr = info.skinAddress;
         const VkDeviceAddress dstPos = skinnedVertexPool_.posAddress(info.frameIndex);
         const VkDeviceAddress dstNrm = skinnedVertexPool_.normalAddress(info.frameIndex);
