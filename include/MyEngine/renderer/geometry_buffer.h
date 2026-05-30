@@ -83,6 +83,11 @@ class GeometryBuffer {
     // bind() using their handle's blockIndex). Draw then uses firstIndex/vertexOffset.
     void bindBlock(VkCommandBuffer cmd, uint32_t blockIndex) const;
 
+    // Phase 2G: BDA of a block's vertex buffer, so the compute skinning pass can
+    // read the original interleaved vertices of that block (vbuf is created with
+    // SHADER_DEVICE_ADDRESS). Returns 0 for an out-of-range block.
+    VkDeviceAddress blockVertexAddress(uint32_t blockIndex) const;
+
     uint32_t blockCount() const { return static_cast<uint32_t>(blocks_.size()); }
 
    private:

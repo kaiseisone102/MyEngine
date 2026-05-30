@@ -1,0 +1,161 @@
+#version 450
+// =============================================================================
+// skinning.comp - Phase 2G: BATCHED compute linear-blend skinning pre-pass.
+// =============================================================================
+// ONE dispatch skins EVERY skinned vertex of EVERY skinned instance this frame
+// (Bevy 2024 batched skinning / Unity Batched Compute Skinning / Kinemation).
+// A single dispatch of ceil(totalVertexCount / 64) workgroups; each invocation
+// is a flat "global skinned vertex id", binary-searches the SkinInstance[]
+// table by firstVertexGlobal to find its instance, then skins one vertex.
+// This removes the per-instance CPU dispatch loop (the thing §1.5-B says to
+// eliminate) and is the precondition for a future indirect dispatch.
+//
+// "Skin once": downstream shadow / main / reflection passes bind the skinned
+// streams as a static mesh (passthrough vertex shader, no skinning math)
+// instead of re-running LBS per pass (3-4x today). uv / color / material are
+// skin-invariant and stay in the original block stream (deinterleaved).
+//
+// Output streams (SkinnedVertexPool):
+//   - position : vec3 fp32, tightly packed as 3 floats per vertex (precision
+//                kept full for skinning + motion-vector delta accuracy; the
+//                buffer is ping-pong so the previous frame's stream gives free
+//                skinned motion vectors). Stored via a float[] BDA, 3 words/vtx.
+//   - normal   : octahedral 2x SNORM16 packed into one uint per vertex (16-bit
+//                per axis = ample for lighting; 4 B vs 12 B for vec3).
+//
+// 2G-1 is the no-op receptacle: the streams are produced but the draw path
+// still uses legacy vertex-shader skinning, so rendering is unchanged. 2G-2
+// switches the draws to a passthrough vertex shader and removes the legacy path.
+//
+// Original Vertex read layout matches the C++ `Vertex` (mesh.h, 76 B = 19 x
+// 4-byte words, tightly packed); read via a uint[] BDA and reinterpret, so no
+// new device feature (scalarBlockLayout) is required.
+//   word  0..2 pos / 3..5 color / 6..7 uv / 8..10 normal /
+//   word 11..14 jointIndices (ivec4) / 15..18 jointWeights (vec4)
+// =============================================================================
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#include "shared/types.h"
+
+layout(local_size_x = 64) in;
+
+// NOTE (2G-3): an LDS bone-matrix cache (spec-const gated, Wicked Engine style)
+// is the planned optimisation; 2G-1 uses the direct read for a minimal correct
+// receptacle.
+
+// SkinInstance[] table (see shared/types.h). buffer_reference_align = 16 since
+// the struct begins with 8-byte address pairs and is 64 B (multiple of 16).
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinInstanceBuffer {
+    SkinInstance instances[];
+};
+
+// Original interleaved Vertex[] as raw 32-bit words (76 B / 19 words each).
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SrcVertexWords {
+    uint words[];
+};
+
+// Bone matrices (SkinBufferPool). Same typed pointer as triangle_skinned.vert.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinMatrices {
+    mat4 boneMatrices[];
+};
+
+// Skinned output streams. Position is 3 tightly-packed floats per vertex;
+// normal is one oct16 uint per vertex.
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer SkinnedPos {
+    float p[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer SkinnedNormal {
+    uint oct[];
+};
+
+layout(push_constant) uniform PC {
+    SkinningPushConstants push;
+};
+
+const uint kWordsPerVertex = 19u;
+
+// --- octahedral 2x SNORM16 normal pack (full-range, 16-bit per axis) ---------
+// Distinct from shared/gbuffer.glsl's encodeNormal (that targets R10G10 in
+// [0,1] for the GBuffer RT). Here we keep 16-bit signed precision for a
+// vertex-stream normal and pack two SNORM16 into one uint.
+vec2 _signNZ(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
+
+uint packOct16(vec3 n) {
+    n = normalize(n);
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    vec2 e = (n.z >= 0.0) ? n.xy : (1.0 - abs(n.yx)) * _signNZ(n.xy);
+    // e in [-1,1] -> SNORM16
+    ivec2 q = ivec2(round(clamp(e, -1.0, 1.0) * 32767.0));
+    return (uint(q.x) & 0xFFFFu) | (uint(q.y) << 16);
+}
+
+// Binary search the instance whose [firstVertexGlobal, +vertexCount) range
+// contains global vertex id `g`. Instances are sorted by firstVertexGlobal
+// (the host builds them as a running prefix sum).
+uint findInstance(SkinInstanceBuffer tbl, uint g) {
+    uint lo = 0u;
+    uint hi = push.instanceCount;  // exclusive
+    while (lo + 1u < hi) {
+        uint mid = (lo + hi) >> 1u;
+        if (tbl.instances[mid].firstVertexGlobal <= g) lo = mid;
+        else hi = mid;
+    }
+    return lo;
+}
+
+void main() {
+    const uint g = gl_GlobalInvocationID.x;
+    if (g >= push.totalVertexCount) return;
+
+    SkinInstanceBuffer tbl = SkinInstanceBuffer(push.instanceBuffer);
+    const uint inst = findInstance(tbl, g);
+    SkinInstance si = tbl.instances[inst];
+
+    const uint localV = g - si.firstVertexGlobal;
+    if (localV >= si.vertexCount) return;  // guard (ranges are contiguous)
+
+    SrcVertexWords src = SrcVertexWords(si.srcVertexBuffer);
+    SkinMatrices  skin = SkinMatrices(si.skinBuffer);
+    SkinnedPos    outPos = SkinnedPos(si.dstPosBuffer);
+    SkinnedNormal outNrm = SkinnedNormal(si.dstNormalBuffer);
+
+    const uint base = (si.srcVertexBase + localV) * kWordsPerVertex;
+
+    const vec3 inPos = vec3(
+        uintBitsToFloat(src.words[base + 0u]),
+        uintBitsToFloat(src.words[base + 1u]),
+        uintBitsToFloat(src.words[base + 2u]));
+    const vec3 inNormal = vec3(
+        uintBitsToFloat(src.words[base + 8u]),
+        uintBitsToFloat(src.words[base + 9u]),
+        uintBitsToFloat(src.words[base + 10u]));
+    const ivec4 jointIndices = ivec4(
+        int(src.words[base + 11u]),
+        int(src.words[base + 12u]),
+        int(src.words[base + 13u]),
+        int(src.words[base + 14u]));
+    const vec4 jointWeights = vec4(
+        uintBitsToFloat(src.words[base + 15u]),
+        uintBitsToFloat(src.words[base + 16u]),
+        uintBitsToFloat(src.words[base + 17u]),
+        uintBitsToFloat(src.words[base + 18u]));
+
+    const int boneBase = si.skinOffset;
+    mat4 m =
+        skin.boneMatrices[boneBase + jointIndices.x] * jointWeights.x
+      + skin.boneMatrices[boneBase + jointIndices.y] * jointWeights.y
+      + skin.boneMatrices[boneBase + jointIndices.z] * jointWeights.z
+      + skin.boneMatrices[boneBase + jointIndices.w] * jointWeights.w;
+
+    const vec3 skinnedPos = vec3(m * vec4(inPos, 1.0));
+    const vec3 skinnedNormal = mat3(m) * inNormal;
+
+    const uint dst = si.dstVertexBase + localV;
+    outPos.p[dst * 3u + 0u] = skinnedPos.x;
+    outPos.p[dst * 3u + 1u] = skinnedPos.y;
+    outPos.p[dst * 3u + 2u] = skinnedPos.z;
+    outNrm.oct[dst] = packOct16(skinnedNormal);
+}

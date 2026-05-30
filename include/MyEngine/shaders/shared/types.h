@@ -273,6 +273,79 @@ struct DrawData {
 };
 
 // -----------------------------------------------------------------------------
+// SkinInstance: Phase 2G - one skinned draw instance for the batched compute
+//   skinning pre-pass (skinning.comp). The modern GPU-driven form (Bevy 2024
+//   batched skinning = 11x, Unity Batched Compute Skinning, Kinemation) is a
+//   SINGLE dispatch over ALL skinned instances reading a per-instance SSBO,
+//   NOT one dispatch + push constant per instance (which keeps a CPU dispatch
+//   loop = the very thing §1.5-B says to remove).
+//
+//   skinning.comp reads the ORIGINAL interleaved Vertex[] (the GeometryBuffer
+//   block the skinned model was uploaded into, via srcVertexBuffer BDA) + bone
+//   matrices (SkinBufferPool, via skinBuffer BDA), applies linear-blend
+//   skinning, and writes the skinned POSITION (fp32x3 -> SkinnedVertexPool
+//   position stream, ping-pong for free motion vectors) + skinned NORMAL
+//   (octahedral 2x SNORM16 packed into one uint -> normal stream). uv / color /
+//   material are skin-invariant and stay in the original block stream (NOT
+//   copied -- deinterleaved, saves VRAM on the 2 GB P620).
+//
+//   firstVertexGlobal lets the single dispatch map a flat global invocation id
+//   back to (instance, localVertex): the host fills it as the running sum of
+//   vertexCount, and the shader finds its instance by range. 64 bytes, std430.
+// -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct SkinInstance {
+    VkDeviceAddress srcVertexBuffer;  // 8: original interleaved Vertex[] (block vbuf base)
+    VkDeviceAddress skinBuffer;       // 8: bone matrices (SkinBufferPool)
+    VkDeviceAddress dstPosBuffer;     // 8: skinned position stream (vec3 fp32 packed, current)
+    VkDeviceAddress dstNormalBuffer;  // 8: skinned normal stream (oct16 in uint[])
+    uint32_t srcVertexBase;           // 4: first vertex in src block (vertices)
+    uint32_t dstVertexBase;           // 4: first vertex slot in dst pool (vertices)
+    uint32_t vertexCount;             // 4
+    int32_t  skinOffset;              // 4: bone-matrix base (= SkinBufferPool Slot.boneOffset)
+    uint32_t firstVertexGlobal;       // 4: running sum of vertexCount across instances
+    uint32_t _pad0;                   // 4
+    uint32_t _pad1;                   // 4
+    uint32_t _pad2;                   // 4
+};
+#else
+struct SkinInstance {
+    uvec2 srcVertexBuffer;
+    uvec2 skinBuffer;
+    uvec2 dstPosBuffer;
+    uvec2 dstNormalBuffer;
+    uint srcVertexBase;
+    uint dstVertexBase;
+    uint vertexCount;
+    int  skinOffset;
+    uint firstVertexGlobal;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+};
+#endif
+
+// -----------------------------------------------------------------------------
+// SkinningPushConstants: Phase 2G - the ONLY push for the batched skinning
+//   dispatch. Just the SkinInstance[] SSBO address + instance count + total
+//   skinned-vertex count (so the shader can early-out past the last instance).
+//   16 bytes.
+// -----------------------------------------------------------------------------
+#ifdef __cplusplus
+struct SkinningPushConstants {
+    VkDeviceAddress instanceBuffer;  // 8: SkinInstance[]
+    uint32_t instanceCount;          // 4
+    uint32_t totalVertexCount;       // 4: sum of all instances' vertexCount
+};
+#else
+struct SkinningPushConstants {
+    uvec2 instanceBuffer;
+    uint instanceCount;
+    uint totalVertexCount;
+};
+#endif
+
+// -----------------------------------------------------------------------------
 // CullObject: Phase 2B - one cullable draw item for GPU frustum culling.
 // Extended by PART4 4-前-2 to be meshlet-ready: normal cone (backface cluster
 // test) + reserved cluster ID slots for a future Nanite-style cluster DAG.

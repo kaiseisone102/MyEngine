@@ -176,7 +176,8 @@ void uploadSubMeshToGpu(const SubMeshCpuData& cpu, SubMesh& gpu, GeometryBuffer&
     gpu.firstIndex = h.firstIndex;
     gpu.vertexOffset = h.vertexOffset;
     gpu.blockIndex = h.blockIndex;
-    gpu.indexCount = h.indexCount;  // keep consistent with the handle
+    gpu.indexCount = h.indexCount;    // keep consistent with the handle
+    gpu.vertexCount = h.vertexCount;  // Phase 2G: needed for compute skinning dispatch
 }
 
 // linearIndices: embedded texture indices that are DATA maps (normal/MR/AO) and

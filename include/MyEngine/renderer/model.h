@@ -29,6 +29,7 @@ struct SubMesh {
     int32_t vertexOffset = 0;
     uint32_t blockIndex = 0;
     uint32_t indexCount = 0;
+    uint32_t vertexCount = 0;   // Phase 2G: vertices owned (for compute skinning dispatch)
     uint32_t materialIndex = 0;
 
     void bind(VkCommandBuffer cmd) const;
