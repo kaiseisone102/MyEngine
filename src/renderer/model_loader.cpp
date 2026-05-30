@@ -16,6 +16,7 @@
 #include <assimp/scene.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -28,6 +29,7 @@
 #include "renderer/material_registry.h"
 #include "renderer/resource_factory.h"
 #include "renderer/vulkan_context.h"
+#include "renderer/animator.h"  // Phase 2G-2b: load-time bounds reuse runtime skinning math
 
 namespace {
 
@@ -348,6 +350,84 @@ AABB computeLocalAABB(const std::vector<SubMeshCpuData>& cpuData) {
     return AABB::fromMinMax(mn, mx);
 }
 
+// ─── Phase 2G-2b: conservative AABB across ALL animation poses ──────────────
+// Returned in MODEL-LOCAL space (same frame as localAABB). Naive sampling of
+// the final mesh AABB at sparse keyframes can UNDER-bound -- Unterguggenberger
+// 2021 ("Conservative Meshlet Bounds for Robust Culling of Skinned Meshes")
+// warns "merely sampling along an animation interval can be insufficient" --
+// which would let a swung limb poke outside the cull bounds and be wrongly
+// culled. Robust approach at whole-submesh granularity:
+//   1. Build each bone's BIND-POSE influence box (the verts it skins, w > 0).
+//   2. Densely sample every clip (~30 poses/sec) and, per pose, transform each
+//      bone's influence box by that bone's skin matrix. LBS makes a skinned
+//      vertex a convex combination of S[i]*v over its influencing bones, so the
+//      union of the transformed per-bone boxes conservatively contains the mesh.
+//   3. Inflate by a small inter-sample margin (over-inclusion only loosens
+//      culling; it can never cause a wrong cull) and union with the bind pose.
+// Reuses Animator so the load-time pose math is identical to runtime skinning.
+AABB computeAnimationAABB(const std::vector<SubMeshCpuData>& cpuData,
+                          const Skeleton& skeleton,
+                          const std::vector<AnimationClip>& clips,
+                          const AABB& bindPoseAABB) {
+    if (skeleton.empty() || clips.empty()) return bindPoseAABB;
+
+    const int boneCount = skeleton.boneCount();
+    const float inf = std::numeric_limits<float>::infinity();
+    std::vector<glm::vec3> boneMin(boneCount, glm::vec3( inf));
+    std::vector<glm::vec3> boneMax(boneCount, glm::vec3(-inf));
+    std::vector<uint8_t>   boneUsed(boneCount, 0);
+    for (const auto& cpu : cpuData) {
+        for (const Vertex& vertex : cpu.vertices) {
+            for (int k = 0; k < 4; ++k) {
+                if (vertex.jointWeights[k] <= 0.f) continue;
+                const int bone = vertex.jointIndices[k];  // global after remap
+                if (bone < 0 || bone >= boneCount) continue;
+                boneMin[bone] = glm::min(boneMin[bone], vertex.pos);
+                boneMax[bone] = glm::max(boneMax[bone], vertex.pos);
+                boneUsed[bone] = 1;
+            }
+        }
+    }
+
+    glm::vec3 worldMin( inf);
+    glm::vec3 worldMax(-inf);
+    bool any = false;
+
+    Animator animator;
+    std::vector<glm::mat4> skinMatrices;
+    for (const AnimationClip& clip : clips) {
+        animator.bind(&skeleton, &clip);
+        const float duration = (clip.duration > 0.f) ? clip.duration : 0.f;
+        const int samples = (duration > 0.f)
+            ? std::clamp(static_cast<int>(std::ceil(duration * 30.f)), 8, 256)
+            : 1;
+        for (int sampleIdx = 0; sampleIdx < samples; ++sampleIdx) {
+            const float t = (samples > 1)
+                ? duration * (static_cast<float>(sampleIdx) / (samples - 1))
+                : 0.f;
+            animator.setTime(t);
+            animator.computeSkinMatrices(skinMatrices);
+            if (static_cast<int>(skinMatrices.size()) != boneCount) continue;
+            for (int bone = 0; bone < boneCount; ++bone) {
+                if (!boneUsed[bone]) continue;
+                const AABB box =
+                    transformAABB(skinMatrices[bone], AABB{boneMin[bone], boneMax[bone]});
+                worldMin = glm::min(worldMin, box.min);
+                worldMax = glm::max(worldMax, box.max);
+                any = true;
+            }
+        }
+    }
+
+    if (!any) return bindPoseAABB;
+    AABB result = AABB::fromMinMax(worldMin, worldMax);
+    const float diagonal = glm::length(result.max - result.min);
+    result = result.expanded(diagonal * 0.02f + 1e-3f);   // inter-sample safety margin
+    result.min = glm::min(result.min, bindPoseAABB.min);  // never tighter than bind pose
+    result.max = glm::max(result.max, bindPoseAABB.max);
+    return result;
+}
+
 }  // namespace
 
 bool ModelLoader::probe(const std::string& path) {
@@ -520,6 +600,11 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
 
     extractAnimationsByName(scene, outAnimations);
 
+    // Phase 2G-2b: conservative bound across all animation poses (model-local).
+    // cpuData here already has GLOBAL joint indices (remapped above) + bind pos.
+    outModel.animationAABB_ = computeAnimationAABB(cpuData, outModel.skeleton_,
+                                                   outAnimations, outModel.localAABB_);
+
     std::cout << "[ModelLoader::load] " << path << ": " << outModel.subMeshes_.size()
               << " submeshes, " << outModel.materials_.size() << " materials, "
               << outModel.textures_.size() << " textures, " << outModel.skeleton_.boneCount()
@@ -528,6 +613,15 @@ bool ModelLoader::load(const VulkanContext* ctx, const ResourceFactory* resource
               << outModel.localAABB_.min.y << ", " << outModel.localAABB_.min.z << ") max=("
               << outModel.localAABB_.max.x << ", " << outModel.localAABB_.max.y << ", "
               << outModel.localAABB_.max.z << ")\n";
+    // Phase 2G-2b: for skinned models, log the conservative animation bound so it
+    // can be eyeballed at load (should enclose localAABB; bigger where limbs swing).
+    if (!outModel.skeleton_.empty()) {
+        std::cout << "  animationAABB: min=(" << outModel.animationAABB_.min.x << ", "
+                  << outModel.animationAABB_.min.y << ", " << outModel.animationAABB_.min.z
+                  << ") max=(" << outModel.animationAABB_.max.x << ", "
+                  << outModel.animationAABB_.max.y << ", " << outModel.animationAABB_.max.z
+                  << ")\n";
+    }
 
     return true;
 }

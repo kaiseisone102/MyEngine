@@ -64,6 +64,13 @@ class Model {
     // 衝突判定用に CObstacle に保存され、 物理側で transform 適用される。
     const AABB& localAABB() const { return localAABB_; }
 
+    // Phase 2G-2b: conservative AABB across ALL animation poses (model-local).
+    // ModelLoader unions the per-bone skinned extents over every clip with dense
+    // temporal sampling. For static / no-animation models it equals localAABB().
+    // The skinned cull builder uses it so a swung limb never pokes outside the
+    // cull bounds and gets wrongly culled (Unterguggenberger 2021).
+    const AABB& animationAABB() const { return animationAABB_; }
+
    private:
     friend class ModelLoader;
 
@@ -72,5 +79,6 @@ class Model {
     std::vector<Material> materials_;
     std::vector<Texture> textures_;
     Skeleton skeleton_;
-    AABB localAABB_{};  // ModelLoader が埋める
+    AABB localAABB_{};       // ModelLoader が埋める
+    AABB animationAABB_{};   // Phase 2G-2b: ModelLoader fills (defaults to localAABB_)
 };
