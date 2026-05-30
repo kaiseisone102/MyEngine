@@ -205,3 +205,11 @@ void GeometryBuffer::bindBlock(VkCommandBuffer cmd, uint32_t blockIndex) const {
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
     vkCmdBindIndexBuffer(cmd, b.ibuf.buffer(), 0, VK_INDEX_TYPE_UINT32);
 }
+
+VkDeviceAddress GeometryBuffer::blockVertexAddress(uint32_t blockIndex) const {
+    // Phase 2G: compute skinning reads the original interleaved vertices of a
+    // block via BDA. vbuf is created with SHADER_DEVICE_ADDRESS (see addBlock),
+    // so deviceAddress() is populated.
+    if (blockIndex >= blocks_.size()) return 0;
+    return blocks_[blockIndex].vbuf.deviceAddress();
+}
