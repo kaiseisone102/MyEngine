@@ -242,8 +242,8 @@
 
 ### 妥協度評価 (audit 後の正直な内訳)
 - 🟢 **完全採用 (legacy 0 / modern active)**: sync2 / dynamic rendering / VMA / BDA / bindless / indirect / persistent pipeline cache / Timeline semaphore (B) / camera-relative (E) / debug markers (O) / sync validation (W) / memory priority+budget (N+I) = **17 項目**
-- 🟡 **受け皿のみ (Vulkan feature 取得済だが API 関数 0 呼出)**: shader_object (L) / present_id+wait (K) / image_view_min_lod (Z) / host_image_copy (J) / calibrated_timestamps (Q) / dynamic_rendering_local_read (M3) / pipelineCreationCacheControl (N1 flag) / mailbox present mode 未採用 / GPU compute skinning 未着手 = **9 項目**
-- 🔴 **未着手**: EDS3 (D) / swapchain_maintenance1 (T) / DGC 実装 / mesh shader / RT / VRS / V-P 7 stub の本実装 = **14 項目**
+- 🟡 **受け皿のみ (Vulkan feature 取得済だが API 関数 0 呼出)**: shader_object (L) / present_id+wait (K) / image_view_min_lod (Z) / host_image_copy (J) / calibrated_timestamps (Q) / dynamic_rendering_local_read (M3) / pipelineCreationCacheControl (N1 flag) / mailbox present mode 未採用 = **8 項目** (GPU compute skinning は 2G-1/2a で 🟡→🟢 本実装済)
+- 🔴 **未着手**: EDS3 (D) / swapchain_maintenance1 (T) / DGC 実装 / mesh shader / RT / VRS / V-P stub の本実装 (S は 2G-1/2a で本実装済・残 V/R/H/X/Y/P の 6) = **13 項目**
 
 ### P620 [Caps] log 実測 (30 capability)
 `multiDrawIndirect drawIndirectFirstInstance synchronization2 drawIndirectCount dynamicRendering separateDepthStencilLayouts subgroupOps subgroupSize samplerFilterMinmax asyncComputeFamily (dedicated) transferFamily (dedicated) dynamicRenderingLocalRead pipelineCreationCacheControl maintenance5 maintenance6 graphicsPipelineLibrary pipelineBinary memoryPriority memoryBudget timelineSemaphore extDynState3 shaderObject presentId presentWait swapchainMaint1 imageViewMinLod hostImageCopy calibratedTimestamps` = **DGC のみ 0** (Pascal hardware 制約)。
@@ -252,7 +252,7 @@
 - **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
 - **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
 - **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
-- **★★★** Phase 2G = S (compute skinning) 本実装 = 大規模キャラ戦闘の前提 **かつ §1.5-B 違反 (skinned 全経路 CPU draw ループ) の解消** (2026-05-30 監査で最優先に格上げ・受け皿 S は per-instance + indirect 射程へ再設計が要る)
+- ✅ Phase 2G (S = compute skinning) = **2G-1 + 2G-2a 完了 (HEAD 1b57f8e・runtime 検証済)**: skin once 達成・受け皿 S は 2G-1 で per-instance SkinnedVertexPool に再設計済み・旧 vertex-shader skinning 撤去。 残 ★次推奨 = 2G-2b (CullingPass CullSet + vkCmdDrawIndexedIndirect で CPU draw ループ撤去 = §1.5-B 完全準拠)・2G-3
 - **★★** M activation: AsyncComputeContext を実 cross-queue submit に wire-up
 - **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
 - **★** Q calibrated_timestamps で GPU profiling 本実装
