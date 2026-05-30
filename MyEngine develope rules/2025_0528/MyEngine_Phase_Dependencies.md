@@ -156,11 +156,11 @@ VmaImage(完了)──→ 1K PBR(主要部完了)──→ 1J SSAO/GTAO      2B 
 - 620: 快適 (むしろ 620 を救う)
 - 位置づけ: 2B の自然な発展。非力 GPU ほど恩恵大
 
-### Phase 2G — skinned の GPU-driven 統一 (compute skinning + indirect) 【2G-1 + 2G-2a 完了 (2026-05-30, HEAD 1b57f8e)・残 2G-2b ★次】
+### Phase 2G — skinned の GPU-driven 統一 (compute skinning + indirect) 【2G-1 + 2G-2a 完了・2G-2b PART0-2 完了 (HEAD e79de3c)・残 2G-2b PART3-4 ★次】
 - ← 前提: **2B (必須 — 同じ CullingPass / cull.comp / indirect_exec を skinned bucket に再利用)**、SkinBufferPool (既存・ボーン行列 CPU 計算は据え置き)、compute shader (Pascal 標準)
 - これが足場になるもの: 大規模キャラ戦闘 (数百〜数千 skinned)、skinned の frustum/HZB occlusion cull
 - 620: 快適 (CPU 軽減 + 3x skinning 削減で効く)
-- **進捗 (user runtime 検証済)**: ✅ **2G-1** = batched compute skinning pre-pass (skinning.comp 1 dispatch + SkinnedVertexPool deinterleaved pos fp32 / normal oct16 + SkinInstancePool + SkinningPass を reflection 前に dispatch)。 ✅ **2G-2a** = passthrough vert (triangle_skinned / shadow_skinned が skinned stream を BDA + gl_VertexIndex で pull・bone math 撤去) + SkinnedDrawData SSBO (gl_InstanceIndex・indirect-ready) + drawSkinnedPrepared 化 + **旧 vertex-shader skinning / 旧 push 構造体 全撤去** = **skin once 達成 (3〜4x→1x)**。 ⬜ **2G-2b** = skinned を CullingPass の新 CullSet に乗せ vkCmdDrawIndexedIndirect 化 (CPU draw ループ撤去 = §1.5-B 完全準拠) + conservative animation bounds。 ⬜ **2G-3** = motion vector double-buffer / LDS bone cache / async overlap。
+- **進捗 (user runtime 検証済)**: ✅ **2G-1** = batched compute skinning pre-pass (skinning.comp 1 dispatch + SkinnedVertexPool deinterleaved pos fp32 / normal oct16 + SkinInstancePool + SkinningPass を reflection 前に dispatch)。 ✅ **2G-2a** = passthrough vert (triangle_skinned / shadow_skinned が skinned stream を BDA + gl_VertexIndex で pull・bone math 撤去) + SkinnedDrawData SSBO (gl_InstanceIndex・indirect-ready) + drawSkinnedPrepared 化 + **旧 vertex-shader skinning / 旧 push 構造体 全撤去** = **skin once 達成 (3〜4x→1x)**。 🔄 **2G-2b** = PART0 (CullSet に Skinned+Count・9deae63) + PART1 (per-bone conservative animation bounds・5968a08) + PART2 (per-CullBucket{Prop,Skinned} 入力・e79de3c) 完了。 残 PART3 (skinned_cull_build + execute(set=Skinned)・設計済未実装) + PART4 (indirect 化 + skinned two-pass HZB occlusion で CPU draw ループ撤去)。 ⬜ **2G-3** = motion vector double-buffer / LDS bone cache / async overlap。
 - 内容: compute skinning (skin once・per-instance pool) → skinned mesh を static geometry 化 → prop と同じ indirect 経路に乗せ CPU drawSkinnedList 撤去 → passthrough vertex shader。旧 vertex-shader skinning は撤去 (compute は全 GPU 対応で §3 fallback 発火せず = 温存は古い技術の延命)。【2G-2a まで完了・残るは indirect 化 = 2G-2b】
 - **受け皿是正済**: `gpu_skinning.h` (S) は per-mesh 固定 = 複数インスタンス非対応の誤設計だった (2026-05-30 監査) → 2G-1 で per-instance `SkinnedVertexPool` に再設計済み。
 - 位置づけ: §1.5-B「将来は skinned も」の実体。prop (2B) / terrain (2F) と並ぶ「同じ仕組みを別 bucket で並立」構造。

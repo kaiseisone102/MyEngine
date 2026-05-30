@@ -298,7 +298,7 @@ bindless レジストリを **動的成長 + free-list** に (解放スロット
 - 🟡 **後段でよい CPU ループ**: water (`water_pass.cpp` 専用パス) / bindless test cube (`main_pass.cpp` 単発・テスト用) / reflection static (`reflection_pass.cpp` 静的・別錐台) / transparent static (OIT Phase 待ち)。これらは §1.5-B 観点で残存だが、規模負債としては小〜中。
 - ✅ **準拠済み**: opaque static prop (compactCmd 経由 indirect) / shadow static (`vkCmdDrawIndexedIndirectCount`) / particle (count-driven instancing)。
 
-**受け皿の誤設計 (関連)**: `gpu_skinning.h` (S) は **per-mesh 固定 skinnedVB = 複数インスタンス (敵複数体が別ポーズ) 非対応**。§0「受け皿は最新の形で」に反する誤設計。Phase 2G 着手時に **per-instance pool + indirect 統合射程**へ再設計する。他 9 受け皿 (H/V/R/X/Y/P/M/U/Z) は形健全を確認済み。
+**受け皿の誤設計 (関連)**: `gpu_skinning.h` (S) は **per-mesh 固定 skinnedVB = 複数インスタンス (敵複数体が別ポーズ) 非対応**。§0「受け皿は最新の形で」に反する誤設計だった。**2G-1 で per-instance SkinnedVertexPool に再設計済** (2G-2a で indirect-ready 化・2G-2b で cull/indirect 統合 進行中: PART0-2 完了)。他 9 受け皿 (H/V/R/X/Y/P/M/U/Z) は形健全を確認済み。
 
 **この監査で判明した運用上の教訓 (Claude 側の §0 違反)**: 監査の過程で、Claude が選択肢提示時に「最新技術より既存整合・最小構成・安全」を**推奨**として出した §0 違反が 2 件あった (CPU skinning fallback の温存を §3 能力フォールバックの誤用で正当化・skinned VB のフル Vertex 維持を「安全・差分最小」と化粧)。§3 のフォールバックは **HW 非対応時の二択**であって、全 GPU で動く機能 (compute skinning) の旧経路温存の口実にしてはならない。**「妥協案を最新の顔で推奨しない」** を選択肢提示時の自己チェックに加える。
 

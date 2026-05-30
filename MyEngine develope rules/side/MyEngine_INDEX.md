@@ -252,7 +252,7 @@
 - **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
 - **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
 - **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
-- ✅ Phase 2G (S = compute skinning) = **2G-1 + 2G-2a 完了 (HEAD 1b57f8e・runtime 検証済)**: skin once 達成・受け皿 S は 2G-1 で per-instance SkinnedVertexPool に再設計済み・旧 vertex-shader skinning 撤去。 残 ★次推奨 = 2G-2b (CullingPass CullSet + vkCmdDrawIndexedIndirect で CPU draw ループ撤去 = §1.5-B 完全準拠)・2G-3
+- ✅ Phase 2G (S = compute skinning) = **2G-1 + 2G-2a 完了 (HEAD 1b57f8e・runtime 検証済)**: skin once 達成・受け皿 S は 2G-1 で per-instance SkinnedVertexPool に再設計済み・旧 vertex-shader skinning 撤去。 2G-2b PART0-2 完了 (CullSet に Skinned + per-CullBucket 入力 + per-bone conservative bounds・HEAD e79de3c)・残 2G-2b PART3-4 (skinned_cull + indirect + two-pass HZB occlusion) ★次推奨・2G-3
 - **★★** M activation: AsyncComputeContext を実 cross-queue submit に wire-up
 - **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
 - **★** Q calibrated_timestamps で GPU profiling 本実装
