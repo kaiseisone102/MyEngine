@@ -89,6 +89,13 @@ class CullingPass {
     enum class CullSet : uint32_t {
         Camera = 0,
         Shadow = 1,
+        // Phase 2G-2b: skinned characters cull into their own output set. The
+        // CullObject INPUT differs from the prop sets (different draw list), so
+        // Skinned maps to its own CullBucket (see bucketOf()); Camera + Shadow
+        // share the Prop bucket's input. Count is the sentinel that sizes
+        // kNumCullSets / cullOutputs_ -- keep it LAST.
+        Skinned = 2,
+        Count,
     };
 
     struct InitInfo {
@@ -274,7 +281,9 @@ class CullingPass {
         // recreated by ensureCapacity().
         bool visHistoryInitialized = false;
     };
-    static constexpr size_t kNumCullSets = 2;  // Camera + Shadow today; cascades grow this.
+    // Single source of truth: follows the CullSet enum (Camera + Shadow +
+    // Skinned today; cascades grow this by adding enum entries before Count).
+    static constexpr size_t kNumCullSets = static_cast<size_t>(CullSet::Count);
 
     void createBuffers(uint32_t capacity, uint32_t blockCount);
     void destroyBuffersToDeletionQueue();
