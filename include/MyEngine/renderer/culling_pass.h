@@ -98,6 +98,20 @@ class CullingPass {
         Count,
     };
 
+    // Phase 2G-2b: a CullBucket is one INPUT object list. Camera + Shadow cull
+    // the SAME prop CullObject list from different frustums, so they share the
+    // Prop bucket's cullBuf / staging / cmd template. Skinned culls a SEPARATE
+    // draw list, so it owns the Skinned bucket. Outputs stay per-CullSet; only
+    // the INPUT buffers are keyed by bucket. terrain (Phase 2F) adds a bucket.
+    enum class CullBucket : uint32_t {
+        Prop = 0,
+        Skinned = 1,
+        Count,
+    };
+    static constexpr CullBucket bucketOf(CullSet set) {
+        return (set == CullSet::Skinned) ? CullBucket::Skinned : CullBucket::Prop;
+    }
+
     struct InitInfo {
         VulkanContext* ctx = nullptr;
         DeletionQueue* deletionQueue = nullptr;
@@ -187,7 +201,10 @@ class CullingPass {
     // (Legacy 4-前-3 accessor kept for any caller still drawing from cmdBuf_;
     // main_pass will move to compactCmdBuffer / countBuffer in this commit.)
     VkBuffer commandBuffer(uint32_t frameIndex) const {
-        return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? cmdBuf_[frameIndex].buffer() : VK_NULL_HANDLE;
+        // Legacy PART3c-2 fallback draws props -> Prop bucket's template.
+        return (frameIndex < MAX_FRAMES_IN_FLIGHT)
+            ? cmdBuf_[static_cast<size_t>(CullBucket::Prop)][frameIndex].buffer()
+            : VK_NULL_HANDLE;
     }
     uint32_t drawCount(uint32_t frameIndex) const {
         return (frameIndex < MAX_FRAMES_IN_FLIGHT) ? lastCount_[frameIndex] : 0;
@@ -304,10 +321,14 @@ class CullingPass {
     uint32_t capacity_   = 0;
     uint32_t blockCount_ = 0;
 
-    // Shared input (one upload per frame, reused by all CullSets).
-    VmaBuffer cullBuf_;                                       // device-local
-    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cullStaging_; // host-mapped
-    std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT> cmdBuf_;      // host-mapped template
+    // Phase 2G-2b: per-CullBucket input. Prop bucket = Camera + Shadow shared
+    // (same prop draw list, different frustums); Skinned bucket = its own list.
+    // One upload per (bucket, frame), reused by that bucket's CullSets. Outputs
+    // stay per-CullSet (cullOutputs_ above).
+    static constexpr size_t kNumBuckets = static_cast<size_t>(CullBucket::Count);
+    std::array<VmaBuffer, kNumBuckets> cullBuf_;  // device-local, per bucket
+    std::array<std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT>, kNumBuckets> cullStaging_; // host-mapped
+    std::array<std::array<VmaBuffer, MAX_FRAMES_IN_FLIGHT>, kNumBuckets> cmdBuf_;      // host-mapped template
 
     // PART4 4c-B: per-frame host-mapped HizParams[2] (pass1 / pass2 slots).
     // Receptacle today (pass2 path is dead code); 4c-C wires it.

@@ -58,11 +58,14 @@ void CullingPass::createBuffers(uint32_t capacity, uint32_t blockCount) {
     capacity_ = capacity;
     blockCount_ = blockCount;
 
-    cullBuf_ = VmaBuffer::createDeviceLocal(
-        ctx_, static_cast<VkDeviceSize>(capacity) * cullStride(),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    // Phase 2G-2b: one device-local CullObject buffer per bucket (Prop / Skinned).
+    for (size_t b = 0; b < kNumBuckets; ++b) {
+        cullBuf_[b] = VmaBuffer::createDeviceLocal(
+            ctx_, static_cast<VkDeviceSize>(capacity) * cullStride(),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    }
 
     // PART4 4-前-4 + 4-前-5: per-CullSet output (visBuf + compactCmd1/2 +
     // countBuf1/2 + workgroupTotals). Pipelines are shared; only output
@@ -102,17 +105,19 @@ void CullingPass::createBuffers(uint32_t capacity, uint32_t blockCount) {
         o.visHistoryInitialized = false;
     }
 
-    // Per-frame staging + per-frame template (4-前-3 layout, shared across sets).
+    // Per-frame staging + template, now per bucket (Prop / Skinned).
+    for (size_t b = 0; b < kNumBuckets; ++b) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            cullStaging_[b][i] = VmaBuffer::createMappedHostVisible(
+                ctx_, static_cast<VkDeviceSize>(capacity) * cullStride(),
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            cmdBuf_[b][i] = VmaBuffer::createMappedStorageBDA(
+                ctx_, cmdBufBytes,
+                VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        }
+    }
+    // PART4 4c-B: HizParams[2] per frame (pass1 + pass2 slots), bucket-independent.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        cullStaging_[i] = VmaBuffer::createMappedHostVisible(
-            ctx_, static_cast<VkDeviceSize>(capacity) * cullStride(),
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-        cmdBuf_[i] = VmaBuffer::createMappedStorageBDA(
-            ctx_, cmdBufBytes,
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        // PART4 4c-B: HizParams[2] per frame (pass1 + pass2 slots). 96B each =
-        // 192B. createMappedStorageBDA gives host-mapped + STORAGE + BDA; no
-        // extra usage. Receptacle today.
         hizParamsBuf_[i] = VmaBuffer::createMappedStorageBDA(
             ctx_, static_cast<VkDeviceSize>(2) * sizeof(myengine::shared::HizParams));
         lastCount_[i] = 0;
@@ -126,7 +131,7 @@ void CullingPass::destroyBuffersToDeletionQueue() {
             b.release();
         }
     };
-    enqueue(cullBuf_);
+    for (auto& cb : cullBuf_) enqueue(cb);  // per bucket (Phase 2G-2b)
     for (CullOutputs& o : cullOutputs_) {
         enqueue(o.visBuf);
         enqueue(o.compactCmd1);
@@ -137,9 +142,13 @@ void CullingPass::destroyBuffersToDeletionQueue() {
         enqueue(o.visHistory);  // PART4 4c-C
         o.visHistoryInitialized = false;  // new buffer needs re-zero on next execute()
     }
+    for (size_t b = 0; b < kNumBuckets; ++b) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            enqueue(cullStaging_[b][i]);
+            enqueue(cmdBuf_[b][i]);
+        }
+    }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        enqueue(cullStaging_[i]);
-        enqueue(cmdBuf_[i]);
         enqueue(hizParamsBuf_[i]);  // PART4 4c-B
         lastCount_[i] = 0;
     }
@@ -361,7 +370,7 @@ void CullingPass::shutdown() {
     scanLocalLayout_.reset();
     cullPipe_.reset();
     cullLayout_.reset();
-    cullBuf_.reset();
+    for (auto& cb : cullBuf_) cb.reset();  // per bucket (Phase 2G-2b)
     for (CullOutputs& o : cullOutputs_) {
         o.visBuf.reset();
         o.compactCmd1.reset();
@@ -376,9 +385,13 @@ void CullingPass::shutdown() {
     for (auto& s : hizDescSet_) s = VK_NULL_HANDLE;
     hizDescPool_.reset();
     hizSetLayout_.reset();
+    for (size_t b = 0; b < kNumBuckets; ++b) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            cullStaging_[b][i].reset();
+            cmdBuf_[b][i].reset();
+        }
+    }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        cullStaging_[i].reset();
-        cmdBuf_[i].reset();
         hizParamsBuf_[i].reset();  // PART4 4c-B
         lastCount_[i] = 0;
     }
@@ -429,14 +442,17 @@ void CullingPass::execute(const ExecuteInfo& info) {
     lastCount_[frame] = count;
 
     CullOutputs& outs = cullOutputs_[size_t(info.set)];
+    // Phase 2G-2b: input (cullBuf / staging / cmd template) is per bucket --
+    // Camera + Shadow share the Prop bucket; Skinned has its own object list.
+    const size_t bucket = static_cast<size_t>(bucketOf(info.set));
 
     // 1) CPU writes to shared staging + cmd template - only when this is the
     //    first cull set this frame. Shadow sets reuse the data Camera uploaded.
     if (!info.inputAlreadyUploaded) {
-        std::memcpy(cullStaging_[frame].mapped(), info.cullObjects->data(),
+        std::memcpy(cullStaging_[bucket][frame].mapped(), info.cullObjects->data(),
                     static_cast<size_t>(count) * cullStride());
 
-        auto* cmds = static_cast<VkDrawIndexedIndirectCommand*>(cmdBuf_[frame].mapped());
+        auto* cmds = static_cast<VkDrawIndexedIndirectCommand*>(cmdBuf_[bucket][frame].mapped());
         std::memset(cmds, 0, static_cast<size_t>(count) * cmdStride());
         if (info.drawTemplates) {
             const uint32_t tn = static_cast<uint32_t>(info.drawTemplates->size());
@@ -471,9 +487,9 @@ void CullingPass::execute(const ExecuteInfo& info) {
             region.srcOffset = 0;
             region.dstOffset = 0;
             region.size = static_cast<VkDeviceSize>(count) * cullStride();
-            vkCmdCopyBuffer(info.cmd, cullStaging_[frame].buffer(), cullBuf_.buffer(), 1, &region);
+            vkCmdCopyBuffer(info.cmd, cullStaging_[bucket][frame].buffer(), cullBuf_[bucket].buffer(), 1, &region);
             transferToCompute[nb++] = barrier::BufferBarrier{
-                .buffer = cullBuf_.buffer(),
+                .buffer = cullBuf_[bucket].buffer(),
                 .srcStage  = VK_PIPELINE_STAGE_2_COPY_BIT,
                 .srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 .dstStage  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -525,7 +541,7 @@ void CullingPass::execute(const ExecuteInfo& info) {
         fr.extract(info.viewProj);
         for (int i = 0; i < 6; ++i) pcs.planes[i] = fr.planes[i];
         pcs.viewPos    = glm::vec4(info.viewPos, 0.0f);
-        pcs.cullAddr   = packAddr(cullBuf_.deviceAddress());
+        pcs.cullAddr   = packAddr(cullBuf_[bucket].deviceAddress());
         pcs.visAddr    = packAddr(outs.visBuf.deviceAddress());
         pcs.objectCount = count;
         // PART4 4c-C: route cull.comp to its pass1 / pass2 branch ONLY when
@@ -553,7 +569,7 @@ void CullingPass::execute(const ExecuteInfo& info) {
     // 4) Per-block 3-pass scan compaction using THIS set's output buffers.
     const VkDeviceAddress visAddr     = outs.visBuf.deviceAddress();
     const VkDeviceAddress wgTotAddr   = outs.workgroupTotals.deviceAddress();
-    const VkDeviceAddress cmdTplAddr  = cmdBuf_[frame].deviceAddress();
+    const VkDeviceAddress cmdTplAddr  = cmdBuf_[bucket][frame].deviceAddress();
     // PART4 4c-C: scatter to compactCmd1/2 + countBuf1/2 based on passIndex.
     const VkDeviceAddress compactAddr = activeCompact.deviceAddress();
     const VkDeviceAddress countAddr   = activeCount.deviceAddress();
