@@ -1,6 +1,6 @@
-# MyEngine 設計知見 — 横断インデックス (rev.7)
+# MyEngine 設計知見 — 横断インデックス (rev.8)
 
-最終更新: 2026-05-29 (rev.7: **最新化マラソン 28 commits 反映 — 多数項目が ✅実装完了 / 🟢受け皿確保**。 §1 表で:
+最終更新: 2026-05-30 (rev.8: **描画経路 全監査で §1.5-B 違反 + 受け皿 S 誤設計を確定**。 §1 表の後に「2026-05-30 描画経路 全監査の結果」テーブル新設 (skinned 全経路 CPU draw ループ + grass CPU per-blade cull = §1.5-B 違反 → Phase 2G/2H 新設・受け皿 S は per-mesh 固定で複数インスタンス非対応の誤設計 → 2G で再設計・他 9 受け皿は形健全)。 §7 次推奨で S を ★★★ Phase 2G として最優先に格上げ。 監査の契機: user 指示「最新技術より既存整合・最小構成を選んでしまったかもしれないので確認」→ session 全選択を監査し Q8b (CPU skinning fallback 温存を §3 誤用で推奨) / Q9 (フル Vertex 維持を安全と化粧して推奨) の §0 違反を開示・是正。 / rev.7: **最新化マラソン 28 commits 反映 — 多数項目が ✅実装完了 / 🟢受け皿確保**。 §1 表で:
 - **(B) 動的容量** = ✅ 6 クラス完了 (CullingPass + DrawDataPool + Material/Instance/Skin/Particle/DebugLine の F1-F5 / G で実装・受け皿の bindless pool growth は別 Phase = G+)
 - **(U) Timeline semaphore** = ✅ 完了 (B commit eeba2ed = FrameSync 完全 migration・per-frame VkFence array 撤去)
 - **(V) Async compute** = ✅ 受け皿確保 (M commit 8b4deff `include/MyEngine/renderer/async_compute.h`・本実装は Phase 仕事)
@@ -124,6 +124,16 @@
 | **M** (AsyncCompute) | AsyncCompute timeline semaphore receptacle | (新規) | 8b4deff | ✅**受け皿確保** (header-only) |
 | **V/R/S/H/X/Y/P** | 7 design-memo headers | (新規 batch) | 8604de5 | 🟡 **design memo のみ** (各 init/shutdown 空・Phase 着手時に実装) |
 
+### 2026-05-30 描画経路 全監査の結果 (§1.5-B 違反 + 受け皿 S 誤設計)
+
+| 項目 | 監査結果 | 是正 |
+|---|---|---|
+| **§1.5-B 違反: skinned 全経路 CPU draw ループ** | opaque/transparent/shadow/reflection 全部 CPU ループ + vertex-shader skinning 3〜4 回再実行 (main_pass drawSkinnedList / shadow_pass skinned / reflection_pass drawSkinnedList) | **Phase 2G 新設** (Roadmap §4・★次推奨) = compute skinning packed VB + prop と同じ indirect 統合 + 旧 skinning 撤去 |
+| **§1.5-B 違反: grass CPU per-blade cull** | pass_chain.cpp で全 blade に CPU `fr.sphereVisible()` → GPU instancing (cull が CPU) | **Phase 2H 新設** = GPU compute cull + indirect instanced |
+| **受け皿 S (gpu_skinning.h) 誤設計** | per-mesh 固定 = 複数インスタンス (敵複数体が別ポーズ) 非対応 | 2G 着手時に **per-instance pool + indirect 統合射程**へ再設計 |
+| 受け皿 H/V/R/X/Y/P/M/U/Z | **形健全を確認** (per-object/per-frame/generic でスケーラブル) | 是正不要 |
+| その他 CPU ループ (water / bindless test / reflection static / transparent) | §1.5-B 観点で残存だが後段 (water は専用・transparent は OIT Phase) | 記録のみ |
+
 ---
 
 ## 2. PART4 §6 分割案 — 着手順と項目 ID マッピング
@@ -242,7 +252,7 @@
 - **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
 - **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
 - **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
-- **★★** S (compute skinning) 本実装 = 大規模キャラ戦闘の前提
+- **★★★** Phase 2G = S (compute skinning) 本実装 = 大規模キャラ戦闘の前提 **かつ §1.5-B 違反 (skinned 全経路 CPU draw ループ) の解消** (2026-05-30 監査で最優先に格上げ・受け皿 S は per-instance + indirect 射程へ再設計が要る)
 - **★★** M activation: AsyncComputeContext を実 cross-queue submit に wire-up
 - **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
 - **★** Q calibrated_timestamps で GPU profiling 本実装
