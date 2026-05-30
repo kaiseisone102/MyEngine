@@ -90,7 +90,17 @@
 
 ## 2. 現在地 (ここだけ毎セッション更新する)
 
-> ### ▶ 前回セッションからの引き継ぎ (新規チャットはまずここを読む / 2026-05-29 更新)
+> ### ▶ 前回セッションからの引き継ぎ (新規チャットはまずここを読む / 2026-05-30 更新)
+>
+> **【Phase 2G-2b 進行中: skinned を GPU-driven indirect 化。 PART0-2 完了 (HEAD e79de3c)・PART3 設計済・PART4 残】**
+>
+> - **PART0** (9deae63): `CullSet` enum に Skinned+Count 追加 (前セッション未コミットの build 破壊状態 = `kNumCullSets=CullSet::Count` だが enum に Count 無し、を復旧)。
+> - **PART1** (5968a08): `Model::animationAABB_` = load 時に全アニメクリップ走査して **per-bone conservative bounds** (Unterguggenberger 2021・LBS 凸結合で per-bone 影響箱を全ポーズ union・dense sample + inter-sample margin)。 剣振り等で AABB はみ出し誤 cull を防ぐ。 Animator 再利用で runtime と同一 skin 数学。
+> - **PART2** (e79de3c): CullingPass 入力を **per-CullBucket{Prop,Skinned}** に。 Camera+Shadow=Prop 共有・Skinned=専用 bucket。 出力は per-CullSet のまま。 Skinned bucket は未 dispatch = 描画不変。
+> - **PART3 設計済 (未実装・skinned_cull_build.h は未作成)**: skinned_cull_build.h (static_cull_build 対称・animationAABB・firstInstance=2G-2a slot・block-sort) を skinning walk 内 inline emit (§5d re-walk 回避) + `execute(set=Skinned, frustum)`。 draw は CPU drawSkinnedPrepared のまま = 描画 no-op。 HUD cull 数は pure GPU-driven (readback 撤去済) のため入れない。
+> - **PART4 残 (怖い変更・目視必須)**: MainPass skinned→indirect (CPU draw 撤去) + **skinned two-pass HZB occlusion 相乗り** (roadmap #5・**HZB は 2G-2b の中**・2G-2c は存在しない)。
+> - **最新技術 web 再確認 (2025)**: two-pass HZB occlusion は今も GPU-driven baseline・LBS 標準 (DQS でない)・graphics-state bucket で static/skinned 分離が標準。 work graphs / DGC / mesh shader は HW ゲートの最前線で受け皿/別 Phase。 → 2G-2b は production 最新 baseline。
+> - 詳細は Roadmap Phase 2G。 ※ この session で Claude Code の PreToolUse ゲート (read-before-edit 強制・per-turn marker・`.claude/hooks`) を追加したが、 これは tooling であり engine 設計ではない。
 >
 > **【最新化マラソン: 28 commits / Foundations §1-4 + Vulkan13 §1-6 + Open-world receptacles を一気通貫で実装】**
 >
