@@ -20,6 +20,7 @@
 
 #include "render_target.h"
 #include "scene/scene_data.h"
+#include "renderer/skinned_draw.h"  // Phase 2G-2: PreparedSkinnedDraw
 
 class VulkanContext;
 class ResourceFactory;
@@ -31,7 +32,7 @@ namespace static_cull { struct BlockRange; }
 
 class ShadowPass {
    public:
-    using SkinnedPushConstants = myengine::shared::ShadowSkinnedPushConstants;
+    using SkinnedShadowPC = myengine::shared::SkinnedShadowDrawPushConstants;  // Phase 2G-2
 
     struct InitInfo {
         VulkanContext* ctx = nullptr;
@@ -50,6 +51,12 @@ class ShadowPass {
         const Mesh* mesh = nullptr;
         const std::vector<MeshDrawItem>* meshDrawList = nullptr;
         const std::vector<SkinnedDrawItem>* modelDrawList = nullptr;
+        // Phase 2G-2: compute-skinned shadow (passthrough). Prepared once in
+        // pass_chain; shadow pulls skinned position from the SkinnedVertexPool
+        // stream and per-draw model from the SkinnedDrawData SSBO.
+        const std::vector<skinned::PreparedSkinnedDraw>* preparedSkinned = nullptr;
+        VkDeviceAddress skinnedDrawBufferAddress = 0;
+        VkDeviceAddress skinnedPosAddress = 0;
         // Phase 5-B: 装備品など静的 Model の影 (skinned shadow continues here)
         const std::vector<StaticModelDrawItem>* staticModelDrawList = nullptr;
 

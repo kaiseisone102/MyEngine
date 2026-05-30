@@ -79,7 +79,7 @@ void ReflectionPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S5: frag reads materialId
     pc.offset = 0;
-    pc.size = sizeof(MainPass::SkinnedPushConstants);
+    pc.size = sizeof(MainPass::SkinnedDrawPushConstants);  // Phase 2G-2
 
     VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -234,40 +234,21 @@ void ReflectionPass::destroyTarget() {
 
 namespace {
 
-void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                         VkDeviceAddress skinAddress,
-                         const std::vector<SkinnedDrawItem>& list) {
-    if (list.empty()) return;
-    const Model* curModel = nullptr;
-    const std::vector<Material>* curMaterials = nullptr;
-
-    for (const SkinnedDrawItem& item : list) {
-        if (!item.sourceModel) continue;
-        if (item.sourceModel != curModel) {
-            curModel = item.sourceModel;
-            curMaterials = &curModel->materials();
-        }
-
-        MainPass::SkinnedPushConstants pc{};
-        // E: reflection draws use a mirrored view derived from the same
-        // engine-relative camera position (pass_chain.cpp flips viewPos.y
-        // around waterY then feeds it into reflView). The model still
-        // needs the standard engine-relative shift to compose correctly.
-        pc.model = myengine::world::toEngineRelative(item.model);
-        pc.skinOffset = item.skinOffset;
-        pc.skinBuffer = skinAddress;
-        pc.alpha = item.alpha;
-
-        for (const SubMesh& sm : curModel->subMeshes()) {
-            if (sm.indexCount == 0) continue;
-            // S4-d: per-submesh material id into the SSBO
-            pc.materialId = (curMaterials && sm.materialIndex < curMaterials->size())
-                ? (*curMaterials)[sm.materialIndex].materialId()
-                : 0u;
-            vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                               sizeof(MainPass::SkinnedPushConstants), &pc);
-            sm.bindAndDraw(cmd);
-        }
+// Phase 2G-2: passthrough skinned draw (same as main_pass). Reflection reuses
+// the model-local skinned streams (skin once) with its own mirrored view.
+void drawSkinnedPrepared(VkCommandBuffer cmd, VkPipelineLayout layout,
+                         const GeometryBuffer* geom, VkDeviceAddress drawBuf,
+                         VkDeviceAddress posBuf, VkDeviceAddress normalBuf,
+                         const std::vector<skinned::PreparedSkinnedDraw>& prepared) {
+    if (prepared.empty() || !geom) return;
+    MainPass::SkinnedDrawPushConstants pc{};
+    pc.drawBuffer = drawBuf;
+    pc.posBuffer = posBuf;
+    pc.normalBuffer = normalBuf;
+    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+    for (const skinned::PreparedSkinnedDraw& d : prepared) {
+        geom->bindBlock(cmd, d.blockIndex);
+        vkCmdDrawIndexed(cmd, d.indexCount, 1, d.firstIndex, d.vertexOffset, d.slot);
     }
 }
 
@@ -375,8 +356,8 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         }
     }
 
-    // ── Skinned (player + enemies) ──
-    if (info.modelDrawListOpaque && !info.modelDrawListOpaque->empty()) {
+    // ── Skinned (player + enemies) ── Phase 2G-2: passthrough
+    if (info.preparedSkinned && !info.preparedSkinned->empty() && info.geometry) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
@@ -385,7 +366,9 @@ void ReflectionPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 1, 1,
                                 &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_.get(), info.skinAddress, *info.modelDrawListOpaque);
+        drawSkinnedPrepared(info.cmd, skinnedLayout_.get(), info.geometry,
+                            info.skinnedDrawBufferAddress, info.skinnedPosAddress,
+                            info.skinnedNormalAddress, *info.preparedSkinned);
     }
 
     vkCmdEndRendering(info.cmd);

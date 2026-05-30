@@ -99,6 +99,7 @@ void PassChain::init(const InitInfo& info) {
     // (SkinInstance[]) and device-local output streams (skinned pos/normal).
     skinnedVertexPool_.init(info.ctx, info.deletionQueue);
     skinInstancePool_.init(info.ctx, info.deletionQueue);
+    skinnedDrawDataPool_.init(info.ctx, info.deletionQueue);  // Phase 2G-2
     {
         myengine::renderer::SkinningPass::InitInfo si{};
         si.ctx = info.ctx;
@@ -288,9 +289,10 @@ void PassChain::shutdown() {
     cullingPass_.shutdown();   // Phase 2B PART2
     drawDataPool_.shutdown();  // Phase 2B PART3b
     instancePool_.shutdown();  // Phase 1E
-    skinningPass_.shutdown();        // Phase 2G
-    skinInstancePool_.shutdown();    // Phase 2G
-    skinnedVertexPool_.shutdown();   // Phase 2G
+    skinningPass_.shutdown();          // Phase 2G
+    skinnedDrawDataPool_.shutdown();   // Phase 2G-2
+    skinInstancePool_.shutdown();      // Phase 2G
+    skinnedVertexPool_.shutdown();     // Phase 2G
     mainPass_.shutdown();
     shadowPass_.shutdown();
     swapchain_ = nullptr;
@@ -418,6 +420,9 @@ void PassChain::recordFrame(const RecordInfo& info) {
     {
         skinnedVertexPool_.beginFrame(info.frameIndex);
         skinInstancePool_.beginFrame(info.frameIndex);
+        skinnedDrawDataPool_.beginFrame(info.frameIndex);  // Phase 2G-2
+        preparedSkinnedOpaque_.clear();
+        preparedSkinnedTransparent_.clear();
         // Count total skinned vertices FIRST so the pool grows ONCE up front.
         // Reserving per-submesh inside the build loop would let ensureCapacity
         // reallocate the pool's buffers mid-loop, leaving the SkinInstance
@@ -443,31 +448,54 @@ void PassChain::recordFrame(const RecordInfo& info) {
         const VkDeviceAddress skinAddr = info.skinAddress;
         const VkDeviceAddress dstPos = skinnedVertexPool_.posAddress(info.frameIndex);
         const VkDeviceAddress dstNrm = skinnedVertexPool_.normalAddress(info.frameIndex);
-        auto addSkinnedList = [&](const std::vector<SkinnedDrawItem>& list) {
+        const glm::vec3 origin = myengine::world::EngineOrigin::current();
+        auto addSkinnedList = [&](const std::vector<SkinnedDrawItem>& list,
+                                  std::vector<skinned::PreparedSkinnedDraw>& prepared) {
             for (const SkinnedDrawItem& item : list) {
                 if (!item.sourceModel) continue;
+                const std::vector<Material>& materials = item.sourceModel->materials();
+                // E: model is shifted to engine-relative (same as drawSkinnedList
+                // did via toEngineRelative). origin == 0 is a numeric no-op.
+                glm::mat4 model = item.model;
+                model[3].x -= origin.x;
+                model[3].y -= origin.y;
+                model[3].z -= origin.z;
                 for (const SubMesh& sm : item.sourceModel->subMeshes()) {
                     if (sm.vertexCount == 0 || !sm.geom) continue;
                     const uint32_t dstBase =
                         skinnedVertexPool_.reserve(info.frameIndex, sm.vertexCount);
                     if (dstBase == UINT32_MAX) break;  // pool grow failed: stop this frame
+                    const uint32_t srcBase = static_cast<uint32_t>(sm.vertexOffset);
                     myengine::shared::SkinInstance si{};
                     si.srcVertexBuffer = sm.geom->blockVertexAddress(sm.blockIndex);
                     si.skinBuffer = skinAddr;
                     si.dstPosBuffer = dstPos;
                     si.dstNormalBuffer = dstNrm;
-                    si.srcVertexBase = static_cast<uint32_t>(sm.vertexOffset);
+                    si.srcVertexBase = srcBase;
                     si.dstVertexBase = dstBase;
                     si.vertexCount = sm.vertexCount;
                     si.skinOffset = item.skinOffset;
                     si.firstVertexGlobal = totalSkinnedVerts;
                     skinInstancePool_.push(info.frameIndex, si);
                     totalSkinnedVerts += sm.vertexCount;
+
+                    // Phase 2G-2: per-draw skinned data (SSBO, indexed by
+                    // gl_InstanceIndex) + the prepared draw record the passes share.
+                    myengine::shared::SkinnedDrawData dd{};
+                    dd.model = model;
+                    dd.materialId = (sm.materialIndex < materials.size())
+                                        ? materials[sm.materialIndex].materialId() : 0u;
+                    dd.alpha = item.alpha;
+                    dd.dstVertexBase = dstBase;
+                    dd.srcVertexBase = srcBase;
+                    const uint32_t slot = skinnedDrawDataPool_.pushOne(info.frameIndex, dd);
+                    prepared.push_back(skinned::PreparedSkinnedDraw{
+                        sm.blockIndex, sm.indexCount, sm.firstIndex, sm.vertexOffset, slot});
                 }
             }
         };
-        addSkinnedList(modelOpaque);
-        addSkinnedList(modelTransparent);
+        addSkinnedList(modelOpaque, preparedSkinnedOpaque_);
+        addSkinnedList(modelTransparent, preparedSkinnedTransparent_);
         if (totalSkinnedVerts > 0) {
             DBG_LABEL(info.cmd, "SkinningPass");
             skinningPass_.execute(info.cmd, info.frameIndex, skinnedVertexPool_,
@@ -502,6 +530,12 @@ void PassChain::recordFrame(const RecordInfo& info) {
         ri.frameSet = reflFrameSet;
         ri.bindlessSet = info.bindlessSet;  // S4-c: bindless texture array
         ri.skinAddress = info.skinAddress;
+        // Phase 2G-2: compute-skinned reflection (passthrough).
+        ri.preparedSkinned = &preparedSkinnedOpaque_;
+        ri.geometry = &info.assets->geometry();
+        ri.skinnedDrawBufferAddress = skinnedDrawDataPool_.bufferAddress(info.frameIndex);
+        ri.skinnedPosAddress = skinnedVertexPool_.posAddress(info.frameIndex);
+        ri.skinnedNormalAddress = skinnedVertexPool_.normalAddress(info.frameIndex);
         ri.mesh = mesh;
         ri.meshDrawListOpaque = &meshOpaque;
         ri.staticModelDrawListOpaque = &staticOpaque;
@@ -610,6 +644,10 @@ void PassChain::recordFrame(const RecordInfo& info) {
         si.cmd = info.cmd;
         si.frameSet = frameSet;
         si.skinAddress = info.skinAddress;
+        // Phase 2G-2: compute-skinned shadow (passthrough).
+        si.preparedSkinned = &preparedSkinnedOpaque_;
+        si.skinnedDrawBufferAddress = skinnedDrawDataPool_.bufferAddress(info.frameIndex);
+        si.skinnedPosAddress = skinnedVertexPool_.posAddress(info.frameIndex);
         si.mesh = mesh;
         si.meshDrawList = &meshOpaque;
         si.modelDrawList = &modelOpaque;
@@ -636,6 +674,12 @@ void PassChain::recordFrame(const RecordInfo& info) {
         mi.frameIndex = info.frameIndex;
         mi.frameSet = frameSet;
         mi.skinAddress = info.skinAddress;
+        // Phase 2G-2: compute-skinned main (passthrough).
+        mi.preparedSkinnedOpaque = &preparedSkinnedOpaque_;
+        mi.preparedSkinnedTransparent = &preparedSkinnedTransparent_;
+        mi.skinnedDrawBufferAddress = skinnedDrawDataPool_.bufferAddress(info.frameIndex);
+        mi.skinnedPosAddress = skinnedVertexPool_.posAddress(info.frameIndex);
+        mi.skinnedNormalAddress = skinnedVertexPool_.normalAddress(info.frameIndex);
         mi.bindlessSet = info.bindlessSet;
         mi.mesh = mesh;
 

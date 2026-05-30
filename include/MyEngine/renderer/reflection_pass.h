@@ -13,12 +13,14 @@
 #include "core/game_settings.h"
 #include "renderer/reflection_target.h"
 #include "scene/scene_data.h"  // draw item types
+#include "renderer/skinned_draw.h"  // Phase 2G-2: PreparedSkinnedDraw
 
 class VulkanContext;
 class ResourceFactory;
 class Mesh;
 class Model;
 class DrawDataPool;
+class GeometryBuffer;  // Phase 2G-2: skinned passthrough block bind
 
 class ReflectionPass {
    public:
@@ -52,6 +54,14 @@ class ReflectionPass {
         const std::vector<SkinnedDrawItem>* modelDrawListOpaque = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListOpaque = nullptr;
         const std::vector<TerrainDrawItem>* terrainDrawListOpaque = nullptr;
+
+        // Phase 2G-2: compute-skinned reflection (passthrough). Shares the
+        // prepared records + skinned streams with main/shadow.
+        const std::vector<skinned::PreparedSkinnedDraw>* preparedSkinned = nullptr;
+        const GeometryBuffer* geometry = nullptr;
+        VkDeviceAddress skinnedDrawBufferAddress = 0;
+        VkDeviceAddress skinnedPosAddress = 0;
+        VkDeviceAddress skinnedNormalAddress = 0;
 
         // クリアカラー (= 空っぽい空色)
         glm::vec4 clearColor = {0.5f, 0.7f, 0.9f, 1.f};

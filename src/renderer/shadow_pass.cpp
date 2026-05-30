@@ -186,7 +186,7 @@ void ShadowPass::createSkinnedPipeline(VkDescriptorSetLayout frameSetLayout,
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = sizeof(SkinnedPushConstants);
+    pc.size = sizeof(myengine::shared::SkinnedShadowDrawPushConstants);
 
     VkDescriptorSetLayout setLayouts[1] = {frameSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -298,34 +298,26 @@ void ShadowPass::execute(const ExecuteInfo& info) {
         }
     }
 
-    // ─── Skinned (Model) 影 ──────────────────────────────────
-    if (info.modelDrawList && !info.modelDrawList->empty()) {
+    // ─── Skinned (Model) 影 ── Phase 2G-2: passthrough ───────────
+    // Pull the model-local skinned position from the SkinnedVertexPool stream
+    // (BDA) + per-draw model from the SkinnedDrawData SSBO (gl_InstanceIndex =
+    // slot). Prepared records are shared with main/reflection; bind the original
+    // GeometryBuffer block for the index data.
+    if (info.preparedSkinned && !info.preparedSkinned->empty() && info.geometry) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipeline_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 0, 1,
                                 &info.frameSet, 0, nullptr);
 
-        const Model* curModel = nullptr;
-        for (const SkinnedDrawItem& item : *info.modelDrawList) {
-            if (!item.sourceModel) continue;
-            if (item.sourceModel != curModel) {
-                curModel = item.sourceModel;
-            }
-
-            SkinnedPushConstants pc{};
-            // E: skinned shadow draws compose with the engine-relative
-            // light view (camera_system.cpp ships lightVP shifted by
-            // -origin), so the model matrix needs the same shift.
-            pc.model = myengine::world::toEngineRelative(item.model);
-            pc.skinOffset = item.skinOffset;
-            pc.skinBuffer = info.skinAddress;
-            vkCmdPushConstants(info.cmd, skinnedLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
-                               sizeof(SkinnedPushConstants), &pc);
-            for (const SubMesh& sm : curModel->subMeshes()) {
-                if (sm.indexCount == 0) continue;
-                sm.bindAndDraw(info.cmd);
-            }
+        myengine::shared::SkinnedShadowDrawPushConstants pc{};
+        pc.drawBuffer = info.skinnedDrawBufferAddress;
+        pc.posBuffer = info.skinnedPosAddress;
+        vkCmdPushConstants(info.cmd, skinnedLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           sizeof(pc), &pc);
+        for (const skinned::PreparedSkinnedDraw& d : *info.preparedSkinned) {
+            info.geometry->bindBlock(info.cmd, d.blockIndex);
+            vkCmdDrawIndexed(info.cmd, d.indexCount, 1, d.firstIndex, d.vertexOffset, d.slot);
         }
     }
 

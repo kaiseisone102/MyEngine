@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "scene/scene_data.h"
+#include "renderer/skinned_draw.h"  // Phase 2G-2: PreparedSkinnedDraw
 
 class VulkanContext;
 class Swapchain;
@@ -35,7 +36,7 @@ class MainPass {
    public:
     using StaticPushConstants = myengine::shared::StaticPushConstants;
 
-    using SkinnedPushConstants = myengine::shared::SkinnedPushConstants;
+    using SkinnedDrawPushConstants = myengine::shared::SkinnedDrawPushConstants;  // Phase 2G-2
     // Phase 1D: bindless static draw with texture index in push constant
     using StaticBindlessPushConstants = myengine::shared::StaticBindlessPushConstants;
     using InstancedPushConstants = myengine::shared::InstancedPushConstants;
@@ -119,6 +120,16 @@ class MainPass {
         const std::vector<SkinnedDrawItem>* modelDrawListTransparent = nullptr;
         const std::vector<StaticModelDrawItem>* staticModelDrawListTransparent = nullptr;
         const std::vector<TerrainDrawItem>* terrainDrawListTransparent = nullptr;
+
+        // Phase 2G-2: compute-skinned draws (passthrough). Prepared once in
+        // pass_chain and shared by shadow/main/reflection; the vertex shader
+        // pulls skinned position/normal from these BDA streams and per-draw
+        // model/material from the SkinnedDrawData SSBO via gl_InstanceIndex.
+        const std::vector<skinned::PreparedSkinnedDraw>* preparedSkinnedOpaque = nullptr;
+        const std::vector<skinned::PreparedSkinnedDraw>* preparedSkinnedTransparent = nullptr;
+        VkDeviceAddress skinnedDrawBufferAddress = 0;
+        VkDeviceAddress skinnedPosAddress = 0;
+        VkDeviceAddress skinnedNormalAddress = 0;
 
         // Water
         WaterPass* waterPass = nullptr;

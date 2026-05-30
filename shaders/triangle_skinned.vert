@@ -1,14 +1,18 @@
 // =============================================================================
-// triangle_skinned.vert - Phase 1B-4b: BDA (buffer_reference) for skin matrices
+// triangle_skinned.vert - Phase 2G: PASSTHROUGH (compute-skinned).
 // =============================================================================
-// The skin matrix buffer is no longer bound via descriptor set (set=2).
-// Instead, its GPU virtual address is passed via push constant
-// (SkinnedPushConstants::skinBuffer). The shader casts this 64-bit address
-// to a typed pointer using GL_EXT_buffer_reference and reads matrices
-// directly from GPU memory.
+// Skinning now happens once per frame in skinning.comp (Phase 2G), which writes
+// model-LOCAL skinned position + normal into the SkinnedVertexPool streams. This
+// vertex shader no longer does any bone math: it pulls the skinned position +
+// normal from those streams (BDA) and applies only the per-draw model matrix.
 //
-// This is the modern "bindless" Vulkan style: shaders dereference GPU
-// pointers, descriptors are only used for textures.
+// Per-draw data (model / materialId / alpha / vertex bases) lives in a
+// SkinnedDrawData SSBO indexed by gl_InstanceIndex (firstInstance carries the
+// slot) -- the same indirect-ready shape as the static triangle.vert. uv/color
+// still come from the original block's vertex input (skin-invariant, not copied
+// into the skinned streams = deinterleaved layout).
+//
+//   poolIndex = dstVertexBase + (gl_VertexIndex - srcVertexBase)
 // =============================================================================
 #version 450
 #extension GL_GOOGLE_include_directive : require
@@ -18,12 +22,11 @@
 
 #include "shared/types.h"
 
-layout(location = 0) in vec3  inPosition;
-layout(location = 1) in vec3  inColor;
-layout(location = 2) in vec2  inTexCoord;
-layout(location = 3) in vec3  inNormal;
-layout(location = 4) in ivec4 inJointIndices;
-layout(location = 5) in vec4  inJointWeights;
+// Original block vertex input: only the skin-invariant attributes are read.
+// pos (loc 0) / normal (loc 3) / joints (4) / weights (5) are still bound by the
+// pipeline's vertex layout but unused here (skinned values come from BDA).
+layout(location = 1) in vec3 inColor;
+layout(location = 2) in vec2 inTexCoord;
 
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
@@ -31,7 +34,8 @@ layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec4 fragLightPos;
 layout(location = 5) out float fragAlpha;
-// PART4 4a-2: motion vector inputs (see triangle.vert for design notes).
+layout(location = 6) flat out uint fragMaterialId;
+// PART4 4a-2: motion vector clip positions (camera motion only for now).
 layout(location = 7) out vec4 fragCurClip;
 layout(location = 8) out vec4 fragPrevClip;
 
@@ -39,43 +43,58 @@ layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
 } ubo;
 
-// BDA: a typed pointer to the skin matrix array.
-// std430 + buffer_reference_align=16 matches mat4 alignment in the SSBO.
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinMatrices {
-    mat4 boneMatrices[];
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinnedDrawBuffer {
+    SkinnedDrawData data[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SkinnedPos {
+    float p[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SkinnedNormal {
+    uint oct[];
 };
 
 layout(push_constant) uniform PC {
-    SkinnedPushConstants push;
+    SkinnedDrawPushConstants push;
 };
 
+// Decode octahedral 2x SNORM16 (packed by skinning.comp's packOct16).
+vec3 decodeOct16(uint packed) {
+    int qx = int(packed << 16) >> 16;  // sign-extend low 16 bits
+    int qy = int(packed) >> 16;        // sign-extend high 16 bits
+    vec2 e = clamp(vec2(float(qx), float(qy)) / 32767.0, vec2(-1.0), vec2(1.0));
+    vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(n);
+}
+
 void main() {
-    // Cast the 64-bit address in push.skinBuffer to a typed pointer.
-    SkinMatrices skin = SkinMatrices(push.skinBuffer);
+    SkinnedDrawBuffer db = SkinnedDrawBuffer(push.drawBuffer);
+    SkinnedDrawData d = db.data[gl_InstanceIndex];
 
-    int base = push.skinOffset;
-    mat4 skinMatrix =
-        skin.boneMatrices[base + inJointIndices.x] * inJointWeights.x
-      + skin.boneMatrices[base + inJointIndices.y] * inJointWeights.y
-      + skin.boneMatrices[base + inJointIndices.z] * inJointWeights.z
-      + skin.boneMatrices[base + inJointIndices.w] * inJointWeights.w;
+    SkinnedPos    posBuf = SkinnedPos(push.posBuffer);
+    SkinnedNormal nrmBuf = SkinnedNormal(push.normalBuffer);
 
-    vec4 skinnedPos = skinMatrix * vec4(inPosition, 1.0);
-    vec3 skinnedNormal = mat3(skinMatrix) * inNormal;
+    uint poolIdx = d.dstVertexBase + (uint(gl_VertexIndex) - d.srcVertexBase);
+    vec3 skinnedPos = vec3(posBuf.p[poolIdx * 3u + 0u],
+                           posBuf.p[poolIdx * 3u + 1u],
+                           posBuf.p[poolIdx * 3u + 2u]);
+    vec3 skinnedNormal = decodeOct16(nrmBuf.oct[poolIdx]);
 
-    vec4 worldPos = push.model * skinnedPos;
+    vec4 worldPos = d.model * vec4(skinnedPos, 1.0);
     vec4 curClip  = ubo.frame.proj * ubo.frame.view * worldPos;
     gl_Position = curClip;
 
     fragWorldPos = vec3(worldPos);
     fragLightPos = ubo.frame.lightVP * worldPos;
-    fragNormal = normalize(mat3(push.model) * skinnedNormal);
+    fragNormal = normalize(mat3(d.model) * skinnedNormal);
     fragColor = inColor;
     fragTexCoord = inTexCoord;
-    fragAlpha = push.alpha;
-    // PART4 4a-2: prev clip from prevViewProj + same world pos. Per-bone
-    // prev-pose history is a Phase 3 addition; current motion captures camera
-    // movement which is the dominant TAA signal.
+    fragAlpha = d.alpha;
+    fragMaterialId = d.materialId;
+    // Per-object prev-pose history is a Phase 3 addition; current motion
+    // captures camera movement (dominant TAA signal), matching triangle.vert.
     fragCurClip  = curClip;
     fragPrevClip = ubo.frame.prevViewProj * worldPos;
 }

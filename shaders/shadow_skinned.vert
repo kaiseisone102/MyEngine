@@ -1,8 +1,11 @@
 // =============================================================================
-// shadow_skinned.vert - Phase 1B-4b: BDA (buffer_reference) for skin matrices
+// shadow_skinned.vert - Phase 2G: PASSTHROUGH (compute-skinned), depth-only.
 // =============================================================================
-// See triangle_skinned.vert for the BDA approach explanation.
-// This shader uses ShadowSkinnedPushConstants (no alpha field).
+// Skinning happens once per frame in skinning.comp; this shader pulls the
+// model-local skinned position from the SkinnedVertexPool stream (BDA) and
+// applies the per-draw model + light view-projection. No bone math, no normal.
+// Per-draw model comes from the SkinnedDrawData SSBO via gl_InstanceIndex.
+//   poolIndex = dstVertexBase + (gl_VertexIndex - srcVertexBase)
 // =============================================================================
 #version 450
 #extension GL_GOOGLE_include_directive : require
@@ -12,32 +15,30 @@
 
 #include "shared/types.h"
 
-layout(location = 0) in vec3  inPosition;
-layout(location = 4) in ivec4 inJointIndices;
-layout(location = 5) in vec4  inJointWeights;
-
 layout(set = 0, binding = 0) uniform UBO {
     FrameUBO frame;
 } ubo;
 
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinMatrices {
-    mat4 boneMatrices[];
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SkinnedDrawBuffer {
+    SkinnedDrawData data[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SkinnedPos {
+    float p[];
 };
 
 layout(push_constant) uniform PC {
-    ShadowSkinnedPushConstants push;
+    SkinnedShadowDrawPushConstants push;
 };
 
 void main() {
-    SkinMatrices skin = SkinMatrices(push.skinBuffer);
+    SkinnedDrawBuffer db = SkinnedDrawBuffer(push.drawBuffer);
+    SkinnedDrawData d = db.data[gl_InstanceIndex];
+    SkinnedPos posBuf = SkinnedPos(push.posBuffer);
 
-    int base = push.skinOffset;
-    mat4 skinMatrix =
-        skin.boneMatrices[base + inJointIndices.x] * inJointWeights.x
-      + skin.boneMatrices[base + inJointIndices.y] * inJointWeights.y
-      + skin.boneMatrices[base + inJointIndices.z] * inJointWeights.z
-      + skin.boneMatrices[base + inJointIndices.w] * inJointWeights.w;
+    uint poolIdx = d.dstVertexBase + (uint(gl_VertexIndex) - d.srcVertexBase);
+    vec3 skinnedPos = vec3(posBuf.p[poolIdx * 3u + 0u],
+                           posBuf.p[poolIdx * 3u + 1u],
+                           posBuf.p[poolIdx * 3u + 2u]);
 
-    vec4 skinnedPos = skinMatrix * vec4(inPosition, 1.0);
-    gl_Position = ubo.frame.lightVP * push.model * skinnedPos;
+    gl_Position = ubo.frame.lightVP * d.model * vec4(skinnedPos, 1.0);
 }

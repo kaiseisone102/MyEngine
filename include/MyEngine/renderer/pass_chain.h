@@ -26,6 +26,8 @@
 #include "gpu_skinning.h"
 #include "skin_instance_pool.h"
 #include "skinning_pass.h"
+#include "skinned_draw_data_pool.h"
+#include "skinned_draw.h"
 #include "frustum.h"
 #include "post_pass.h"
 #include "bloom_pass.h"
@@ -151,6 +153,11 @@ class PassChain {
     myengine::renderer::SkinnedVertexPool skinnedVertexPool_;
     SkinInstancePool skinInstancePool_;
     myengine::renderer::SkinningPass skinningPass_;
+    // Phase 2G-2: per-draw skinned data (SSBO, indirect-ready) + the prepared
+    // draw records shadow/main/reflection share (built once in the 2G block).
+    SkinnedDrawDataPool skinnedDrawDataPool_;
+    std::vector<skinned::PreparedSkinnedDraw> preparedSkinnedOpaque_;
+    std::vector<skinned::PreparedSkinnedDraw> preparedSkinnedTransparent_;
     bool grassColorVariation_ = true;  // Phase 1F: grass color variation toggle
     bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
     int lastInstancedVisible_ = 0;  // Phase 1F

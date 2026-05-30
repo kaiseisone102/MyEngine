@@ -127,43 +127,54 @@ struct StaticBindlessPushConstants {
 #endif
 
 // -----------------------------------------------------------------------------
-// SkinnedPushConstants: per-draw data for skinned 3D meshes (96 bytes)
+// SkinnedDrawData: Phase 2G - per-draw data for a compute-skinned submesh,
+//   stored in a per-frame SSBO indexed by gl_InstanceIndex (firstInstance
+//   carries the draw slot). Same indirect-ready shape as DrawData (prop /
+//   PART3b): moving per-draw state out of push constants is THE precondition
+//   for vkCmdDrawIndexedIndirect (2G-2b swaps the CPU loop with no shader
+//   change). The passthrough vertex shader reads the skinned position + normal
+//   from the SkinnedVertexPool streams; uv/color come from the original block
+//   vertex input (deinterleaved -- skin-invariant attributes are not copied).
 //
-// Layout (CPU/GPU must agree):
-//   offset  0 : mat4 model                  (64 bytes)
-//   offset 64 : uint64 skinBuffer (GPU ptr) ( 8 bytes)
-//   offset 72 : int skinOffset              ( 4 bytes)
-//   offset 76 : float alpha                 ( 4 bytes)
-//   offset 80 : pad                         (16 bytes)
-//   total = 96 bytes
+//   model is ENGINE-RELATIVE (Foundations Audit §1 / engine_origin.h), same
+//   convention as DrawData. The skinned streams hold model-LOCAL skinned
+//   vertices (the compute pass applies the bone matrices but NOT the model
+//   matrix), so the vertex shader does worldPos = model * skinnedPos. Keeping
+//   the streams model-local is what lets shadow / main / reflection reuse one
+//   skinned buffer with different view/model matrices ("skin once").
 //
-// GLSL note: on the shader side, skinBuffer is declared as a buffer_reference
-// typed pointer (see triangle_skinned.vert). On the CPU side it's just a
-// VkDeviceAddress / uint64 obtained from vkGetBufferDeviceAddress.
+//   poolIndex = dstVertexBase + (gl_VertexIndex - srcVertexBase), where
+//   srcVertexBase is the submesh's vertexOffset in its GeometryBuffer block.
+//   mat4(64) + 4*uint(16) = 80 bytes, std430 16-byte aligned. No BDA inside,
+//   so one definition serves both C++ and GLSL.
+// -----------------------------------------------------------------------------
+struct SkinnedDrawData {
+    mat4 model;            // engine-relative
+    uint materialId;
+    float alpha;
+    uint dstVertexBase;    // base slot of this instance's verts in the skinned streams
+    uint srcVertexBase;    // submesh vertexOffset (localV = gl_VertexIndex - srcVertexBase)
+};
+
+// -----------------------------------------------------------------------------
+// SkinnedDrawPushConstants: Phase 2G - the only push for skinned main/reflection
+//   draws. Three BDA addresses: the SkinnedDrawData SSBO (indexed by
+//   gl_InstanceIndex) + the skinned position stream + the skinned normal stream.
+//   materialId is forwarded to the fragment shader as a flat varying (same as
+//   the static triangle.vert path), so the fragment shader has no push constant.
+//   24 bytes.
 // -----------------------------------------------------------------------------
 #ifdef __cplusplus
-struct SkinnedPushConstants {
-    mat4 model;            // 64
-    VkDeviceAddress skinBuffer;  // 8  (uint64_t)
-    int32_t skinOffset;    // 4
-    float alpha;           // 4
-    uint32_t materialId;   // 4  Phase 1K-2 S5: material SSBO index
-    int32_t _pad1;         // 4
-    int32_t _pad2;         // 4
-    int32_t _pad3;         // 4
+struct SkinnedDrawPushConstants {
+    VkDeviceAddress drawBuffer;    // 8: SkinnedDrawData[]
+    VkDeviceAddress posBuffer;     // 8: skinned position stream (float[], 3 per vertex)
+    VkDeviceAddress normalBuffer;  // 8: skinned normal stream (uint oct16 per vertex)
 };
 #else
-// GLSL forward declaration. SkinMatrices is defined in the consuming shader.
-// We use uint64_t here for the address; the shader then casts it to a typed pointer.
-struct SkinnedPushConstants {
-    mat4 model;
-    uvec2 skinBuffer;  // 64-bit GPU address as uvec2 (use buffer_reference cast)
-    int skinOffset;
-    float alpha;
-    uint materialId;   // Phase 1K-2 S5
-    int _pad1;
-    int _pad2;
-    int _pad3;
+struct SkinnedDrawPushConstants {
+    uvec2 drawBuffer;
+    uvec2 posBuffer;
+    uvec2 normalBuffer;
 };
 #endif
 
@@ -187,30 +198,19 @@ struct ShadowDrawPushConstants {
 #endif
 
 // -----------------------------------------------------------------------------
-// ShadowSkinnedPushConstants: shadow pass for skinned meshes (96 bytes)
-// Same layout as SkinnedPushConstants but no alpha.
+// SkinnedShadowDrawPushConstants: Phase 2G - shadow pass for compute-skinned
+//   meshes. Depth-only, so it needs just the SkinnedDrawData SSBO (for model)
+//   + the skinned position stream. 16 bytes.
 // -----------------------------------------------------------------------------
 #ifdef __cplusplus
-struct ShadowSkinnedPushConstants {
-    mat4 model;            // 64
-    VkDeviceAddress skinBuffer;  // 8
-    int32_t skinOffset;    // 4
-    int32_t _pad0;         // 4
-    int32_t _pad1;         // 4
-    int32_t _pad2;         // 4
-    int32_t _pad3;         // 4
-    int32_t _pad4;         // 4
+struct SkinnedShadowDrawPushConstants {
+    VkDeviceAddress drawBuffer;  // 8: SkinnedDrawData[]
+    VkDeviceAddress posBuffer;   // 8: skinned position stream (float[], 3 per vertex)
 };
 #else
-struct ShadowSkinnedPushConstants {
-    mat4 model;
-    uvec2 skinBuffer;  // 64-bit GPU address as uvec2 (use buffer_reference cast)
-    int skinOffset;
-    int _pad0;
-    int _pad1;
-    int _pad2;
-    int _pad3;
-    int _pad4;
+struct SkinnedShadowDrawPushConstants {
+    uvec2 drawBuffer;
+    uvec2 posBuffer;
 };
 #endif
 

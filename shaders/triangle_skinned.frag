@@ -18,6 +18,9 @@ layout(location = 2) in vec3 fragNormal;
 layout(location = 3) in vec3 fragWorldPos;
 layout(location = 4) in vec4 fragLightPos;
 layout(location = 5) in float fragAlpha;
+// Phase 2G: materialId arrives as a flat varying from the passthrough vertex
+// shader (same as the static triangle.frag), so there is no push constant here.
+layout(location = 6) flat in uint fragMaterialId;
 // PART4 4a-2: motion vector inputs. Extra location-1/2 fragment outputs are
 // silently ignored by the transparent pipeline (1-attachment dynamic
 // rendering), and consumed by the opaque pipeline (3-attachment MRT).
@@ -36,11 +39,6 @@ layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Ma
     GpuMaterial materials[];
 };
 
-// same push constant block as triangle_skinned.vert (VERTEX|FRAGMENT)
-layout(push_constant) uniform PC {
-    SkinnedPushConstants push;
-};
-
 layout(location = 0) out vec4 outColor;
 // PART4 4a-2: GBuffer outputs (ignored in transparent path; written in opaque).
 layout(location = 1) out vec4 outNormal;
@@ -49,9 +47,9 @@ layout(location = 2) out vec2 outMotion;
 const float kShadowBias = 0.0015;
 
 void main() {
-    // Phase 1K-2 S5: fetch material from the SSBO by id
+    // Phase 1K-2 S5: fetch material from the SSBO by id (Phase 2G: flat varying)
     MaterialBuffer matBuf = MaterialBuffer(ubo.frame.materialBuffer.xy);
-    GpuMaterial m = matBuf.materials[push.materialId];
+    GpuMaterial m = matBuf.materials[fragMaterialId];
     vec4 texel = (m.albedoIdx >= 0)
         ? texture(bindlessTextures[nonuniformEXT(m.albedoIdx)], fragTexCoord)
         : m.baseColorFactor;

@@ -18,6 +18,7 @@
 #include "renderer/material.h"
 #include "renderer/mesh.h"
 #include "renderer/model.h"
+#include "renderer/geometry_buffer.h"  // Phase 2G-2: bindBlock for skinned passthrough
 #include "renderer/static_draw.h"
 #include "world/engine_origin.h"  // E: toEngineRelative for skinned/test push
 #include "renderer/static_cull_build.h"
@@ -32,37 +33,24 @@
 
 namespace {
 
-void drawSkinnedList(VkCommandBuffer cmd, VkPipelineLayout layout,
-                          VkDeviceAddress skinAddress,
-                          const std::vector<SkinnedDrawItem>& list) {
-    if (list.empty()) return;
-    const Model* curModel = nullptr;
-    const std::vector<Material>* curMaterials = nullptr;
-    for (const SkinnedDrawItem& item : list) {
-        if (!item.sourceModel) continue;
-        if (item.sourceModel != curModel) {
-            curModel = item.sourceModel;
-            curMaterials = &curModel->materials();
-        }
-        MainPass::SkinnedPushConstants pc{};
-        // E: skinned character model is shifted to engine-relative space so
-        // it composes with view_rel (camera_system.cpp). With origin == 0
-        // the numeric result is identical to item.model; under floating-
-        // origin the shift moves with the rebase in lockstep with DrawData.
-        pc.model = myengine::world::toEngineRelative(item.model);
-        pc.skinOffset = item.skinOffset;
-        pc.skinBuffer = skinAddress;
-        pc.alpha = item.alpha;
-        for (const SubMesh& sm : curModel->subMeshes()) {
-            if (sm.indexCount == 0) continue;
-            // S4-d: per-submesh material id into the SSBO
-            pc.materialId = (curMaterials && sm.materialIndex < curMaterials->size())
-                ? (*curMaterials)[sm.materialIndex].materialId()
-                : 0u;
-            vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                sizeof(MainPass::SkinnedPushConstants), &pc);
-            sm.bindAndDraw(cmd);
-        }
+// Phase 2G-2: compute-skinned draws are passthrough now. The skinned position +
+// normal are pulled from the SkinnedVertexPool streams (BDA) and per-draw
+// model/material from the SkinnedDrawData SSBO via gl_InstanceIndex
+// (firstInstance = slot). The original block is bound for the skin-invariant
+// uv/color vertex attributes. Prepared records are built once in pass_chain.
+void drawSkinnedPrepared(VkCommandBuffer cmd, VkPipelineLayout layout,
+                         const GeometryBuffer* geom, VkDeviceAddress drawBuf,
+                         VkDeviceAddress posBuf, VkDeviceAddress normalBuf,
+                         const std::vector<skinned::PreparedSkinnedDraw>& prepared) {
+    if (prepared.empty() || !geom) return;
+    MainPass::SkinnedDrawPushConstants pc{};
+    pc.drawBuffer = drawBuf;
+    pc.posBuffer = posBuf;
+    pc.normalBuffer = normalBuf;
+    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+    for (const skinned::PreparedSkinnedDraw& d : prepared) {
+        geom->bindBlock(cmd, d.blockIndex);
+        vkCmdDrawIndexed(cmd, d.indexCount, 1, d.firstIndex, d.vertexOffset, d.slot);
     }
 }
 
@@ -166,9 +154,11 @@ void MainPass::createGrassLayout(VkDescriptorSetLayout frameSetLayout,
 void MainPass::createSkinnedLayout(VkDescriptorSetLayout frameSetLayout,
                                        VkDescriptorSetLayout bindlessSetLayout) {
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // S5: frag reads materialId
+    // Phase 2G-2: passthrough skinned vert; frag reads materialId via flat
+    // varying, so the push constant is VERTEX-only now.
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = sizeof(SkinnedPushConstants);
+    pc.size = sizeof(SkinnedDrawPushConstants);
 
     VkDescriptorSetLayout setLayouts[2] = {frameSetLayout, bindlessSetLayout};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -590,7 +580,9 @@ void MainPass::execute(const ExecuteInfo& info) {
 
     // PART4 4c-D: skinned models are not in CullingPass scope; skip in pass1
     // to avoid double-render. pass2 (SecondAndNonOpaque) + Single emit them.
-    if (info.pass != Pass::FirstOpaque && modelOp && !modelOp->empty()) {
+    // Phase 2G-2: passthrough draw from the prepared skinned records.
+    if (info.pass != Pass::FirstOpaque && info.preparedSkinnedOpaque &&
+        !info.preparedSkinnedOpaque->empty()) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineOpaque_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
@@ -599,7 +591,9 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_.get(), info.skinAddress, *modelOp);
+        drawSkinnedPrepared(info.cmd, skinnedLayout_.get(), info.geometry,
+                            info.skinnedDrawBufferAddress, info.skinnedPosAddress,
+                            info.skinnedNormalAddress, *info.preparedSkinnedOpaque);
     }
 
     // ============================================================
@@ -710,7 +704,6 @@ void MainPass::execute(const ExecuteInfo& info) {
     const auto* meshTr = info.meshDrawListTransparent;
     const auto* staticTr = info.staticModelDrawListTransparent;
     const auto* terrainTr = info.terrainDrawListTransparent;
-    const auto* modelTr = info.modelDrawListTransparent;
 
     const bool hasTransparentStatic =
         (info.mesh && meshTr && !meshTr->empty()) ||
@@ -742,7 +735,7 @@ void MainPass::execute(const ExecuteInfo& info) {
             static_draw::drawTerrainList(info.cmd, *info.drawDataPool, info.frameIndex, *terrainTr, true);
     }
 
-    if (modelTr && !modelTr->empty()) {
+    if (info.preparedSkinnedTransparent && !info.preparedSkinnedTransparent->empty()) {
         vkCmdBindPipeline(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedPipelineTransparent_.get());
         vkCmdSetViewport(info.cmd, 0, 1, &viewport);
         vkCmdSetScissor(info.cmd, 0, 1, &scissor);
@@ -751,7 +744,10 @@ void MainPass::execute(const ExecuteInfo& info) {
         // S5: set=1 bindless texture array
         vkCmdBindDescriptorSets(info.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinnedLayout_.get(), 1, 1,
                                   &info.bindlessSet, 0, nullptr);
-        drawSkinnedList(info.cmd, skinnedLayout_.get(), info.skinAddress, *modelTr);
+        // Phase 2G-2: passthrough prepared draws (skin once).
+        drawSkinnedPrepared(info.cmd, skinnedLayout_.get(), info.geometry,
+                            info.skinnedDrawBufferAddress, info.skinnedPosAddress,
+                            info.skinnedNormalAddress, *info.preparedSkinnedTransparent);
     }
 
     // ============================================================
