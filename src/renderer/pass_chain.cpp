@@ -95,6 +95,17 @@ void PassChain::init(const InitInfo& info) {
     // PART4 4-前-3: DrawDataPool needs DeletionQueue for the grow path.
     drawDataPool_.init(info.ctx, info.deletionQueue);
 
+    // Phase 2G: batched compute skinning pre-pass + its per-frame input table
+    // (SkinInstance[]) and device-local output streams (skinned pos/normal).
+    skinnedVertexPool_.init(info.ctx, info.deletionQueue);
+    skinInstancePool_.init(info.ctx, info.deletionQueue);
+    {
+        myengine::renderer::SkinningPass::InitInfo si{};
+        si.ctx = info.ctx;
+        si.shaderDir = info.shaderDir;
+        skinningPass_.init(si);
+    }
+
     // Phase 2B PART2: GPU frustum culling compute pass (BDA-only, no sets)
     {
         CullingPass::InitInfo ci{};
@@ -277,6 +288,9 @@ void PassChain::shutdown() {
     cullingPass_.shutdown();   // Phase 2B PART2
     drawDataPool_.shutdown();  // Phase 2B PART3b
     instancePool_.shutdown();  // Phase 1E
+    skinningPass_.shutdown();        // Phase 2G
+    skinInstancePool_.shutdown();    // Phase 2G
+    skinnedVertexPool_.shutdown();   // Phase 2G
     mainPass_.shutdown();
     shadowPass_.shutdown();
     swapchain_ = nullptr;
@@ -395,6 +409,50 @@ void PassChain::recordFrame(const RecordInfo& info) {
     // (below) fills slots [0..Nrefl), then MainPass continues from there. Must run
     // whether or not reflection is enabled, so it sits before the reflection block.
     drawDataPool_.beginFrame(info.frameIndex);
+
+    // ─── Phase 2G: batched compute skinning pre-pass ──────────────────────────
+    // Skin every skinned instance ONCE into the deinterleaved skinned streams,
+    // before any consumer (reflection / shadow / main). 2G-1: the streams are
+    // produced but the draws still use legacy vertex-shader skinning, so this is
+    // a rendering no-op. One SkinInstance per skinned SubMesh.
+    {
+        skinnedVertexPool_.beginFrame(info.frameIndex);
+        skinInstancePool_.beginFrame(info.frameIndex);
+        uint32_t totalSkinnedVerts = 0;
+        const VkDeviceAddress skinAddr = info.skinAddress;
+        const VkDeviceAddress dstPos = skinnedVertexPool_.posAddress(info.frameIndex);
+        const VkDeviceAddress dstNrm = skinnedVertexPool_.normalAddress(info.frameIndex);
+        auto addSkinnedList = [&](const std::vector<SkinnedDrawItem>& list) {
+            for (const SkinnedDrawItem& item : list) {
+                if (!item.sourceModel) continue;
+                for (const SubMesh& sm : item.sourceModel->subMeshes()) {
+                    if (sm.vertexCount == 0 || !sm.geom) continue;
+                    const uint32_t dstBase =
+                        skinnedVertexPool_.reserve(info.frameIndex, sm.vertexCount);
+                    if (dstBase == UINT32_MAX) break;  // pool grow failed: stop this frame
+                    myengine::shared::SkinInstance si{};
+                    si.srcVertexBuffer = sm.geom->blockVertexAddress(sm.blockIndex);
+                    si.skinBuffer = skinAddr;
+                    si.dstPosBuffer = dstPos;
+                    si.dstNormalBuffer = dstNrm;
+                    si.srcVertexBase = static_cast<uint32_t>(sm.vertexOffset);
+                    si.dstVertexBase = dstBase;
+                    si.vertexCount = sm.vertexCount;
+                    si.skinOffset = item.skinOffset;
+                    si.firstVertexGlobal = totalSkinnedVerts;
+                    skinInstancePool_.push(info.frameIndex, si);
+                    totalSkinnedVerts += sm.vertexCount;
+                }
+            }
+        };
+        addSkinnedList(modelOpaque);
+        addSkinnedList(modelTransparent);
+        if (totalSkinnedVerts > 0) {
+            DBG_LABEL(info.cmd, "SkinningPass");
+            skinningPass_.execute(info.cmd, info.frameIndex, skinnedVertexPool_,
+                                  skinInstancePool_, totalSkinnedVerts);
+        }
+    }
 
     // ─── 2. ReflectionPass (有効かつ water があれば) ───────────
     glm::mat4 reflectVP(1.0f);

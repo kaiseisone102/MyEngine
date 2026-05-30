@@ -23,6 +23,9 @@
 #include "instance_buffer_pool.h"
 #include "draw_data_pool.h"
 #include "culling_pass.h"
+#include "gpu_skinning.h"
+#include "skin_instance_pool.h"
+#include "skinning_pass.h"
 #include "frustum.h"
 #include "post_pass.h"
 #include "bloom_pass.h"
@@ -144,6 +147,10 @@ class PassChain {
     InstanceBufferPool instancePool_;  // Phase 1E
     DrawDataPool drawDataPool_;          // Phase 2B PART3b: per-draw SSBO for static draws
     CullingPass cullingPass_;           // Phase 2B PART2: GPU frustum culling
+    // Phase 2G: batched compute skinning (skin once -> deinterleaved streams).
+    myengine::renderer::SkinnedVertexPool skinnedVertexPool_;
+    SkinInstancePool skinInstancePool_;
+    myengine::renderer::SkinningPass skinningPass_;
     bool grassColorVariation_ = true;  // Phase 1F: grass color variation toggle
     bool windEnabled_ = true;          // Phase 1F: grass wind sway toggle
     int lastInstancedVisible_ = 0;  // Phase 1F

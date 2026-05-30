@@ -150,6 +150,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/skin_buffer_pool.cpp
     src/renderer/instance_buffer_pool.cpp
     src/renderer/culling_pass.cpp
+    src/renderer/skinning_pass.cpp
     src/renderer/indirect_exec.cpp
     src/renderer/debug_utils.cpp
     src/renderer/deletion_queue.cpp
