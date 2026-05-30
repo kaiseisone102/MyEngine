@@ -1,0 +1,8 @@
+[編集前チェック] ソースを編集する前に確認 (Work_Protocol 正本):
+- 推測禁止(§0-10): 触る関数/メンバ/struct/throw/include を実ソース Read で現物確認したか。読んだふり禁止。
+- 怖い変更(§1-2): types.h struct / shader 全置換 / pipeline layout / pass_chain 配線 は変更前後を提示し承認を得たか。
+- struct サイズ変更(§3-1a): types.h 等のサイズが変わるなら commit で必ず clean rebuild (--target clean → 再ビルド)。
+- 反映確認(§3-1b): ビルド後 exe/.spv のタイムスタンプで焼き直しを確認 (error 0 だけで信用しない)。
+- 起動確認(§3-2): validation/VUID/leaked を全行確認。描画変更は user 目視依頼。
+- commit: 1 メッセージ 1 ツール。走らせて git rev-parse で hash 確認してから報告 (未実行を完了と書かない)。
+- 設計判断は資料を引いてから(§0-8/§1-4): 答えが資料にあるなら二択を出さない。
