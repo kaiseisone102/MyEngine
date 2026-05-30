@@ -162,7 +162,7 @@
 > - **★★★** mailbox present mode + K activation = frame pacing 完成 (現状 FIFO のみ)
 > - **★★★** pipelineCreationCacheControl 活用 = streaming hitch 検出機構を ON
 > - **★★** L (shader_object) で VkPipeline 撤廃の本実装 = modern triad 完成
-> - **★★** S (compute skinning) 本実装 = 大規模キャラ戦闘の前提
+> - ✅ S (compute skinning) 本実装 = Phase 2G-1/2a 完了 (HEAD 1b57f8e・skin once 達成)。 残 ★次推奨 = 2G-2b (CullingPass CullSet + indirect で CPU draw ループ撤去)
 > - **★★** B 副次仕上げ: AsyncComputeContext を実 cross-queue submit に wire-up (M activation)
 > - **★** Z + G+ (descriptor pool grow) = texture mip streaming 完成
 > - **★** Q calibrated_timestamps + GPU profiling = frame budget 計測の本実装
